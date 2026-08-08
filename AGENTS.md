@@ -50,3 +50,5 @@ relevant to your current task.**
 - Treat `.context/` as authoritative; if it is stale, re-run `repo-agentifier` to refresh it.
 - Ground every change in repository evidence — do not infer behavior not present in the codebase.
 - Keep this index in sync: regenerate it whenever the repository structure changes materially.
+- Use repo-owner name as Author, and keep Copilot/Claude only in Co-authored-by trailer.
+- Always ensure to sync .context/ artifacts
