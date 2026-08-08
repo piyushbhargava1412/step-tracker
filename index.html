@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Step Tracker - Daily Streaks</title>
+    <link rel="stylesheet" href="styles.css" />
+    <!-- Google Identity Services Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<div class="container">
+    <h1>Step Streak Tracker</h1>
+
+    <button id="auth_btn" onclick="requestToken()">Connect Google Account</button>
+    <button id="fetch_btn" onclick="getStepsData()" style="display:none;">Sync Steps</button>
+
+    <div id="streak-display"></div>
+    <pre id="output"></pre>
+</div>
+
+<script src="config.local.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
