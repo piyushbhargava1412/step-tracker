@@ -15,6 +15,44 @@ body {
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
 
+/* Header flex layout for title, status, and button */
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+header h1 {
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+header span {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Tab bar flex layout */
+.tab-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+/* Panel visibility: hide by default, show active */
+[id^="tab-"] {
+    display: none;
+}
+
+[id^="tab-"][style*="display: block"] {
+    display: block;
+}
+
 button {
     background-color: #ff4757;
     color: white;

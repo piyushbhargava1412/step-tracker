@@ -1,14 +1,10 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 87a2be210c32952fad49351243445601b3564a97
-generated-at: 2026-08-08T11:16:42+05:30
+verification-commit: 7885320b799cb2d504ca189beba691d0e1a4d2cc
+generated-at: 2026-08-09T00:00:00Z
 confidence: high
 -->
-
-> **⚠️ NO TESTS DETECTED** — This repository has zero test files, no test runner, and no package
-> manager manifests. All sections below describe **recommended patterns** calibrated to the actual
-> codebase shape: a **browser-only, dependency-free vanilla JavaScript PWA**.
 
 ---
 
@@ -16,56 +12,48 @@ confidence: high
 
 | Layer              | Detected | Root Path(s)      | Framework / Tool                     |
 |--------------------|----------|-------------------|--------------------------------------|
-| Unit               | ❌       | Not found         | **Recommended:** Vitest or Jest       |
+| Unit               | ✅       | `src/*.test.js`   | Vitest 4 + jsdom                     |
 | Integration        | ❌       | Not found         | Not applicable (no backend)          |
-| Functional         | ❌       | Not found         | **Recommended:** Playwright           |
+| Functional         | ❌       | Not found         | Playwright (future)                  |
 | Acceptance / BDD   | ❌       | Not found         | Not applicable (personal tool scope) |
 | Performance / Load | ❌       | Not found         | Not applicable                       |
 | Shell Script Tests | ❌       | Not found         | Not applicable                       |
 
-Checked: `**/*.test.{js,ts,mjs}`, `**/*.spec.{js,ts,mjs}`, `test*/`, `__tests__/`,
-`**/*.bats`, `tests/`, `features/`, `src/test/`.
+Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `src/db.test.js`,
+`src/storage.test.js`, `src/tabs.test.js`, `src/ui-status.test.js`, `src/main.test.js`,
+`src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`, `src/docs.test.js`.
 
 ---
 
-## Unit Tests — Recommended Patterns
+## Unit Tests — Active Patterns
 
-### Bootstrapping (zero-config, no build toolchain required)
+### Test Runner Setup
 
-Since there is no `package.json`, the fastest path to a working test harness is:
+Vitest 4 is installed and configured. Run tests with:
 
 ```bash
-npm init -y
-npm install --save-dev vitest jsdom @vitest/coverage-v8
+npm test              # vitest run (single pass, CI gate)
+npm run test:watch    # vitest (watch mode for dev loop)
 ```
 
-Add to `package.json`:
-
-```json
-{
-  "scripts": {
-    "test":       "vitest run",
-    "test:watch": "vitest",
-    "test:cover": "vitest run --coverage"
-  },
-  "type": "module"
-}
-```
-
-Vitest uses the same Jest API so it is trivially easy to migrate if needed, and it ships
-with jsdom for browser environment simulation with no extra plugins.
+`vite.config.js` configures `test.environment = 'jsdom'` and `test.globals = true` so all
+Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without explicit imports.
 
 ---
 
 ### What to Test (Priority Order)
 
-| Priority | Unit Under Test              | Rationale                                              |
-|----------|------------------------------|--------------------------------------------------------|
-| 🔴 HIGH  | `parseAndCalculateStreak()`  | Pure function — deterministic, no DOM, no network      |
-| 🔴 HIGH  | Streak edge cases            | Off-by-one, empty input, today not yet meeting goal    |
-| 🟡 MED   | `getStepsData()` (mocked)    | Chunking math, error path, bucket stitching order      |
-| 🟡 MED   | `window.onload` token callback | Token stored, UI state mutations                     |
-| 🟢 LOW   | DOM mutation helpers         | innerText, style changes (JSDOM)                       |
+| Priority | Unit Under Test                | Rationale                                                       |
+|----------|--------------------------------|-----------------------------------------------------------------|
+| ✅ DONE  | `createAuth` (`src/auth.js`)   | Factory + token callback — deterministic with injected GSI mock |
+| ✅ DONE  | `src/config.js`                | `VITE_CLIENT_ID` validation and export                          |
+| ✅ DONE  | `createDb` / `initDB`          | Dexie schema setup and DB open/count path                       |
+| ✅ DONE  | `requestPersistentStorage`     | Navigator mock, granted/denied branches                         |
+| ✅ DONE  | `initTabs` / `switchTab`       | Delegated click, panel show/hide, AbortController cleanup       |
+| ✅ DONE  | `createStatusReporter`         | `#db-status` / `#auth-status` DOM mutation                      |
+| ✅ DONE  | `bootstrap()` (`src/main.js`)  | Composition root integration — module wiring                    |
+| 🔴 HIGH  | `parseAndCalculateStreak()`    | Not yet re-implemented; add once streak module lands in `src/`  |
+| 🔴 HIGH  | Step sync (`getStepsData`)     | Not yet re-implemented; add once steps module lands in `src/`   |
 
 ---
 
@@ -73,23 +61,25 @@ with jsdom for browser environment simulation with no extra plugins.
 
 | Artifact    | Convention                               | Example                          |
 |-------------|------------------------------------------|----------------------------------|
-| Test file   | `[module].test.js` co-located with src   | `app.test.js`                    |
-| Test suite  | `describe('[functionName]', ...)`        | `describe('parseAndCalculateStreak', ...)` |
-| Test case   | `it('should [expected] when [condition]')` | `it('should return 0 when no buckets meet goal')` |
+| Test file   | `[module].test.js` co-located with src   | `auth.test.js`                   |
+| Test suite  | `describe('[exportName]', ...)`          | `describe('createAuth', ...)`    |
+| Test case   | `it('[action] [expected condition]', ...)` | `it('callback with valid access_token stores the token', ...)` |
 
 ---
 
 ### Mocking / Stubbing Style
 
-The codebase depends on three external surfaces:
+Modules use dependency injection (DI) so external surfaces are **injected rather than stubbed globally**:
 
-| Dependency                  | Mock Strategy                                                |
-|-----------------------------|--------------------------------------------------------------|
-| `global.fetch`              | `vi.stubGlobal('fetch', vi.fn().mockResolvedValue({...}))`   |
-| `document.getElementById`   | JSDOM auto-provides; seed innerHTML in `beforeEach`          |
-| `google.accounts.oauth2`    | `vi.stubGlobal('google', { accounts: { oauth2: { initTokenClient: vi.fn() } } })` |
+| Dependency                  | Mock Strategy                                                          |
+|-----------------------------|------------------------------------------------------------------------|
+| `google.accounts.oauth2`    | Pass a `mockGsi` object as the third arg to `createAuth(config, reporter, mockGsi)` |
+| `document` / DOM            | Pass `doc` param to factory functions; JSDOM auto-provides the default |
+| `navigator.storage`         | Pass a `nav` mock object to `requestPersistentStorage(reporter, nav)` |
+| `dexie`                     | `vi.mock('dexie', ...)` module mock for `createDb`/`initDB` tests     |
+| `global.fetch`              | `vi.stubGlobal('fetch', vi.fn().mockResolvedValue({...}))` when needed |
 
-Use `vi.restoreAllMocks()` in `afterEach` — never let global stubs leak between tests.
+Use `vi.restoreAllMocks()` in `afterEach` — never let stubs leak between tests.
 
 ---
 
@@ -132,69 +122,42 @@ function makeData(...stepValues) {
 
 ### Canonical Unit Test Skeleton
 
+The actual `src/auth.test.js` is the canonical reference for the DI-based factory test pattern:
+
 ```js
-// app.test.js
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+// src/auth.test.js (canonical)
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createAuth } from './auth.js';
 
-// Stub DOM globals before importing app.js
-beforeEach(() => {
-  document.body.innerHTML = `
-    <div id="streak-display"></div>
-    <div id="output"></div>
-    <button id="auth_btn"></button>
-    <button id="fetch_btn" style="display:none"></button>
-  `;
-  vi.stubGlobal('APP_CONFIG', { CLIENT_ID: 'testid' });
-});
+describe('createAuth', () => {
+  let config, reporter, mockGsi, capturedCallback, mockTokenClient, auth;
 
-afterEach(() => vi.restoreAllMocks());
-
-// Import after DOM is seeded (side effects in window.onload)
-const { parseAndCalculateStreak } = await import('./app.js');
-
-function makeBucket(steps) {
-  return {
-    dataset: [{ point: steps > 0 ? [{ value: [{ intVal: steps }] }] : [] }]
-  };
-}
-
-describe('parseAndCalculateStreak', () => {
-  it('should return 0 when all days are below goal', () => {
-    parseAndCalculateStreak({ bucket: [makeBucket(100), makeBucket(200)] });
-    expect(document.getElementById('streak-display').innerHTML)
-      .toContain('0 Days');
+  beforeEach(() => {
+    config = { CLIENT_ID: 'cid_001' };
+    reporter = { auth: vi.fn(), db: vi.fn() };
+    capturedCallback = null;
+    mockTokenClient = { requestAccessToken: vi.fn() };
+    mockGsi = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn((opts) => {
+            capturedCallback = opts.callback;
+            return mockTokenClient;
+          }),
+        },
+      },
+    };
+    auth = createAuth(config, reporter, mockGsi);
+    auth.init();
   });
 
-  it('should return streak length from tail of array', () => {
-    // Days: miss, miss, hit, hit, hit  → streak = 3
-    parseAndCalculateStreak({
-      bucket: [makeBucket(0), makeBucket(0),
-               makeBucket(4000), makeBucket(4000), makeBucket(4000)]
-    });
-    expect(document.getElementById('streak-display').innerHTML)
-      .toContain('3 Days');
+  it('init() calls initTokenClient exactly once', () => {
+    expect(mockGsi.accounts.oauth2.initTokenClient).toHaveBeenCalledTimes(1);
   });
 
-  it('should stop at first miss from the end', () => {
-    // Days: hit, hit, miss, hit  → streak = 1 (only last day)
-    parseAndCalculateStreak({
-      bucket: [makeBucket(4000), makeBucket(4000),
-               makeBucket(0), makeBucket(4000)]
-    });
-    expect(document.getElementById('streak-display').innerHTML)
-      .toContain('1 Days');
-  });
-
-  it('should handle empty bucket array', () => {
-    parseAndCalculateStreak({ bucket: [] });
-    expect(document.getElementById('streak-display').innerHTML)
-      .toContain('0 Days');
-  });
-
-  it('should handle missing bucket key', () => {
-    parseAndCalculateStreak({});
-    expect(document.getElementById('streak-display').innerHTML)
-      .toContain('0 Days');
+  it('callback with valid access_token stores the token', () => {
+    capturedCallback({ access_token: 'tok-123' });
+    expect(auth.getAccessToken()).toBe('tok-123');
   });
 });
 ```
@@ -226,37 +189,38 @@ value per line of test code written.
 |--------------------|----------------------------|-----------------------------------------|
 | Unit Tests         | `npm test`                 | `npm install` first; no network needed  |
 | Unit (watch)       | `npm run test:watch`       | Dev loop; re-runs on file change        |
-| Coverage report    | `npm run test:cover`       | Outputs HTML to `coverage/`             |
-| E2E Tests          | `npx playwright test`      | `npx playwright install` once           |
+| Coverage report    | `vitest run --coverage`    | Outputs HTML to `coverage/`             |
+| E2E Tests          | `npx playwright test`      | `npx playwright install` once (future)  |
 | Full Suite         | `npm test`                 | Unit tests are the full gate            |
 
-> **CI note:** No `.github/workflows/` detected. When adding CI, the recommended gate command is
+> **CI note:** No `.github/workflows/` detected. When adding CI, the gate command is
 > `npm test` (maps to `vitest run`). Add `npm ci` before it to ensure a clean install.
 
 ---
 
 ## Canonical Example Files
 
-No real test files exist yet. The skeleton above (`app.test.js`) is the reference starting point.
-
-| Layer      | File Path          | Why it's canonical                                      |
-|------------|--------------------|---------------------------------------------------------|
-| Unit       | `app.test.js`      | Tests `parseAndCalculateStreak` — the only pure function |
-| Functional | `tests/e2e/app.spec.js` | Playwright smoke test for full render flow (future)  |
+| Layer      | File Path               | Why it's canonical                                             |
+|------------|-------------------------|----------------------------------------------------------------|
+| Unit       | `src/auth.test.js`      | DI factory pattern — injected GSI mock, no global stubs        |
+| Unit       | `src/db.test.js`        | Module mock pattern — `vi.mock('dexie', ...)` for class fakes  |
+| Unit       | `src/tabs.test.js`      | DOM delegation + AbortController cleanup testing               |
+| Unit       | `src/main.test.js`      | Composition-root integration test using imported factories      |
+| Functional | `tests/e2e/app.spec.js` | Playwright smoke test for full render flow (future)            |
 
 ---
 
 ## Key Constraints & Caveats
 
-1. **`app.js` has top-level side effects** — `window.onload` fires immediately on import. Use
-   `vi.stubGlobal` + DOM seeding in `beforeEach` before importing, or refactor `app.js` to export
-   pure functions separately from the entry-point wiring.
+1. **`src/main.js` guards against DOMContentLoaded in test mode** — the listener is only registered
+   when `import.meta.env.MODE !== 'test'`. In tests, dispatch `DOMContentLoaded` manually after
+   mocks are configured, or call `bootstrap(doc)` directly with an injected `doc`.
 
-2. **`DAILY_STEP_GOAL = 3900` is a file-level constant** — tests must account for this exact value;
-   passing `3899` steps is a miss, `3900` is a hit.
+2. **`src/config.js` throws at import time if `VITE_CLIENT_ID` is missing** — tests that import
+   config must stub `import.meta.env` before the module loads, or use `vi.mock('./config.js', ...)`.
 
-3. **No package manager present** — a `package.json` must be created before any test runner
-   can be installed. This is a one-time setup step, not a blocker.
+3. **`DAILY_STEP_GOAL = 3900` was hardcoded** — when streak calculation is re-introduced in `src/`,
+   extract it as an injectable parameter so tests can pass a known goal without matching the magic number.
 
-4. **Browser-only runtime** — avoid Node-only APIs (`fs`, `path`) in tests. Vitest with
-   `environment: 'jsdom'` in `vitest.config.js` is the correct target.
+4. **Browser-only runtime** — avoid Node-only APIs (`fs`, `path`) in tests. `vite.config.js` sets
+   `test.environment = 'jsdom'` as the baseline.

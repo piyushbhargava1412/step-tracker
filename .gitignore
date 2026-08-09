@@ -1,4 +1,6 @@
 .arcus/
 .krill/
 .idea/
-config.local.js
+node_modules/
+.env.local
+dist/
