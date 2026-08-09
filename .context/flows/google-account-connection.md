@@ -1,8 +1,8 @@
 # Flow: Google Account Connection (OAuth Token Acquisition)
 
 <!-- context-meta
-verification-commit: 87a2be210c32952fad49351243445601b3564a97
-generated-at: 2026-08-08T11:16:42.345+05:30
+verification-commit: 7885320b799cb2d504ca189beba691d0e1a4d2cc
+generated-at: 2026-08-09T00:00:00Z
 confidence: high
 -->
 
@@ -11,8 +11,8 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
 
 ## Entry Points
 - **Type**: UI Event (browser)
-- **Path/Topic**: `#auth_btn` click → `requestToken()`
-- **File**: `index.html` (button), `app.js` (handler), `src/auth.js` (implementation)
+- **Path/Topic**: `#auth-btn` click → `auth.requestToken()`
+- **File**: `index.html` (button), `src/main.js` (event binding), `src/auth.js` (implementation)
 
 ## Core Path
 1. **Initialization**: On app start, `src/auth.js` calls `google.accounts.oauth2.initTokenClient()` with:
@@ -54,11 +54,11 @@ fitness.activity.read fitness.location.read
 ## Scope
 - `src/auth.js` (OAuth 2.0 initialization, token client setup, token storage)
 - `src/config.js` (validates `import.meta.env.VITE_CLIENT_ID`)
-- `index.html` (Google Identity Services script include, `#auth_btn`, `#fetch_btn`)
-- `app.js` (button click handlers)
+- `src/main.js` (event binding — `#auth-btn` click → `auth.requestToken()`)
+- `index.html` (Google Identity Services script include, `#auth-btn`)
 
 ## Tests
-- None found in repository.
+- `src/auth.test.js` — unit tests for `createAuth` factory (init, token callback, `getAccessToken`)
 
 ## Notes
 - Token is stored in module closure (`src/auth.js`), not on the window object or any global variable

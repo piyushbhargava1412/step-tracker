@@ -1,46 +1,55 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `87a2be210c32952fad49351243445601b3564a97`
-- generated-at: `2026-08-08T11:15:26.386+05:30`
+- verification-commit: `7885320b799cb2d504ca189beba691d0e1a4d2cc`
+- generated-at: `2026-08-09T00:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
-- `index.html` — main page shell, Google Identity script include, UI controls
-- `styles.css` — styling for dark-themed single-page UI
-- `app.js` — OAuth init, token request, Google Fit fetch loop, streak calculation
-- `config.example.js` — sample `window.APP_CONFIG.CLIENT_ID`
-- `config.local.js` — local secret config (gitignored)
+- `index.html` — main page shell, Google Identity script include, tab-bar UI
+- `styles.css` — styling for dark-themed single-page UI with tab panels
+- `src/` — ES module source tree (see Implementation Areas)
+- `package.json` — npm manifest; declares Vite, Vitest, Dexie dependencies
+- `package-lock.json` — lockfile
+- `vite.config.js` — Vite dev/build config and Vitest test config (`jsdom` environment)
+- `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
 - `README.md` — minimal project title
 - `.arcus/plans/PRD.md` — detailed product requirements and future module vision
 
 ## Tech Stack
-- Languages: JavaScript, HTML, CSS, Markdown
+- Languages: JavaScript (ES modules), HTML, CSS, Markdown
 - Runtime: Browser-only frontend
+- Build / Dev server: Vite 8.x (`vite.config.js`)
+- Test framework: Vitest 4.x (jsdom environment, `src/*.test.js`)
+- Dependencies: Dexie 4 (IndexedDB wrapper, `src/db.js`)
 - External APIs:
   - Google Identity Services (`google.accounts.oauth2.initTokenClient`)
   - Google Fitness REST aggregate endpoint (`users/me/dataset:aggregate`)
 
 ## Dependency Managers
-- None detected (no `package.json`, `pom.xml`, `pyproject.toml`, `go.mod`, etc.)
+- `npm` via `package.json` (Vite 8, Vitest 4, Dexie 4, @vitest/coverage-v8, jsdom)
 
 ## Entry Surfaces
-- `window.onload` initializes OAuth token client (`app.js`)
-- UI event handlers:
-  - `requestToken()` from `#auth_btn`
-  - `getStepsData()` from `#fetch_btn`
-- Core computation:
-  - `parseAndCalculateStreak(data)`
+- `DOMContentLoaded` → `bootstrap()` in `src/main.js` (composition root)
+- UI event handlers (bound in `src/main.js`):
+  - `#auth-btn` click → `auth.requestToken()` (from `src/auth.js`)
+  - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
+- Step sync and streak calculation not yet re-implemented in `src/` (see Historical Step Sync and Streak Calculation Render flow files)
 
 ## Implementation Areas
-- Auth/token state management: `app.js` (top section)
-- Data sync/chunking logic: `getStepsData()` in `app.js`
-- Streak calculation/rendering: `parseAndCalculateStreak()` in `app.js`
-- UI structure: `index.html`
-- Presentation: `styles.css`
+- Composition root / bootstrap: `src/main.js`
+- Auth/token state management: `src/auth.js` (`createAuth` factory)
+- Configuration validation: `src/config.js` (`VITE_CLIENT_ID` from `import.meta.env`)
+- IndexedDB setup: `src/db.js` (`createDb`, `initDB` via Dexie)
+- Persistent storage request: `src/storage.js` (`requestPersistentStorage`)
+- Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
+- UI status reporting: `src/ui-status.js` (`createStatusReporter`)
+- UI structure: `index.html` (tab-bar + tab-panel layout)
+- Presentation: `styles.css` (dark theme, tab bar, panels)
+- Step sync / streak calculation: not yet in `src/` (see flow files)
 
 ## Testing Surfaces
-- Unit tests: Not found
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, styles, docs
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 
@@ -53,14 +62,12 @@
 
 | Action | Command | Evidence |
 |---|---|---|
-| build | Not found — checked: `.github/workflows/*`, `package.json`, `Makefile`, `Taskfile.yml`, README | no matching files/commands |
-| run | Not found — checked: same as above | no matching files/commands |
-| lint | Not found — checked: same as above | no matching files/commands |
-| lint-autofix | Not found — checked: same as above | no matching files/commands |
-| format-check | Not found — checked: same as above | no matching files/commands |
-| format-write | Not found — checked: same as above | no matching files/commands |
-| typecheck | Not found — checked: same as above | no matching files/commands |
-| static analysis | Not found — checked: same as above | no matching files/commands |
+| dev server | `npm run dev` | `package.json` scripts.dev = `vite` |
+| build | `npm run build` | `package.json` scripts.build = `vite build` |
+| test (full suite) | `npm test` | `package.json` scripts.test = `vitest run` |
+| test (watch) | `npm run test:watch` | `package.json` scripts.test:watch = `vitest` |
+| lint | Not found | no eslint/prettier config detected |
+| typecheck | Not found | no TypeScript config detected |
 
 ## Interface Contracts & Specs
 - OpenAPI/Swagger/AsyncAPI/proto/GraphQL/JSON schema: Not found
@@ -74,8 +81,9 @@
 
 ## Documentation Index
 - `README.md`
+- `.env.example` (template for `.env.local`)
 - `.arcus/plans/PRD.md` (extended product blueprint)
 
 ## Commit Convention
-- Preferred commit format: `Author | commit message`
-- Example: `Piyush | Extract CLIENT_ID into local gitignored config`
+- Preferred format: `conventional-commit(scope): message`
+- Example: `feat(ST-001): Task 8: tabs.js — delegated client-side tab navigation`
