@@ -16,6 +16,7 @@ import {
   _localMidnight,
   _addDays,
   _formatLocalDate,
+  _chunkWindow,
 } from './steps.js';
 
 describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date helpers', () => {
@@ -241,5 +242,120 @@ describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date he
         expect(stepsContent).not.toContain(`from "${mod}"`);
       }
     });
+  });
+});
+
+// ── Task 3: _chunkWindow — newest-first calendar chunker ─────────────────────
+
+describe('Task 3: _chunkWindow — newest-first calendar chunker', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('a 30-day window yields exactly 1 chunk', () => {
+    // Jan 1 → Jan 31, 2025: span = 30 days → ceil(30 / 30) = 1 chunk
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 0, 31);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(1);
+  });
+
+  it('a 60-day window yields exactly 2 chunks', () => {
+    // Jan 1 → Mar 2, 2025: Jan(31) + Feb(28) + Mar 1 day = 60 days → ceil(60 / 30) = 2 chunks
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 2, 2);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(2);
+  });
+
+  it('a 31-day window yields 2 chunks; the older chunk has a shorter span than 30 days', () => {
+    // Jan 1 → Feb 1, 2025: January = 31 days → 2 chunks, last chunk is 1 day (clamped)
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 1, 1);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(2);
+    const olderChunk = chunks[chunks.length - 1];
+    expect(olderChunk.endMs - olderChunk.startMs).toBeLessThan(CHUNK_DAYS * BUCKET_MS);
+  });
+
+  it('a 1-day window yields exactly 1 chunk', () => {
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 0, 2);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(1);
+  });
+
+  it('an exact 90-day window yields 3 chunks (exact multiple of 30)', () => {
+    // Jan 1 → Apr 1, 2025: Jan(31) + Feb(28) + Mar(31) = 90 days → ceil(90 / 30) = 3 chunks
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 3, 1);
+    const spanDays = (endDate.getTime() - startDate.getTime()) / BUCKET_MS;
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(Math.ceil(spanDays / CHUNK_DAYS));
+    expect(chunks.length).toBe(3);
+  });
+
+  it('chunks are ordered newest-first — startMs values are monotonically decreasing', () => {
+    // 60-day window → 2 chunks
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 2, 2);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (let i = 0; i < chunks.length - 1; i++) {
+      expect(chunks[i].startMs).toBeGreaterThan(chunks[i + 1].startMs);
+    }
+  });
+
+  it('consecutive chunk boundaries are contiguous — chunks[i].startMs === chunks[i+1].endMs', () => {
+    // 60-day window → 2 contiguous chunks with no gap and no overlap
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 2, 2);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (let i = 0; i < chunks.length - 1; i++) {
+      expect(chunks[i].startMs).toBe(chunks[i + 1].endMs);
+    }
+  });
+
+  it('the first emitted chunk ends exactly at the window end', () => {
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 2, 2);
+    const endMs = endDate.getTime();
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks[0].endMs).toBe(endMs);
+  });
+
+  it('the last emitted chunk starts exactly at the window start (clamped)', () => {
+    // 31-day window: oldest chunk is clamped to startDate
+    const startDate = new Date(2025, 0, 1);
+    const startMs = startDate.getTime();
+    const endDate = new Date(2025, 1, 1);
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks[chunks.length - 1].startMs).toBe(startMs);
+  });
+
+  it('chunk count equals Math.ceil(spanDays / CHUNK_DAYS) for a 45-day window', () => {
+    // Jan 1 → Feb 15, 2025: Jan(31) + 14 days of Feb = 45 days → ceil(45 / 30) = 2 chunks
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 1, 15);
+    const spanDays = (endDate.getTime() - startDate.getTime()) / BUCKET_MS;
+    const chunks = _chunkWindow(startDate, endDate);
+    expect(chunks.length).toBe(Math.ceil(spanDays / CHUNK_DAYS));
+    expect(chunks.length).toBe(2);
+  });
+
+  it('every chunk boundary lands on local midnight across a spring-forward DST transition', () => {
+    // March 9, 2025 is spring-forward in America/New_York.
+    // The 90-day window Jan 1–Apr 1 crosses this boundary.
+    // Calendar-day stepping (setDate + setHours(0,0,0,0)) always snaps to local midnight,
+    // so getHours() === 0 holds for every boundary regardless of DST transitions.
+    const startDate = new Date(2025, 0, 1);
+    const endDate = new Date(2025, 3, 1);
+    const chunks = _chunkWindow(startDate, endDate);
+    for (const chunk of chunks) {
+      expect(new Date(chunk.startMs).getHours()).toBe(0);
+      expect(new Date(chunk.endMs).getHours()).toBe(0);
+    }
   });
 });

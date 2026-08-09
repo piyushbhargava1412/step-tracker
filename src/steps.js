@@ -106,6 +106,42 @@ export function _formatLocalDate(ms) {
   return `${y}-${MM}-${dd}`;
 }
 
+/**
+ * Split the [startDate, endDate] window into ≤CHUNK_DAYS-day chunks, returned
+ * newest-first. The oldest chunk is clamped to startDate when the span is not
+ * an exact multiple of CHUNK_DAYS. Chunk boundaries always land on local
+ * midnight because _addDays uses setDate + setHours(0,0,0,0) (DST-safe).
+ *
+ * Chunk count is derived — never a literal:
+ *   Math.ceil((endDate − startDate) / BUCKET_MS / CHUNK_DAYS)
+ *
+ * @param {Date} startDate  Inclusive window start (local midnight).
+ * @param {Date} endDate    Exclusive window end (local midnight).
+ * @returns {Array<{startMs: number, endMs: number}>}  Newest-first order.
+ */
+export function _chunkWindow(startDate, endDate) {
+  const startMs = _localMidnight(startDate).getTime();
+  let cursor = _localMidnight(endDate);
+  const chunks = [];
+
+  while (cursor.getTime() > startMs) {
+    const cursorMs = cursor.getTime();
+    const chunkStart = _addDays(cursor, -CHUNK_DAYS);
+    const chunkStartMs = chunkStart.getTime();
+
+    if (chunkStartMs <= startMs) {
+      // Next boundary would fall before (or exactly at) startDate — clamp.
+      chunks.push({ startMs, endMs: cursorMs });
+      break;
+    }
+
+    chunks.push({ startMs: chunkStartMs, endMs: cursorMs });
+    cursor = chunkStart;
+  }
+
+  return chunks;
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
