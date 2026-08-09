@@ -32,20 +32,10 @@ describe('index.html tabbed shell contract', () => {
     expect(values).toContain('spatial');
   });
 
-  it('#tab-dashboard panel is present', () => {
-    expect(document.getElementById('tab-dashboard')).not.toBeNull();
-  });
-
-  it('#tab-calendar panel is present', () => {
-    expect(document.getElementById('tab-calendar')).not.toBeNull();
-  });
-
-  it('#tab-search panel is present', () => {
-    expect(document.getElementById('tab-search')).not.toBeNull();
-  });
-
-  it('#tab-spatial panel is present', () => {
-    expect(document.getElementById('tab-spatial')).not.toBeNull();
+  it('all four tab panels are present', () => {
+    for (const name of ['dashboard', 'calendar', 'search', 'spatial']) {
+      expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
+    }
   });
 
   it('dashboard panel is default-visible, others hidden', () => {
@@ -82,5 +72,13 @@ describe('index.html tabbed shell contract', () => {
 
   it('styles.css link still present', () => {
     expect(html).toContain('styles.css');
+  });
+
+  it('no app.js script tag remains', () => {
+    expect(html).not.toMatch(/<script[^>]+src=["'][^"']*app\.js["']/);
+  });
+
+  it('no fetch_btn reference remains', () => {
+    expect(html).not.toContain('fetch_btn');
   });
 });
