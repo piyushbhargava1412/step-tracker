@@ -52,3 +52,42 @@ relevant to your current task.**
 - Keep this index in sync: regenerate it whenever the repository structure changes materially.
 - Use repo-owner name as Author, and keep Copilot/Claude only in Co-authored-by trailer.
 - Always ensure to sync .context/ artifacts
+- Treat this repository as a green field and evolve it using best practices for clean coding, testing, SOLID principles, TDD, structure, tech choices, and maintainability. Avoid hacks or shortcuts that compromise long-term quality.
+
+## Engineering Principles (Greenfield Mandate)
+
+These are **authoritative decisions** confirmed by the repository owner during ST-001 planning. All agents must follow them — they supersede the legacy patterns documented in `.context/design-and-coding-patterns.md` where the two conflict.
+
+### Tech Stack (confirmed ST-001)
+- **Build**: Vite — dev server on port `1981`, ES modules, no CDN `<script>` globals.
+- **Testing**: Vitest + jsdom — TDD is mandatory; tests ship alongside every module.
+- **Package manager**: npm — Dexie v4 and all future dependencies via npm, not CDN.
+- **Config**: `.env.local` + `VITE_CLIENT_ID` (gitignored by Vite); `.env.example` documents required vars. No `config.local.js` / `window.APP_CONFIG` pattern.
+
+### SOLID Architecture (confirmed ST-001)
+- **S — Single Responsibility**: each file has exactly one reason to change. Modules: `config.js`, `db.js`, `storage.js`, `auth.js`, `tabs.js`, `ui-status.js`, wired by `main.js` composition root.
+- **O — Open/Closed**: modules are closed for modification; new capabilities added via new modules or injected collaborators, not by editing existing ones.
+- **L — Liskov**: substitutable collaborators — any object satisfying a module's interface contract is valid.
+- **I — Interface Segregation**: modules expose the minimum surface they need. No god-objects.
+- **D — Dependency Inversion**: capability modules receive a `statusReporter` interface and config values via injection; they never reach for globals.
+
+### TDD Discipline
+- Write failing tests **before** writing implementation (RED → GREEN → refactor).
+- Every module ships with a co-located or parallel `*.test.js` file.
+- Test harness: `vitest` + `@vitest/coverage-v8` + `jsdom`. Run: `npm test`.
+- Target ≥80% statement coverage per module; 100% on error/guard-clause paths.
+
+### Code Style
+- ES modules (`import`/`export`) — no CommonJS `require`.
+- `UPPER_SNAKE_CASE` for constants, `camelCase` for functions and variables.
+- Guard clauses / fail-fast at function entry; `try/catch/finally` around all async I/O.
+- User-facing status: emoji-prefixed strings in `#db-status` / `#auth-status` elements.
+- `console.error(context, error)` for developer diagnostics — never silent swallowing.
+- Event delegation via `data-*` attributes; no inline `onclick` attributes.
+
+### Model Dispatch (ARCUS agents)
+- Always resolve complexity tier via `arcus:model-strategy` **before** dispatching any subagent.
+- `heavy` stages (spec-finalizer, implementation-planner, code-reviewer) → `claude-opus-4.8`.
+- `medium` stages (context-pack-builder, test-spec-compiler, reviewers) → `claude-sonnet-4.6`.
+- `light` stages (pull-request-builder) → `claude-haiku-4.5`.
+- Omitting the `model` parameter is a protocol violation — it silently falls back to the session model.
