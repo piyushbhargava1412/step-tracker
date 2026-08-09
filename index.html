@@ -10,15 +10,28 @@
 </head>
 <body>
 <div class="container">
-    <h1>Step Streak Tracker</h1>
+    <header>
+        <h1>step-tracker</h1>
+        <span id="auth-status">Not connected</span>
+        <span id="db-status">Initializing…</span>
+        <button id="auth-btn">Connect Google Account</button>
+    </header>
 
-    <button id="auth_btn" onclick="requestToken()">Connect Google Account</button>
-    <button id="fetch_btn" onclick="getStepsData()" style="display:none;">Sync Steps</button>
+    <nav class="tab-bar">
+        <button data-tab="dashboard">🏠 Dashboard</button>
+        <button data-tab="calendar">📅 Calendar</button>
+        <button data-tab="search">🔍 Search Lab</button>
+        <button data-tab="spatial">🗺️ Spatial Map</button>
+    </nav>
 
-    <div id="streak-display"></div>
-    <pre id="output"></pre>
+    <main>
+        <div id="tab-dashboard"></div>
+        <div id="tab-calendar" style="display:none"></div>
+        <div id="tab-search" style="display:none"></div>
+        <div id="tab-spatial" style="display:none"></div>
+    </main>
 </div>
 
-<script src="app.js"></script>
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
