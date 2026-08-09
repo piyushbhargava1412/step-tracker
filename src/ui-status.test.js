@@ -14,6 +14,7 @@ describe('createStatusReporter', () => {
         <body>
           <span id="db-status"></span>
           <span id="auth-status"></span>
+          <span id="sync-status"></span>
         </body>
       </html>
     `);
@@ -61,12 +62,16 @@ describe('createStatusReporter', () => {
     expect(authEl.textContent).toBe('B');
   });
 
-  it('createStatusReporter accepts an injected doc parameter', () => {
+  it('createStatusReporter returns object with db, auth, and sync functions — and no syncBusy or status method', () => {
     const reporter = createStatusReporter(doc);
     expect(reporter).toHaveProperty('db');
     expect(reporter).toHaveProperty('auth');
+    expect(reporter).toHaveProperty('sync');
     expect(typeof reporter.db).toBe('function');
     expect(typeof reporter.auth).toBe('function');
+    expect(typeof reporter.sync).toBe('function');
+    expect(reporter.syncBusy).toBeUndefined();
+    expect(reporter.status).toBeUndefined();
   });
 
   it('missing #db-status element does not throw', () => {
@@ -139,5 +144,73 @@ describe('createStatusReporter', () => {
     expect(consoleWarnSpy).toHaveBeenCalled();
     const warnMessage = consoleWarnSpy.mock.calls[0][0];
     expect(warnMessage).toContain('auth-status');
+  });
+
+  // --- sync() channel tests ---
+
+  it('sync() sets #sync-status textContent to the provided text', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.sync('hello');
+
+    const syncEl = doc.getElementById('sync-status');
+    expect(syncEl.textContent).toBe('hello');
+  });
+
+  it('repeated calls to sync() overwrite the text, not append', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.sync('a');
+    reporter.sync('b');
+
+    const syncEl = doc.getElementById('sync-status');
+    expect(syncEl.textContent).toBe('b');
+  });
+
+  it('missing #sync-status element does not throw', () => {
+    const dom = new JSDOM(`
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <span id="db-status"></span>
+          <span id="auth-status"></span>
+        </body>
+      </html>
+    `);
+    const docWithoutSyncStatus = dom.window.document;
+
+    const reporter = createStatusReporter(docWithoutSyncStatus);
+    expect(() => {
+      reporter.sync('x');
+    }).not.toThrow();
+  });
+
+  it('missing #sync-status element calls console.warn with a message containing sync-status', () => {
+    const dom = new JSDOM(`
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <span id="db-status"></span>
+          <span id="auth-status"></span>
+        </body>
+      </html>
+    `);
+    const docWithoutSyncStatus = dom.window.document;
+
+    const reporter = createStatusReporter(docWithoutSyncStatus);
+    reporter.sync('x');
+
+    expect(consoleWarnSpy).toHaveBeenCalled();
+    const warnMessage = consoleWarnSpy.mock.calls[0][0];
+    expect(warnMessage).toContain('sync-status');
+  });
+
+  it('db() and auth() channels still write to their own elements after adding sync()', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.db('db-text');
+    reporter.auth('auth-text');
+    reporter.sync('sync-text');
+
+    expect(doc.getElementById('db-status').textContent).toBe('db-text');
+    expect(doc.getElementById('auth-status').textContent).toBe('auth-text');
+    expect(doc.getElementById('sync-status').textContent).toBe('sync-text');
   });
 });
