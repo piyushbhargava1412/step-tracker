@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
@@ -46,8 +46,7 @@ describe('Documentation - README.md Setup Section', () => {
 
   describe('Edge Cases', () => {
     it('README.md does not contain a real OAuth client id', () => {
-      // Check that the client id is only a placeholder (contains < and > or starts with YOUR_)
-      const hasRealClientId = /VITE_CLIENT_ID=[\w\-_\.]+/.test(readmeContent) && 
+      const hasRealClientId = /VITE_CLIENT_ID=[\w\-_\.]+/.test(readmeContent) &&
                               !/VITE_CLIENT_ID=</.test(readmeContent) &&
                               !/VITE_CLIENT_ID=YOUR_/.test(readmeContent);
       expect(hasRealClientId).toBe(false);

@@ -47,4 +47,8 @@ export async function bootstrap(doc = document) {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => bootstrap())
+// Register the bootstrap listener when running as the real app entry point.
+// In tests, DOMContentLoaded is dispatched manually after mocks are configured.
+if (typeof import.meta !== 'undefined' && import.meta.env?.MODE !== 'test') {
+  document.addEventListener('DOMContentLoaded', () => bootstrap());
+}

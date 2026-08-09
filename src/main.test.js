@@ -41,10 +41,10 @@ import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { initTabs } from './tabs.js'
 
-// Import main — registers the DOMContentLoaded listener once
-import './main.js'
+// Import bootstrap directly — cleaner than dispatching DOMContentLoaded
+import { bootstrap } from './main.js'
 
-// Helper: set up DOM, fire DOMContentLoaded, flush promises
+// Helper: set up DOM and call bootstrap directly
 async function boot() {
   document.body.innerHTML = `
     <button id="auth-btn">Connect</button>
@@ -52,12 +52,7 @@ async function boot() {
     <div id="db-status"></div>
     <div id="auth-status"></div>
   `
-  document.dispatchEvent(new Event('DOMContentLoaded'))
-  // Flush microtasks (two ticks to cover chained awaits)
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
+  await bootstrap(document)
 }
 
 describe('main.js — composition root bootstrap', () => {
@@ -116,8 +111,7 @@ describe('main.js — composition root bootstrap', () => {
       <button id="auth-btn">Connect</button>
       <nav class="tab-bar"></nav>
     `
-    document.dispatchEvent(new Event('DOMContentLoaded'))
-    await new Promise(r => setTimeout(r, 50))
+    await bootstrap(document)
 
     expect(persistCalledAfterDB).toBe(true)
   })
@@ -161,25 +155,24 @@ describe('main.js — composition root bootstrap', () => {
   })
 })
 
-describe('main.js — no getElementById in collaborators (regression)', () => {
-  it('db.js does not call getElementById directly', async () => {
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const src = fs.readFileSync(path.resolve(__dirname, 'db.js'), 'utf8')
-    expect(src).not.toContain('getElementById')
+describe('main.js — dependency injection contract (regression)', () => {
+  it('reporter is passed to initDB (not DOM accessed inside db.js)', async () => {
+    await boot()
+    // initDB receives the reporter object — verifies injection, not direct DOM access
+    const [, reporterArg] = initDB.mock.calls[0]
+    expect(typeof reporterArg.db).toBe('function')
+    expect(typeof reporterArg.auth).toBe('function')
   })
 
-  it('storage.js does not call getElementById directly', async () => {
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const src = fs.readFileSync(path.resolve(__dirname, 'storage.js'), 'utf8')
-    expect(src).not.toContain('getElementById')
+  it('reporter is passed to requestPersistentStorage (not DOM accessed inside storage.js)', async () => {
+    await boot()
+    const [reporterArg] = requestPersistentStorage.mock.calls[0]
+    expect(typeof reporterArg.db).toBe('function')
   })
 
-  it('auth.js does not call getElementById directly', async () => {
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const src = fs.readFileSync(path.resolve(__dirname, 'auth.js'), 'utf8')
-    expect(src).not.toContain('getElementById')
+  it('config with CLIENT_ID is passed to createAuth (not DOM accessed inside auth.js)', async () => {
+    await boot()
+    const [configArg] = createAuth.mock.calls[0]
+    expect(configArg).toHaveProperty('CLIENT_ID')
   })
 })

@@ -12,12 +12,18 @@ export function createAuth(config, reporter, gsi = google) {
         if (resp?.access_token) {
           accessToken = resp.access_token;
           reporter.auth('✅ Connected');
+        } else {
+          accessToken = null;
         }
       },
     });
   }
 
   function requestToken() {
+    if (!tokenClient) {
+      console.error('[auth] requestToken() called before init()');
+      return;
+    }
     tokenClient.requestAccessToken();
   }
 
