@@ -1,6 +1,6 @@
 const CLIENT_ID = window.APP_CONFIG?.CLIENT_ID;
 if (!CLIENT_ID) {
-    throw new Error('Missing CLIENT_ID. Create config.local.js from config.example.js');
+    throw new Error('Missing CLIENT_ID. Set VITE_CLIENT_ID in .env.local (see .env.example)');
 }
 const SCOPE = 'https://www.googleapis.com/auth/fitness.activity.read';
 
