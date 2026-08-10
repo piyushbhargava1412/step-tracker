@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `aca2d4d0ae7839cc32e14469e9c559ab32142398`
-- generated-at: `2026-08-10T10:00:00Z`
+- verification-commit: `cd96906f6f225737f6ffc4dc188ee71ada14fb17`
+- generated-at: `2026-08-10T15:48:19Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -36,8 +36,8 @@
   - `#sync-btn` click → `stepSync.sync()` then `progressUI.render()` (from `src/steps.js` + `src/progress-ui.js`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-selector` delegated click → `goal.setActiveGoal()` then `progressUI.render()` (from `src/goal.js` + `src/progress-ui.js`)
-- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()` on load (Today's Progress card)
-- Streak calculation not yet re-implemented in `src/` (see Streak Calculation Render flow file)
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()` and `streakUI.render()` on load
+- Goal changes invoke progress rendering and the streak render callback; sync completion renders both cards
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
@@ -49,14 +49,16 @@
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
 - Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch)
 - Goal Commitment engine: `src/goal.js` (`createGoal` factory; `getActiveGoal`/`setActiveGoal`; persists `active_goal` row in Dexie `settings` store)
+- Streak calculation: `src/streak.js` (`createStreak` orchestration plus pure unified/tier/HoF/lifetime calculations)
+- Streak renderer: `src/streak-ui.js` (`createStreakUI` factory; `render()` builds `#lifetime-banner` and `#streak-card`)
 - Progress computation: `src/progress.js` (pure functions: `getTodayRecord`, `computeProgress`)
 - Today's Progress card renderer: `src/progress-ui.js` (`createProgressUI` factory; `render()` builds card + goal-selector into `#tab-dashboard`)
 - UI structure: `index.html` (tab-bar + tab-panel layout)
 - Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector)
-- Streak calculation: not yet in `src/` (see Streak Calculation Render flow file)
+- Goal-history migration: `src/db.js` (Dexie DB_VERSION 2 adds `goal_history` and seeds valid active goals)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-- verification-commit: `aca2d4d0ae7839cc32e14469e9c559ab32142398`
-- generated-at: `2026-08-10T10:00:00Z`
+- verification-commit: `cd96906f6f225737f6ffc4dc188ee71ada14fb17`
+- generated-at: `2026-08-10T15:48:19Z`
 - confidence: `high`
 
 ## Purpose
@@ -13,12 +13,12 @@ This repository is a client-side step streak tracker web app that connects to Go
 - Google OAuth token acquisition in-browser (`src/auth.js`, `src/config.js`)
 - Client-side tab navigation (`src/tabs.js`)
 - UI status reporting abstraction (`src/ui-status.js`)
-- IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`)
+- IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`) — including version-2 `goal_history` migration and goal-history writes from `src/goal.js`
 - Application bootstrap / composition root (`src/main.js`)
 - Google Fitness aggregate step/distance fetch and incremental sync engine (`src/steps.js`) — chunked requests, normalisation, Dexie `daily_records` persistence, retry/error contract, backfill latch
 - Goal Commitment management (`src/goal.js`) — read/write active daily distance goal (`active_goal` key) in Dexie `settings` store; preset (1/3/5/10 km) and custom km input
 - Today's Progress computation and card rendering (`src/progress.js`, `src/progress-ui.js`) — pure computation of steps/distance vs. goal, progress-bar + goal-met/remaining-hint card injected into `#tab-dashboard` on load and after each sync
-- Streak computation and output rendering — not yet re-implemented in `src/`
+- Streak computation and output rendering (`src/streak.js`, `src/streak-ui.js`) — effective-date unified streak, fixed tier streaks, Hall of Fame metrics, and lifetime 10k-day banner
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
 - Environment-based configuration (`.env.example`, `import.meta.env.VITE_CLIENT_ID`)
