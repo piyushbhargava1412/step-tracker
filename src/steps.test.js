@@ -674,18 +674,7 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     expect(DB_VERSION).toBe(1);
   });
 
-  it('sync() now orchestrates — a null token is caught by the pre-flight guard without touching the db', async () => {
-    const db = makeDb({ oldest: undefined, latest: undefined });
-    const reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
-    const auth = { getAccessToken: vi.fn() };
-
-    const engine = createStepSync(auth, db, reporter, document);
-    await engine.sync();
-
-    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
-    expect(db.settings.get).not.toHaveBeenCalled();
-  });
+  // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
 });
 
 // ── Task 5: _normalizeBuckets — dual data type, zero-fill, distance fallback ──
@@ -1387,17 +1376,7 @@ describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit',
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('sync() now orchestrates — a null token short-circuits before any db or fetch work', async () => {
-    auth.getAccessToken.mockReturnValue(null);
-    const db = { daily_records: {}, settings: {} };
-    const engine = createStepSync(auth, db, reporter, document);
-
-    await engine.sync();
-
-    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
+  // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
 });
 
 // ── Task 7: _upsertChunk — transactional override-preserving upsert ────────────
