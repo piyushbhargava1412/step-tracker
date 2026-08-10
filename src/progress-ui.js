@@ -141,11 +141,91 @@ export function createProgressUI(doc, goal, db, reporter) {
       progress = computeProgress(null, null);
     }
 
-    // Idempotency: remove stale card
+    // Idempotency: remove stale card and selector
     doc.getElementById('progress-card')?.remove();
+    doc.getElementById('goal-selector')?.remove();
 
     const card = _buildCard(progress);
     dashboard.appendChild(card);
+
+    const selector = _buildSelector();
+    dashboard.appendChild(selector);
+  }
+
+  /**
+   * Build the goal selector element and attach delegated listeners.
+   * @returns {HTMLElement}
+   */
+  function _buildSelector() {
+    const ERROR_MSG = '⚠️ Enter a distance greater than 0';
+
+    const container = doc.createElement('div');
+    container.className = 'goal-selector';
+    container.id = 'goal-selector';
+
+    // Preset buttons
+    const presets = [1, 3, 5, 10];
+    for (const km of presets) {
+      const btn = doc.createElement('button');
+      btn.className = 'goal-preset';
+      btn.dataset.goalPreset = String(km);
+      btn.textContent = `${km} km`;
+      container.appendChild(btn);
+    }
+
+    // Custom input
+    const input = doc.createElement('input');
+    input.className = 'goal-input';
+    input.id = 'goal-input';
+    input.type = 'number';
+    input.placeholder = 'Custom km';
+    container.appendChild(input);
+
+    // Apply button
+    const applyBtn = doc.createElement('button');
+    applyBtn.className = 'goal-apply';
+    applyBtn.dataset.goalApply = '';
+    applyBtn.textContent = 'Apply';
+    container.appendChild(applyBtn);
+
+    // Error span
+    const errorSpan = doc.createElement('span');
+    errorSpan.id = 'goal-error';
+    container.appendChild(errorSpan);
+
+    // Delegated click listener on the container (kills stale listeners when container replaced)
+    container.addEventListener('click', async (e) => {
+      const preset = e.target.dataset.goalPreset;
+      if (preset != null) {
+        try {
+          await goal.setActiveGoal(Number(preset));
+          await render();
+        } catch (_err) {
+          const errEl = doc.getElementById('goal-error');
+          if (errEl) errEl.textContent = ERROR_MSG;
+        }
+        return;
+      }
+      if ('goalApply' in e.target.dataset) {
+        const inputEl = doc.getElementById('goal-input');
+        const v = Number(inputEl ? inputEl.value : '');
+        const errEl = doc.getElementById('goal-error');
+        if (!Number.isFinite(v) || v <= 0) {
+          if (errEl) errEl.textContent = ERROR_MSG;
+          return;
+        }
+        if (errEl) errEl.textContent = '';
+        try {
+          await goal.setActiveGoal(v);
+          await render();
+        } catch (_err) {
+          const errEl2 = doc.getElementById('goal-error');
+          if (errEl2) errEl2.textContent = ERROR_MSG;
+        }
+      }
+    });
+
+    return container;
   }
 
   return { render };

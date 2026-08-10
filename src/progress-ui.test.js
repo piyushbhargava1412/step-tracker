@@ -359,4 +359,272 @@ describe('createProgressUI', () => {
       expect(doc.getElementById('progress-card')).not.toBeNull();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Task 4: Goal Selector
+  // -------------------------------------------------------------------------
+  describe('goal selector — structure', () => {
+    it('render() injects #goal-selector after the card', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await ui.render();
+      expect(doc.getElementById('goal-selector')).not.toBeNull();
+    });
+
+    it('four preset buttons with data-goal-preset 1,3,5,10 are present', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await ui.render();
+      const presets = doc.querySelectorAll('[data-goal-preset]');
+      expect(presets.length).toBe(4);
+      const values = Array.from(presets).map(b => b.dataset.goalPreset);
+      expect(values).toEqual(['1', '3', '5', '10']);
+    });
+
+    it('#goal-input, data-goal-apply button, and #goal-error span are present', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await ui.render();
+      expect(doc.getElementById('goal-input')).not.toBeNull();
+      expect(doc.querySelector('[data-goal-apply]')).not.toBeNull();
+      expect(doc.getElementById('goal-error')).not.toBeNull();
+    });
+
+    it('no onclick= attributes in #goal-selector HTML', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await ui.render();
+      const selector = doc.getElementById('goal-selector');
+      expect(selector.innerHTML).not.toMatch(/onclick=/);
+    });
+  });
+
+  describe('goal selector — preset click', () => {
+    it('clicking preset "3 km" calls setActiveGoal(3) exactly once', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      const btn = doc.querySelector('[data-goal-preset="3"]');
+      btn.click();
+      // allow microtasks to settle
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(3);
+      expect(goalObj.setActiveGoal).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking preset "5 km" calls setActiveGoal(5)', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_5K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="5"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(5);
+    });
+
+    it('clicking preset "1 km" calls setActiveGoal(1)', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="1"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(1);
+    });
+
+    it('clicking preset "10 km" calls setActiveGoal(10)', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="10"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(10);
+    });
+
+    it('preset click triggers re-render (card shows new target after preset)', async () => {
+      const doc = buildDoc();
+      // getActiveGoal returns 3K goal initially, then 5K after preset click
+      const getActiveGoalFn = vi.fn()
+        .mockResolvedValueOnce(GOAL_3K)
+        .mockResolvedValue(GOAL_5K);
+      const goalObj = {
+        getActiveGoal: getActiveGoalFn,
+        setActiveGoal: vi.fn().mockResolvedValue(undefined),
+      };
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="5"]').click();
+      await new Promise(r => setTimeout(r, 20));
+
+      const unitEl = doc.querySelector('.metric-unit');
+      expect(unitEl.textContent).toContain('5,000 steps');
+    });
+  });
+
+  describe('goal selector — custom input (valid)', () => {
+    it('valid input "4.5" + apply calls setActiveGoal(4.5) and clears #goal-error', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(4.5);
+      expect(doc.getElementById('goal-error').textContent).toBe('');
+    });
+  });
+
+  describe('goal selector — custom input (invalid)', () => {
+    const INVALID_INPUTS = ['', '0', '-2', 'abc', 'NaN', 'Infinity'];
+
+    for (const badVal of INVALID_INPUTS) {
+      it(`input "${badVal}" shows validation error, setActiveGoal not called`, async () => {
+        const doc = buildDoc();
+        const goalObj = makeGoal(GOAL_3K);
+        goalObj.setActiveGoal = vi.fn();
+        const db = makeDb(null);
+        const reporter = { db: vi.fn() };
+
+        const ui = createProgressUI(doc, goalObj, db, reporter);
+        await ui.render();
+
+        doc.getElementById('goal-input').value = badVal;
+        doc.querySelector('[data-goal-apply]').click();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(doc.getElementById('goal-error').textContent).toBe(
+          '⚠️ Enter a distance greater than 0'
+        );
+        expect(goalObj.setActiveGoal).not.toHaveBeenCalled();
+      });
+    }
+  });
+
+  describe('goal selector — setActiveGoal throws', () => {
+    it('setActiveGoal throwing is caught and shown in #goal-error (preset path)', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockRejectedValue(new TypeError('bad value'));
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="3"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(doc.getElementById('goal-error').textContent).toBe(
+        '⚠️ Enter a distance greater than 0'
+      );
+    });
+
+    it('setActiveGoal throwing is caught and shown in #goal-error (apply path)', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockRejectedValue(new TypeError('bad value'));
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(doc.getElementById('goal-error').textContent).toBe(
+        '⚠️ Enter a distance greater than 0'
+      );
+    });
+  });
+
+  describe('goal selector — idempotent re-render', () => {
+    it('two render() calls produce exactly one #goal-selector', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await ui.render();
+      await ui.render();
+      expect(doc.querySelectorAll('#goal-selector').length).toBe(1);
+    });
+
+    it('stale listeners not accumulated: preset on re-rendered selector fires render once', async () => {
+      const doc = buildDoc();
+      const getActiveGoalFn = vi.fn().mockResolvedValue(GOAL_3K);
+      const goalObj = {
+        getActiveGoal: getActiveGoalFn,
+        setActiveGoal: vi.fn().mockResolvedValue(undefined),
+      };
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+      await ui.render(); // second render — stale container replaced
+
+      // clicking the preset on the freshly rendered selector
+      doc.querySelector('[data-goal-preset="3"]').click();
+      await new Promise(r => setTimeout(r, 20));
+
+      // setActiveGoal called exactly once (not twice due to accumulated listeners)
+      expect(goalObj.setActiveGoal).toHaveBeenCalledTimes(1);
+    });
+  });
 });
