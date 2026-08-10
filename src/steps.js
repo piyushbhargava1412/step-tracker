@@ -63,6 +63,42 @@ const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const STEP_API_URL =
   'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
 
+/** Aggregated data types requested for every chunk — order is request order. */
+export const STEP_DATA_TYPE = 'com.google.step_count.delta';
+export const DISTANCE_DATA_TYPE = 'com.google.distance.delta';
+
+/**
+ * Attempts allowed per chunk: the initial request plus a single retry.
+ * A second consecutive non-OK response is terminal for the whole run.
+ */
+export const MAX_ATTEMPTS_PER_CHUNK = 2;
+
+/** Milliseconds in a second — Retry-After is specified in seconds. */
+const MS_PER_SECOND = 1000;
+
+/** HTTP statuses this module classifies on. */
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_TOO_MANY_REQUESTS = 429;
+const HTTP_SERVER_ERROR_MIN = 500;
+const HTTP_SERVER_ERROR_MAX = 599;
+
+// ── Failure classification ───────────────────────────────────────────────────
+
+/** `name` carried by every error this module throws for a classified failure. */
+export const SYNC_ERROR_NAME = 'StepSyncError';
+
+/** The bearer token was rejected — the user must reconnect (decision 9). */
+export const FAILURE_AUTH_EXPIRED = 'auth-expired';
+
+/** A transient status survived the single permitted retry. */
+export const FAILURE_RETRY_EXHAUSTED = 'retry-exhausted';
+
+/** A deterministic non-2xx status that a retry could not help. */
+export const FAILURE_HTTP_ERROR = 'http-error';
+
+/** fetch() itself threw — offline, DNS, CORS or an aborted connection. */
+export const FAILURE_NETWORK_ERROR = 'network-error';
+
 // ── Private date helpers (exported for testability; _ prefix = impl detail) ──
 
 /**
@@ -309,6 +345,161 @@ export function _normalizeBuckets(buckets) {
       synced_at: new Date().toISOString(),
     };
   });
+}
+
+// ── Chunk fetch ───────────────────────────────────────────────────────────────
+
+/**
+ * Resolve after `ms` milliseconds. Wraps setTimeout in a promise so the retry
+ * backoff is a plain `await` — and so tests can drive it with fake timers.
+ *
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+export function _sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve the backoff to wait before the single permitted retry.
+ *
+ * `Retry-After` is read as **seconds** and honoured only when it parses to a
+ * finite value greater than zero and no larger than MAX_RETRY_AFTER_MS — a
+ * rogue or hostile header must not be able to stall the run. The HTTP-date
+ * form is deliberately not parsed; it falls through to the default, which is
+ * always a shorter wait than any date Google would send.
+ *
+ * @param {string|null|undefined} retryAfter  Raw Retry-After header value.
+ * @returns {number} Milliseconds to wait.
+ */
+export function _resolveBackoffMs(retryAfter) {
+  const waitMs = Number(retryAfter) * MS_PER_SECOND;
+  const honourable =
+    Number.isFinite(waitMs) && waitMs > 0 && waitMs <= MAX_RETRY_AFTER_MS;
+  return honourable ? waitMs : RETRY_BACKOFF_MS;
+}
+
+/**
+ * Build a classified failure for the orchestrator (Task 10) to render.
+ *
+ * The message is a developer diagnostic only — it never carries request
+ * headers or token material (decision 14). The user-facing terminal string is
+ * composed by the caller from these fields.
+ *
+ * @param {object} details
+ * @param {string} details.kind    One of the FAILURE_* constants.
+ * @param {number|null} details.status  HTTP status, or null for a thrown fetch.
+ * @param {number} details.index   1-based index of the failing chunk.
+ * @param {number} details.total   Total chunk count for the run.
+ * @param {string} details.phase   PHASE_FULL_HISTORY | PHASE_INCREMENTAL.
+ * @param {Error=} details.cause   Underlying error, when one exists.
+ * @returns {Error}
+ */
+export function _syncFailure({ kind, status, index, total, phase, cause }) {
+  const statusSuffix = status === null ? '' : ` (HTTP ${status})`;
+  const error = new Error(
+    `[steps] ${kind} on chunk ${index}/${total}${statusSuffix}`
+  );
+  error.name = SYNC_ERROR_NAME;
+  error.kind = kind;
+  error.status = status;
+  error.index = index;
+  error.total = total;
+  error.phase = phase;
+  if (cause !== undefined) error.cause = cause;
+  return error;
+}
+
+/**
+ * Fetch one chunk of daily aggregates from Google Fit.
+ *
+ * This is the module's only external I/O and the only place the bearer token is
+ * used. It is a module-level export — not a closure-private function — so the
+ * suite can exercise it directly; `sync()` passes `auth` and `reporter` through
+ * from the factory closure.
+ *
+ * Retry policy (decision 17): at most MAX_ATTEMPTS_PER_CHUNK attempts. `429`
+ * and `5xx` are retried once; `401` short-circuits immediately, and every other
+ * non-OK status or thrown network error is terminal — a retry cannot help. The
+ * token is re-read from `auth.getAccessToken()` on each attempt and the request
+ * is rebuilt, so a refreshed token is picked up and no header object is ever
+ * replayed. The `⚠️` message is written *before* the sleep so the user sees the
+ * reason during the wait rather than after it.
+ *
+ * @param {object} auth      Collaborator exposing getAccessToken().
+ * @param {object} reporter  Status reporter with a sync(text) method.
+ * @param {{startMs: number, endMs: number}} chunk  Window bounds for this call.
+ * @param {number} index     1-based chunk index, for progress and diagnostics.
+ * @param {number} total     Total chunk count for the run.
+ * @param {string} phase     PHASE_FULL_HISTORY | PHASE_INCREMENTAL.
+ * @returns {Promise<object>} The parsed aggregate response.
+ * @throws {TypeError} On a malformed chunk — before any request is issued.
+ * @throws {Error} A SYNC_ERROR_NAME error carrying { kind, status, index, total, phase }.
+ */
+export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
+  if (!Number.isFinite(chunk?.startMs) || !Number.isFinite(chunk?.endMs)) {
+    throw new TypeError('[steps] _fetchChunk requires a { startMs, endMs } chunk');
+  }
+
+  const body = JSON.stringify({
+    aggregateBy: [
+      { dataTypeName: STEP_DATA_TYPE },
+      { dataTypeName: DISTANCE_DATA_TYPE },
+    ],
+    bucketByTime: { durationMillis: BUCKET_MS },
+    startTimeMillis: _localMidnight(chunk.startMs).getTime(),
+    endTimeMillis: _localMidnight(chunk.endMs).getTime(),
+  });
+
+  const fail = (kind, status, cause) =>
+    _syncFailure({ kind, status, index, total, phase, cause });
+
+  let lastStatus = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_CHUNK; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(STEP_API_URL, {
+        method: 'POST',
+        headers: {
+          // Read fresh on every attempt — never captured, cached or logged.
+          Authorization: `Bearer ${auth.getAccessToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      });
+    } catch (cause) {
+      throw fail(FAILURE_NETWORK_ERROR, null, cause);
+    }
+
+    if (response.ok) return response.json();
+
+    lastStatus = response.status;
+
+    if (lastStatus === HTTP_UNAUTHORIZED) {
+      throw fail(FAILURE_AUTH_EXPIRED, lastStatus);
+    }
+
+    const isTransient =
+      lastStatus === HTTP_TOO_MANY_REQUESTS ||
+      (lastStatus >= HTTP_SERVER_ERROR_MIN && lastStatus <= HTTP_SERVER_ERROR_MAX);
+    if (!isTransient) {
+      throw fail(FAILURE_HTTP_ERROR, lastStatus);
+    }
+
+    if (attempt < MAX_ATTEMPTS_PER_CHUNK) {
+      const waitMs = _resolveBackoffMs(response.headers.get('Retry-After'));
+      const waitSeconds = waitMs / MS_PER_SECOND;
+      reporter.sync(
+        lastStatus === HTTP_TOO_MANY_REQUESTS
+          ? `⚠️ Rate limited by Google Fit — retrying chunk ${index}/${total} in ${waitSeconds}s…`
+          : `⚠️ Google Fit error ${lastStatus} — retrying chunk ${index}/${total} in ${waitSeconds}s…`
+      );
+      await _sleep(waitMs);
+    }
+  }
+
+  throw fail(FAILURE_RETRY_EXHAUSTED, lastStatus);
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────

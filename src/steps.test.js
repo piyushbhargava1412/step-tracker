@@ -21,6 +21,16 @@ import {
   _chunkWindow,
   _determineSyncWindows,
   _normalizeBuckets,
+  _fetchChunk,
+  _sleep,
+  _resolveBackoffMs,
+  _syncFailure,
+  MAX_ATTEMPTS_PER_CHUNK,
+  FAILURE_AUTH_EXPIRED,
+  FAILURE_RETRY_EXHAUSTED,
+  FAILURE_HTTP_ERROR,
+  FAILURE_NETWORK_ERROR,
+  SYNC_ERROR_NAME,
 } from './steps.js';
 
 describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date helpers', () => {
@@ -937,5 +947,466 @@ describe('Task 5: _normalizeBuckets — dual data type, zero-fill, distance fall
     const [record] = _normalizeBuckets([bucket]);
     expect(record.effective_steps).toBe(record.original_steps);
     expect(record.effective_distance_km).toBe(record.original_distance_km);
+  });
+});
+
+// ── Task 6: _fetchChunk — transient-retry policy and 401 short-circuit ────────
+
+describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit', () => {
+  /** A single chunk on exact local-midnight boundaries: June 1 → July 1, 2025. */
+  const CHUNK = {
+    startMs: new Date(2025, 5, 1).getTime(),
+    endMs: new Date(2025, 6, 1).getTime(),
+  };
+
+  let auth, reporter;
+
+  /**
+   * Minimal Response double exposing only the surface _fetchChunk may touch.
+   *
+   * @param {number} status
+   * @param {object=} opts
+   * @param {object=} opts.json     Body resolved by response.json()
+   * @param {object=} opts.headers  Header map consulted by headers.get(name)
+   */
+  function makeResponse(status, { json = { bucket: [] }, headers = {} } = {}) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: vi.fn((name) => headers[name] ?? null) },
+      json: vi.fn().mockResolvedValue(json),
+    };
+  }
+
+  /** Parse the JSON body of the nth (0-based) fetch call. */
+  function bodyOfCall(n = 0) {
+    return JSON.parse(globalThis.fetch.mock.calls[n][1].body);
+  }
+
+  /** Raw (unparsed) body string of the nth fetch call. */
+  function rawBodyOfCall(n = 0) {
+    return globalThis.fetch.mock.calls[n][1].body;
+  }
+
+  beforeEach(() => {
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Request shape (Decision 5) ─────────────────────────────────────────────
+
+  it('POST body contains exactly two aggregateBy entries — step_count.delta and distance.delta', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+
+    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    const body = bodyOfCall();
+    expect(body.aggregateBy.length).toBe(2);
+    expect(body.aggregateBy.map((entry) => entry.dataTypeName)).toEqual([
+      'com.google.step_count.delta',
+      'com.google.distance.delta',
+    ]);
+  });
+
+  it('no dataSourceId key appears anywhere in the serialized request body', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+
+    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    expect(rawBodyOfCall()).not.toContain('dataSourceId');
+  });
+
+  it('startTimeMillis / endTimeMillis correspond to 00:00:00.000 local time', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+
+    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    const body = bodyOfCall();
+    expect(body.startTimeMillis).toBe(_localMidnight(CHUNK.startMs).getTime());
+    expect(body.endTimeMillis).toBe(_localMidnight(CHUNK.endMs).getTime());
+    for (const ms of [body.startTimeMillis, body.endTimeMillis]) {
+      expect(new Date(ms).getHours()).toBe(0);
+      expect(new Date(ms).getMinutes()).toBe(0);
+      expect(new Date(ms).getSeconds()).toBe(0);
+      expect(new Date(ms).getMilliseconds()).toBe(0);
+    }
+  });
+
+  it('a chunk whose bounds carry a time-of-day is normalized down to local midnight', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+    const messy = {
+      startMs: new Date(2025, 5, 1, 13, 45, 30, 123).getTime(),
+      endMs: new Date(2025, 6, 1, 9, 5, 0, 7).getTime(),
+    };
+
+    await _fetchChunk(auth, reporter, messy, 1, 1, PHASE_INCREMENTAL);
+
+    const body = bodyOfCall();
+    expect(body.startTimeMillis).toBe(new Date(2025, 5, 1).getTime());
+    expect(body.endTimeMillis).toBe(new Date(2025, 6, 1).getTime());
+  });
+
+  it('bucketByTime.durationMillis equals BUCKET_MS', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+
+    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    expect(bodyOfCall().bucketByTime.durationMillis).toBe(BUCKET_MS);
+    expect(BUCKET_MS).toBe(86_400_000);
+  });
+
+  it('POSTs to STEP_API_URL with the bearer token and a JSON content type', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(200));
+
+    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    const [url, init] = globalThis.fetch.mock.calls[0];
+    expect(url).toBe(STEP_API_URL);
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer tok-abc');
+    expect(init.headers['Content-Type']).toBe('application/json');
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it('HTTP 200 on the first attempt → one fetch call, resolves to the parsed JSON', async () => {
+    const payload = { bucket: [{ startTimeMillis: '1' }] };
+    globalThis.fetch.mockResolvedValue(makeResponse(200, { json: payload }));
+
+    const result = await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(payload);
+    expect(reporter.sync).not.toHaveBeenCalled();
+  });
+
+  // ── Transient retry (Decision 17 + Decision 12a) ────────────────────────────
+
+  it('429 then 200 → exactly two fetch calls, with the ⚠️ rate-limit message written before the backoff', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(429))
+      .mockResolvedValueOnce(makeResponse(200));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 2, 7, PHASE_FULL_HISTORY);
+
+    // Let the first attempt settle without letting the backoff elapse.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalledWith(
+      `⚠️ Rate limited by Google Fit — retrying chunk 2/7 in ${RETRY_BACKOFF_MS / 1000}s…`
+    );
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await expect(pending).resolves.toEqual({ bucket: [] });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('503 then 200 → two fetch calls, with the ⚠️ Google Fit error 503 message written before the backoff', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(503))
+      .mockResolvedValueOnce(makeResponse(200));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 3, PHASE_INCREMENTAL);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalledWith(
+      `⚠️ Google Fit error 503 — retrying chunk 1/3 in ${RETRY_BACKOFF_MS / 1000}s…`
+    );
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await expect(pending).resolves.toEqual({ bucket: [] });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('429 then 429 → exactly two fetch calls and a retry-exhausted classification', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch.mockResolvedValue(makeResponse(429));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 4, 9, PHASE_FULL_HISTORY);
+    const assertion = expect(pending).rejects.toMatchObject({
+      name: SYNC_ERROR_NAME,
+      kind: FAILURE_RETRY_EXHAUSTED,
+      status: 429,
+      index: 4,
+      total: 9,
+      phase: PHASE_FULL_HISTORY,
+    });
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await assertion;
+    expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_ATTEMPTS_PER_CHUNK);
+    expect(MAX_ATTEMPTS_PER_CHUNK).toBe(2);
+  });
+
+  it('503 then 500 → retry-exhausted classification carrying the second status', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(503))
+      .mockResolvedValueOnce(makeResponse(500));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+    const assertion = expect(pending).rejects.toMatchObject({
+      kind: FAILURE_RETRY_EXHAUSTED,
+      status: 500,
+    });
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await assertion;
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Non-retryable outcomes ─────────────────────────────────────────────────
+
+  it('401 → exactly one fetch call, no retry, auth-expired classification', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(401));
+
+    await expect(
+      _fetchChunk(auth, reporter, CHUNK, 5, 12, PHASE_INCREMENTAL)
+    ).rejects.toMatchObject({
+      name: SYNC_ERROR_NAME,
+      kind: FAILURE_AUTH_EXPIRED,
+      status: 401,
+      index: 5,
+      total: 12,
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).not.toHaveBeenCalled();
+  });
+
+  it('403 → exactly one fetch call and a non-retryable http-error classification', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(403));
+
+    await expect(
+      _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL)
+    ).rejects.toMatchObject({ kind: FAILURE_HTTP_ERROR, status: 403 });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).not.toHaveBeenCalled();
+  });
+
+  it('600 (outside the 5xx band) is not retried — classified as http-error', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(600));
+
+    await expect(
+      _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL)
+    ).rejects.toMatchObject({ kind: FAILURE_HTTP_ERROR, status: 600 });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a thrown TypeError from fetch → one fetch call and a network-error classification', async () => {
+    const networkFailure = new TypeError('Failed to fetch');
+    globalThis.fetch.mockRejectedValue(networkFailure);
+
+    await expect(
+      _fetchChunk(auth, reporter, CHUNK, 3, 8, PHASE_INCREMENTAL)
+    ).rejects.toMatchObject({
+      name: SYNC_ERROR_NAME,
+      kind: FAILURE_NETWORK_ERROR,
+      status: null,
+      index: 3,
+      total: 8,
+      cause: networkFailure,
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).not.toHaveBeenCalled();
+  });
+
+  // ── Backoff resolution (Decision 17) ───────────────────────────────────────
+
+  it('Retry-After: 5 → the backoff sleeps exactly 5000 ms, not RETRY_BACKOFF_MS', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(429, { headers: { 'Retry-After': '5' } }))
+      .mockResolvedValueOnce(makeResponse(200));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalledWith(
+      '⚠️ Rate limited by Google Fit — retrying chunk 1/1 in 5s…'
+    );
+
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('Retry-After: 600 exceeds MAX_RETRY_AFTER_MS → falls back to RETRY_BACKOFF_MS', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(429, { headers: { 'Retry-After': '600' } }))
+      .mockResolvedValueOnce(makeResponse(200));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS - 1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(reporter.sync).toHaveBeenCalledWith(
+      `⚠️ Rate limited by Google Fit — retrying chunk 1/1 in ${RETRY_BACKOFF_MS / 1000}s…`
+    );
+  });
+
+  describe('_resolveBackoffMs', () => {
+    it('honours a finite positive value within the cap, read as seconds', () => {
+      expect(_resolveBackoffMs('5')).toBe(5000);
+      expect(_resolveBackoffMs('30')).toBe(MAX_RETRY_AFTER_MS);
+    });
+
+    it('rejects values above MAX_RETRY_AFTER_MS, zero, negative, absent and unparseable', () => {
+      expect(_resolveBackoffMs('600')).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs('0')).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs('-1')).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs(null)).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs(undefined)).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs('')).toBe(RETRY_BACKOFF_MS);
+      expect(_resolveBackoffMs('Wed, 21 Oct 2015 07:28:00 GMT')).toBe(RETRY_BACKOFF_MS);
+    });
+  });
+
+  describe('_sleep', () => {
+    it('resolves only once the requested number of milliseconds has elapsed', async () => {
+      vi.useFakeTimers();
+      const settled = vi.fn();
+      const pending = _sleep(RETRY_BACKOFF_MS).then(settled);
+
+      await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS - 1);
+      expect(settled).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(settled).toHaveBeenCalled();
+    });
+  });
+
+  describe('_syncFailure', () => {
+    it('carries the kind, status and chunk coordinates Task 10 renders from', () => {
+      const error = _syncFailure({
+        kind: FAILURE_HTTP_ERROR,
+        status: 403,
+        index: 2,
+        total: 5,
+        phase: PHASE_INCREMENTAL,
+      });
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error.name).toBe(SYNC_ERROR_NAME);
+      expect(error.kind).toBe(FAILURE_HTTP_ERROR);
+      expect(error.status).toBe(403);
+      expect(error.index).toBe(2);
+      expect(error.total).toBe(5);
+      expect(error.phase).toBe(PHASE_INCREMENTAL);
+      expect(error.cause).toBeUndefined();
+    });
+
+    it('omits the status suffix and preserves the cause for a thrown network failure', () => {
+      const cause = new TypeError('Failed to fetch');
+      const error = _syncFailure({
+        kind: FAILURE_NETWORK_ERROR,
+        status: null,
+        index: 1,
+        total: 1,
+        phase: PHASE_FULL_HISTORY,
+        cause,
+      });
+
+      expect(error.message).not.toContain('HTTP');
+      expect(error.cause).toBe(cause);
+    });
+  });
+
+  // ── Token handling (Decision 14) ───────────────────────────────────────────
+
+  it('the token is re-read from auth.getAccessToken() on every attempt — never cached', async () => {
+    vi.useFakeTimers();
+    auth.getAccessToken
+      .mockReturnValueOnce('tok-first')
+      .mockReturnValueOnce('tok-second');
+    globalThis.fetch
+      .mockResolvedValueOnce(makeResponse(429))
+      .mockResolvedValueOnce(makeResponse(200));
+
+    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await pending;
+
+    expect(auth.getAccessToken).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer tok-first');
+    expect(globalThis.fetch.mock.calls[1][1].headers.Authorization).toBe('Bearer tok-second');
+  });
+
+  it('never logs, persists or interpolates token material into any message or diagnostic', async () => {
+    globalThis.fetch.mockResolvedValue(makeResponse(401));
+
+    const thrown = await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL).catch(
+      (error) => error
+    );
+
+    const emitted = [
+      thrown.message,
+      JSON.stringify({ ...thrown, message: thrown.message }),
+      ...reporter.sync.mock.calls.flat(),
+      ...console.error.mock.calls.flat().map((arg) => String(arg)),
+    ].join(' ');
+
+    expect(emitted).not.toContain('tok-abc');
+    expect(emitted).not.toContain('Bearer');
+    expect(emitted).not.toContain('Authorization');
+  });
+
+  // ── Guard clauses ──────────────────────────────────────────────────────────
+
+  it('fails fast on a missing chunk without issuing any request', async () => {
+    await expect(
+      _fetchChunk(auth, reporter, undefined, 1, 1, PHASE_INCREMENTAL)
+    ).rejects.toThrow(TypeError);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast on a chunk with non-finite bounds without issuing any request', async () => {
+    await expect(
+      _fetchChunk(auth, reporter, { startMs: 0, endMs: Number.NaN }, 1, 1, PHASE_INCREMENTAL)
+    ).rejects.toThrow(/startMs, endMs/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  // ── Regression ─────────────────────────────────────────────────────────────
+
+  it('neither src/steps.js nor its test suite imports a fetch implementation', () => {
+    for (const file of ['./steps.js', './steps.test.js']) {
+      const content = fs.readFileSync(path.resolve(__dirname, file), 'utf-8');
+      expect(content).not.toMatch(/from\s+['"]node-fetch['"]/);
+      expect(content).not.toMatch(/require\(['"]node-fetch['"]\)/);
+      expect(content).not.toMatch(/import\s+fetch\b/);
+    }
+  });
+
+  it('sync() remains the untouched stub — this task does not orchestrate', async () => {
+    const db = { daily_records: {}, settings: {} };
+    const engine = createStepSync(auth, db, reporter, document);
+
+    await engine.sync();
+
+    expect(reporter.sync).not.toHaveBeenCalled();
+    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
