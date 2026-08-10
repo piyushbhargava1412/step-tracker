@@ -25,7 +25,7 @@ confidence: high
 5. `_normalizeBuckets` turns each bucket into one `daily_records` row (zero-filled; dual data type: steps from `step_count.delta` intVal, distance from `distance.delta` fpVal metres → km at 3 decimals, falling back to `steps × 0.000762` km when distance data is absent).
 6. `_upsertChunk` persists each chunk inside a Dexie `rw` transaction, merging against existing rows so `is_overridden: true` rows keep their user-authored `effective_*` and `override` values (only `original_*` is refreshed).
 7. When a full-history window completed, `_latchBackfillComplete` writes `{ key: 'initial_backfill_complete', value: true }` to the `settings` store; all future syncs collapse to a single incremental request.
-8. On success the final status line reports the day/request count and how far the history now reaches; a terminal failure writes the decision-12a message, logs via `console.error`, fail-stops (keeps already-persisted chunks), and the next click resumes at the correct older date.
+8. On success the final status line reports the day/request count and how far the history now reaches; a terminal failure writes the decision-12a message, logs via `console.error`, fail-stops (keeps already-persisted chunks), and the next click resumes at the correct older date. In the backfill-completed success message the anchor is rendered as the formatted local date `2013-01-01` (`_formatLocalDate(HISTORY_ANCHOR_DATE.getTime())`) rather than embedding the `HISTORY_ANCHOR_DATE` Date object — this avoids a locale-dependent `toString()` and matches the tests.
 
 ## Data Touchpoints
 - **Entities**: One `daily_records` row per calendar day (`date` primary key, `original_*`/`effective_*` step and distance values, `is_overridden`, `override`, `synced_at`)
