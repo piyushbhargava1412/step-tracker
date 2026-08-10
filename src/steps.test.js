@@ -24,6 +24,7 @@ import {
   _fetchChunk,
   _upsertChunk,
   _latchBackfillComplete,
+  _readOldestStoredLabel,
   _sleep,
   _resolveBackoffMs,
   _syncFailure,
@@ -2398,5 +2399,517 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       key: BACKFILL_COMPLETE_KEY,
       value: true,
     });
+  });
+});
+
+// ── Task 10: sync() error contract — every terminal path and the finally ─────
+// invariants (decision 12a). Each terminal error must write its exact message
+// to #sync-status, log console.error('[steps]', error), keep already-persisted
+// chunks, and still unwind the button + isSyncing in finally WITHOUT touching
+// #sync-status.
+
+describe('Task 10: sync() error contract — every terminal path and the finally invariants', () => {
+  /** Fixed "now" for every test in this block: June 15, 2025 09:00 local time. */
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+
+  let auth, db, reporter, syncStatus;
+
+  /**
+   * Stateful in-memory Dexie double (mirrors Task 9's). orderBy('date').first()
+   * sorts the live row Map; bulkPut writes into it; settings is Map-backed;
+   * transaction executes its callback.
+   */
+  function makeStatefulDb({ seed = [], flag = undefined } = {}) {
+    const rows = new Map(seed.map((r) => [r.date, r]));
+    let flagValue = flag;
+    const sortAsc = () =>
+      [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      settings: {
+        get: vi.fn(async (key) =>
+          flagValue === undefined ? undefined : { key, value: flagValue }
+        ),
+        put: vi.fn(async (row) => {
+          flagValue = row.value;
+        }),
+      },
+      daily_records: {
+        orderBy: vi.fn(() => ({
+          first: vi.fn(async () => sortAsc()[0]),
+          last: vi.fn(async () => {
+            const sorted = sortAsc();
+            return sorted[sorted.length - 1];
+          }),
+        })),
+        bulkGet: vi.fn(async (dates) => dates.map((d) => rows.get(d))),
+        bulkPut: vi.fn(async (records) => {
+          for (const r of records) rows.set(r.date, r);
+        }),
+      },
+      transaction: vi.fn(async (_mode, _table, callback) => callback()),
+      _rows: rows,
+    };
+  }
+
+  /**
+   * Scripted Dexie double (mirrors Task 9's). orderBy('date').first() resolves
+   * firstSeq[i] for the i-th invocation; last() always returns latestValue.
+   */
+  function makeScriptedDb({ firstSeq, latestValue, flagRow } = {}) {
+    const first = vi.fn();
+    for (const value of firstSeq) first.mockResolvedValueOnce(value);
+    first.mockResolvedValue(firstSeq[firstSeq.length - 1]);
+    return {
+      settings: {
+        get: vi.fn().mockResolvedValue(flagRow),
+        put: vi.fn().mockResolvedValue(undefined),
+      },
+      daily_records: {
+        orderBy: vi.fn().mockReturnValue({
+          first,
+          last: vi.fn().mockResolvedValue(latestValue),
+        }),
+        bulkGet: vi.fn().mockResolvedValue([]),
+        bulkPut: vi.fn().mockResolvedValue(undefined),
+      },
+      transaction: vi.fn(async (_mode, _table, callback) => callback()),
+    };
+  }
+
+  /** A full-shaped row for seeding the stateful double. */
+  function seedRow(date) {
+    return {
+      date,
+      original_steps: 100,
+      original_distance_km: 0.08,
+      effective_steps: 100,
+      effective_distance_km: 0.08,
+      is_overridden: false,
+      override: null,
+      synced_at: '2025-01-01T00:00:00.000Z',
+    };
+  }
+
+  /** Minimal Response double (mirrors Task 6's). */
+  function makeResponse(status, { json = { bucket: [] }, headers = {} } = {}) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: vi.fn((name) => headers[name] ?? null) },
+      json: vi.fn().mockResolvedValue(json),
+    };
+  }
+
+  /** One bucket with no datasets → a single zero-step record for that date. */
+  function makeBucket(ms) {
+    return { startTimeMillis: String(ms), dataset: [] };
+  }
+
+  const syncBtn = () => document.getElementById('sync-btn');
+  const lastSyncMessage = () => {
+    const calls = reporter.sync.mock.calls;
+    return calls.length ? calls[calls.length - 1][0] : undefined;
+  };
+  const statusText = () => syncStatus.textContent;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    db = {};
+    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    syncStatus = document.createElement('div');
+    syncStatus.id = 'sync-status';
+    document.body.appendChild(syncStatus);
+    // The real reporter writes to #sync-status; the mock does the same so the
+    // DOM text can be asserted directly, and mock.calls still records messages.
+    reporter = {
+      db: vi.fn(),
+      auth: vi.fn(),
+      sync: vi.fn((text) => {
+        syncStatus.textContent = text;
+      }),
+    };
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Retry exhausted (two consecutive transient statuses) ───────────────────
+
+  it('retry-exhausted (two consecutive 429s) renders the exact ❌ message, keeps prior chunks, and unwinds state', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({
+      seed: [seedRow('2024-01-10'), seedRow('2025-05-01')],
+      flag: true,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          makeResponse(200, {
+            json: { bucket: [makeBucket(new Date(2025, 4, 17).getTime())] },
+          })
+        )
+        .mockResolvedValueOnce(makeResponse(429))
+        .mockResolvedValueOnce(makeResponse(429))
+    );
+
+    const engine = createStepSync(auth, db, reporter, document);
+    const pending = engine.sync();
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
+    await pending;
+
+    const expected =
+      '❌ Sync stopped at chunk 2/2 — Google Fit returned 429 twice. 1 days saved; click Sync Steps to resume.';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(statusText()).not.toMatch(/^⏳/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith(
+      '[steps]',
+      expect.objectContaining({ name: SYNC_ERROR_NAME, kind: FAILURE_RETRY_EXHAUSTED, status: 429 })
+    );
+    // Chunk 1 persisted before the failure; chunk 2's write never happened.
+    expect(db._rows.has('2025-05-17')).toBe(true);
+    expect(db._rows.has('2025-04-28')).toBe(false);
+  });
+
+  // ── 401 token expired ─────────────────────────────────────────────────────
+
+  it('401 token expired renders the exact 🔑 message with the oldest stored date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2025-06-09' }, { date: '2025-06-09' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(401)));
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to 2025-06-09).';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(statusText()).not.toMatch(/^⏳/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith(
+      '[steps]',
+      expect.objectContaining({ kind: FAILURE_AUTH_EXPIRED, status: 401 })
+    );
+  });
+
+  it('401 with no stored rows yet renders the oldest placeholder', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, undefined],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(401)));
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to the beginning).';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+  });
+
+  // ── Other non-OK HTTP ─────────────────────────────────────────────────────
+
+  it('other non-OK HTTP (403) renders the exact ❌ message with the status code', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(403)));
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '❌ Sync stopped at chunk 1/1 — Google Fit returned 403. 0 days saved; click Sync Steps to resume.';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(statusText()).not.toMatch(/^⏳/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith(
+      '[steps]',
+      expect.objectContaining({ kind: FAILURE_HTTP_ERROR, status: 403 })
+    );
+  });
+
+  // ── Network / thrown fetch error ──────────────────────────────────────────
+
+  it('a thrown fetch (network) error renders the exact ❌ message', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    );
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '❌ Sync stopped at chunk 1/1 — network error. 0 days saved; click Sync Steps to resume.';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(statusText()).not.toMatch(/^⏳/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith(
+      '[steps]',
+      expect.objectContaining({ kind: FAILURE_NETWORK_ERROR, status: null })
+    );
+  });
+
+  it('after a terminal network error, isSyncing is cleared — a second sync() proceeds and issues fetch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValue(makeResponse(200, { json: {} }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = createStepSync(auth, db, reporter, document);
+
+    await engine.sync();
+    expect(lastSyncMessage()).toContain('network error');
+    expect(syncBtn().disabled).toBe(false);
+
+    await engine.sync();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(lastSyncMessage()).toMatch(/^✅/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+  });
+
+  // ── Persistence (Dexie) error ─────────────────────────────────────────────
+
+  it('a Dexie upsert rejection renders the exact ❌ database message and keeps prior chunks', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({
+      seed: [seedRow('2024-01-10'), seedRow('2025-05-01')],
+      flag: true,
+    });
+    let upsertCall = 0;
+    db.daily_records.bulkPut.mockImplementation(async (records) => {
+      upsertCall += 1;
+      if (upsertCall === 2) throw new Error('IDB quota exceeded');
+      for (const r of records) db._rows.set(r.date, r);
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(init.body);
+        return makeResponse(200, {
+          json: { bucket: [makeBucket(body.startTimeMillis)] },
+        });
+      })
+    );
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '❌ Sync stopped while saving chunk 2/2 — database error. 1 days saved; click Sync Steps to resume.';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(statusText()).not.toMatch(/^⏳/);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
+    // Chunk 1 (2025-05-17) persisted; chunk 2 (2025-04-28) never landed.
+    expect(db._rows.has('2025-05-17')).toBe(true);
+    expect(db._rows.has('2025-04-28')).toBe(false);
+  });
+
+  // ── Missing token (pre-flight guard) ──────────────────────────────────────
+
+  it('missing token renders 🔑 Connect your Google Account first and leaves the button untouched', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    auth.getAccessToken.mockReturnValue(null);
+    db = {};
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(lastSyncMessage()).toBe('🔑 Connect your Google Account first');
+    expect(statusText()).toBe('🔑 Connect your Google Account first');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+  });
+
+  // ── Non-fatal settings latch write failure ────────────────────────────────
+
+  it('a settings latch write failure is non-fatal — the ✅ success message still shows and the run is not marked failed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, { date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    const latchError = new Error('latch write blocked');
+    db.settings.put.mockRejectedValue(latchError);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(init.body);
+        return makeResponse(200, {
+          json: { bucket: [makeBucket(body.startTimeMillis)] },
+        });
+      })
+    );
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(lastSyncMessage()).toMatch(/^✅/);
+    expect(lastSyncMessage()).toContain('full history complete');
+    expect(statusText()).toBe(lastSyncMessage());
+    expect(statusText()).not.toContain('❌');
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(console.error).toHaveBeenCalledWith('[steps]', latchError);
+  });
+
+  // ── Unclassified throw before the loop (window resolution) ────────────────
+
+  it('an unclassified throw before any chunk renders the database message with the 1/1 fallback and never issues fetch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    const orderBy = vi.fn().mockReturnValue({
+      first: vi.fn().mockRejectedValue(new Error('index corrupted')),
+      last: vi.fn().mockResolvedValue(undefined),
+    });
+    db = {
+      settings: { get: vi.fn().mockResolvedValue(undefined), put: vi.fn() },
+      daily_records: { orderBy },
+      transaction: vi.fn(),
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const expected =
+      '❌ Sync stopped while saving chunk 1/1 — database error. 0 days saved; click Sync Steps to resume.';
+    expect(lastSyncMessage()).toBe(expected);
+    expect(statusText()).toBe(expected);
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
+  });
+
+  // ── Empty-store full-history success (latch guard + null-oldest branches) ──
+
+  it('a full-history run with no stored rows resolves via the empty-store success branch (latch guard, null oldest)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, undefined, undefined],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(init.body);
+        return makeResponse(200, {
+          json: { bucket: [makeBucket(body.startTimeMillis)] },
+        });
+      })
+    );
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await expect(engine.sync()).resolves.toBeUndefined();
+
+    expect(lastSyncMessage()).toMatch(/^✅/);
+    expect(statusText()).toBe(lastSyncMessage());
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  // ── _readOldestStoredLabel (decision-12a 401 oldest-date helper) ──────────
+
+  it('_readOldestStoredLabel returns the local date label for the oldest stored row', async () => {
+    const db = makeScriptedDb({
+      firstSeq: [{ date: '2025-06-09' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: undefined,
+    });
+
+    await expect(_readOldestStoredLabel(db)).resolves.toBe('2025-06-09');
+  });
+
+  it('_readOldestStoredLabel returns null when no stored row exists', async () => {
+    const db = makeScriptedDb({
+      firstSeq: [undefined],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+
+    await expect(_readOldestStoredLabel(db)).resolves.toBeNull();
+  });
+
+  it('_readOldestStoredLabel fails open — a rejecting read logs and resolves null', async () => {
+    const db = {
+      daily_records: {
+        orderBy: vi.fn().mockReturnValue({
+          first: vi.fn().mockRejectedValue(new Error('IDB read failed')),
+        }),
+      },
+    };
+
+    await expect(_readOldestStoredLabel(db)).resolves.toBeNull();
+    expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
+  });
+
+  // ── Source-surface regression (decision 12a: #sync-status is the whole UI) ─
+
+  it('src/steps.js contains no alert(), no progress and no toast anywhere in its source text', () => {
+    const content = fs.readFileSync(
+      path.resolve(__dirname, './steps.js'),
+      'utf-8'
+    );
+    expect(content).not.toContain('alert(');
+    expect(content).not.toContain('progress');
+    expect(content).not.toContain('toast');
   });
 });

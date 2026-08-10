@@ -429,7 +429,7 @@ export function _syncFailure({ kind, status, index, total, phase, cause }) {
  * @param {object} auth      Collaborator exposing getAccessToken().
  * @param {object} reporter  Status reporter with a sync(text) method.
  * @param {{startMs: number, endMs: number}} chunk  Window bounds for this call.
- * @param {number} index     1-based chunk index, for progress and diagnostics.
+ * @param {number} index     1-based chunk index, for status and diagnostics.
  * @param {number} total     Total chunk count for the run.
  * @param {string} phase     PHASE_FULL_HISTORY | PHASE_INCREMENTAL.
  * @returns {Promise<object>} The parsed aggregate response.
@@ -604,6 +604,71 @@ export async function _latchBackfillComplete(db) {
   }
 }
 
+/**
+ * Re-read the oldest stored `daily_records` row and render its local
+ * YYYY-MM-DD label for the decision-12a `🔑` auth-expired message.
+ *
+ * Fail-open by design: a failed read is logged and treated as an empty store
+ * (`null`) so the caller's error-message contract always completes — a status
+ * read must never be able to swallow the terminal error message itself.
+ *
+ * @param {object} db  Dexie database exposing `daily_records`.
+ * @returns {Promise<string|null>}  Local date label, or null when no row exists
+ *                                  or the read failed.
+ */
+export async function _readOldestStoredLabel(db) {
+  try {
+    const oldest = await db.daily_records.orderBy('date').first();
+    if (!oldest) return null;
+    return _formatLocalDate(_localMidnight(oldest.date).getTime());
+  } catch (error) {
+    console.error('[steps]', error);
+    return null;
+  }
+}
+
+/**
+ * Render the terminal decision-12a message for a sync failure.
+ *
+ * Auth-expired is the only asynchronous branch — it re-reads the oldest stored
+ * date for the `🔑` reconnect message. Every other terminal path produces the
+ * `❌` message carrying the failing chunk coordinates and the fail-stop day
+ * count. The caller is responsible for `console.error` and the
+ * `reporter.sync()` write; this function only returns the message.
+ *
+ * @param {object} args
+ * @param {Error}  args.error           The thrown error (classified or not).
+ * @param {number} args.i               1-based failing chunk index.
+ * @param {number} args.total           Total chunk count for the run.
+ * @param {number} args.persistedDays   Days persisted before the failure.
+ * @param {object} args.db              Dexie database (auth-expired read only).
+ * @returns {Promise<string>}  The emoji-prefixed terminal message.
+ */
+export async function _renderSyncErrorMessage({ error, i, total, persistedDays, db }) {
+  if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_AUTH_EXPIRED) {
+    const oldestLabel = (await _readOldestStoredLabel(db)) ?? 'the beginning';
+    return `🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to ${oldestLabel}).`;
+  }
+
+  const at = `chunk ${i}/${total}`;
+  const resume = `${persistedDays} days saved; click Sync Steps to resume.`;
+
+  if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_RETRY_EXHAUSTED) {
+    return `❌ Sync stopped at ${at} — Google Fit returned ${error.status} twice. ${resume}`;
+  }
+  if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_HTTP_ERROR) {
+    return `❌ Sync stopped at ${at} — Google Fit returned ${error.status}. ${resume}`;
+  }
+  if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_NETWORK_ERROR) {
+    return `❌ Sync stopped at ${at} — network error. ${resume}`;
+  }
+
+  // Any unclassified throw — a Dexie rejection from _upsertChunk, or
+  // _normalizeBuckets / _determineSyncWindows failing — is a persistence
+  // failure. Chunk coordinates arrive resolved from the caller.
+  return `❌ Sync stopped while saving ${at} — database error. ${resume}`;
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
@@ -633,8 +698,11 @@ export function createStepSync(auth, db, reporter, doc = document) {
    * the backfill latch, a decision-12a success message, and a `finally` that
    * restores the button and clears the guard without touching `#sync-status`.
    *
-   * The `catch` stays minimal in Task 9 — the full error-message contract is
-   * Task 10's scope; it only logs here.
+   * The `catch` implements the full decision-12a error contract: every
+   * terminal failure writes its exact emoji-prefixed message via
+   * `reporter.sync()` and logs `console.error('[steps]', error)` — never a
+   * silent path — while fail-stopping (no further requests, no latch write,
+   * previously-persisted chunks kept).
    *
    * @returns {Promise<void>}
    */
@@ -656,6 +724,11 @@ export function createStepSync(auth, db, reporter, doc = document) {
       syncBtn.disabled = true;
       syncBtn.textContent = 'Syncing…';
     }
+
+    // Fail-stop accounting consumed by the catch: how many days landed before
+    // a terminal error, and which chunk the run had reached.
+    let persistedDays = 0;
+    let lastChunk = null;
 
     try {
       // 4. Resolve the windows from persisted state (full/incremental).
@@ -679,10 +752,11 @@ export function createStepSync(auth, db, reporter, doc = document) {
       }
       const total = chunks.length;
 
-      // 6. Sequential fetch → normalize → upsert, one progress line per chunk.
+      // 6. Sequential fetch → normalize → upsert, one status line per chunk.
       for (let i = 0; i < total; i += 1) {
         const chunk = chunks[i];
         const index = i + 1;
+        lastChunk = { index, total };
         reporter.sync(
           `⏳ ${chunk.phase} — chunk ${index}/${total} (${_formatLocalDate(chunk.startMs)} → ${_formatLocalDate(chunk.endMs)})…`
         );
@@ -690,6 +764,7 @@ export function createStepSync(auth, db, reporter, doc = document) {
         const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
         const records = _normalizeBuckets(raw.bucket ?? []);
         await _upsertChunk(db, records);
+        persistedDays += records.length;
       }
 
       // 7. Latch the backfill when a full-history window completed it.
@@ -718,8 +793,19 @@ export function createStepSync(auth, db, reporter, doc = document) {
         );
       }
     } catch (error) {
-      // Minimal for Task 9 — Task 10 owns the full error-message contract.
+      // Decision-12a error contract: every terminal path writes its exact
+      // emoji-prefixed message to #sync-status and logs — never a silent catch.
+      // Fail-stop semantics: no further requests, previously-persisted chunks
+      // are kept, and the backfill latch is never written (the latch call above
+      // was already skipped because the throw unwound the try).
       console.error('[steps]', error);
+
+      // Chunk coordinates come from the error, then the last loop position,
+      // then a single implied chunk (window resolution failed).
+      const i = error.index ?? lastChunk?.index ?? 1;
+      const total = error.total ?? lastChunk?.total ?? 1;
+
+      reporter.sync(await _renderSyncErrorMessage({ error, i, total, persistedDays, db }));
     } finally {
       // 9. finally invariants: restore the button, clear the guard, and leave
       //    #sync-status exactly as the last reporter.sync() wrote it.
