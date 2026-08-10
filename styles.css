@@ -1,6 +1,20 @@
+/* ─── ST-003 Design Tokens ────────────────────────────────────────────────── */
+:root {
+    --bg-dark: #0b0f17;
+    --bg-card: #161f2e;
+    --bg-card-border: #263347;
+    --text-primary: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent-emerald: #10b981;
+    --accent-emerald-glow: rgba(16, 185, 129, 0.25);
+    --accent-cyan: #06b6d4;
+    --accent-amber: #f59e0b;
+    --font-mono: 'JetBrains Mono', Courier, monospace;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #121212;
+    background-color: var(--bg-dark);
     color: #ffffff;
     display: flex;
     justify-content: center;
@@ -71,4 +85,145 @@ button:hover {
 #streak-display {
     margin-top: 20px;
     color: #2ed573;
+}
+
+/* ─── ST-003 Card Anatomy ─────────────────────────────────────────────────── */
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.card-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.metric-value {
+    font-size: 2.2rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-unit {
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+.metric-sub {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-pct {
+    color: var(--accent-emerald);
+    font-family: var(--font-mono);
+}
+
+.progress-track {
+    background: rgba(255, 255, 255, 0.06);
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 12px 0;
+}
+
+.progress-fill {
+    background: linear-gradient(90deg, #10b981, #06b6d4);
+    height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 0 10px var(--accent-emerald-glow);
+}
+
+.progress-fill--full {
+    width: 100%;
+}
+
+.remaining-hint {
+    font-size: 0.85rem;
+    color: var(--accent-cyan);
+    font-weight: 500;
+}
+
+.goal-met-badge {
+    display: inline-block;
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-emerald);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ─── ST-003 Goal Selector (SF-11, token-based, overrides global button) ──── */
+
+.goal-selector {
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    padding: 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.goal-preset {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--accent-emerald);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    margin: 0;
+}
+
+.goal-preset:hover {
+    background: rgba(16, 185, 129, 0.25);
+    color: var(--accent-emerald);
+    border-color: var(--accent-emerald);
+}
+
+.goal-input {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.goal-apply {
+    background: var(--accent-emerald);
+    color: #ffffff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    margin: 0;
+}
+
+.goal-apply:hover {
+    background: #059669;
+    color: #ffffff;
 }
