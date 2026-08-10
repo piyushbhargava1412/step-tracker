@@ -233,6 +233,84 @@ export async function _determineSyncWindows(db) {
   return windows;
 }
 
+// ── Bucket normalization ──────────────────────────────────────────────────────
+
+/**
+ * Convert a raw Google Fit `dataset:aggregate` response bucket array into the
+ * record shape persisted in `daily_records`.
+ *
+ * Each bucket yields exactly one record — including days with 0 steps (Decision 6).
+ *
+ * Dataset lookup:
+ *   - Locate each dataset by `dataSourceId.includes('step_count.delta')` /
+ *     `.includes('distance.delta')`.
+ *   - Fall back to positional index 0 (steps) / 1 (distance) when
+ *     `dataSourceId` is absent on all datasets.
+ *
+ * Distance (km) priority:
+ *   1. Real `distance.delta` fpVal metres ÷ METRES_PER_KM, rounded to 3 dp.
+ *   2. Fallback to `steps × STEP_TO_KM`, rounded to 3 dp, when the distance
+ *      dataset is absent, has no points, or yields a non-finite total.
+ *
+ * @param {Array<object>} buckets  Raw buckets from the Fit aggregate response.
+ * @returns {Array<{
+ *   date: string,
+ *   original_steps: number,
+ *   original_distance_km: number,
+ *   effective_steps: number,
+ *   effective_distance_km: number,
+ *   synced_at: string,
+ * }>}
+ */
+export function _normalizeBuckets(buckets) {
+  return buckets.map((bucket) => {
+    // ── Date label ────────────────────────────────────────────────────────────
+    const millis =
+      bucket.startTimeMillis != null
+        ? Number(bucket.startTimeMillis)
+        : Number(bucket.startTimeNanos) / 1_000_000;
+    const date = _formatLocalDate(millis);
+
+    // ── Dataset lookup ────────────────────────────────────────────────────────
+    const dataset = bucket.dataset ?? [];
+
+    const stepDataset =
+      dataset.find((ds) => ds.dataSourceId?.includes('step_count.delta')) ??
+      dataset[0];
+
+    const distDataset =
+      dataset.find((ds) => ds.dataSourceId?.includes('distance.delta')) ??
+      dataset[1];
+
+    // ── Step sum ──────────────────────────────────────────────────────────────
+    const stepPoints = stepDataset?.point ?? [];
+    const steps = Math.trunc(
+      stepPoints.reduce((sum, point) => sum + (point.value?.[0]?.intVal ?? 0), 0)
+    );
+
+    // ── Distance (km) with fallback ───────────────────────────────────────────
+    const distPoints = distDataset?.point ?? [];
+    const metres = distPoints.reduce(
+      (sum, point) => sum + (point.value?.[0]?.fpVal ?? 0),
+      0
+    );
+
+    const useRealDistance = distPoints.length > 0 && isFinite(metres);
+    const distanceKm = useRealDistance
+      ? Number((metres / METRES_PER_KM).toFixed(3))
+      : Number((steps * STEP_TO_KM).toFixed(3));
+
+    return {
+      date,
+      original_steps: steps,
+      original_distance_km: distanceKm,
+      effective_steps: steps,
+      effective_distance_km: distanceKm,
+      synced_at: new Date().toISOString(),
+    };
+  });
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**

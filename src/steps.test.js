@@ -20,6 +20,7 @@ import {
   _formatLocalDate,
   _chunkWindow,
   _determineSyncWindows,
+  _normalizeBuckets,
 } from './steps.js';
 
 describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date helpers', () => {
@@ -675,5 +676,266 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
     expect(reporter.sync).not.toHaveBeenCalled();
     expect(auth.getAccessToken).not.toHaveBeenCalled();
+  });
+});
+
+// ── Task 5: _normalizeBuckets — dual data type, zero-fill, distance fallback ──
+
+describe('Task 5: _normalizeBuckets — dual data type, zero-fill, distance fallback', () => {
+  /** Local midnight on June 15, 2025 — used as the default bucket timestamp. */
+  const JUNE_15_MS = new Date(2025, 5, 15, 0, 0, 0, 0).getTime();
+  const JUNE_15_MS_STR = String(JUNE_15_MS);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Helper ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Build a minimal bucket with the given step intVals and distance fpVals.
+   * Both datasets carry a realistic dataSourceId by default.
+   */
+  function makeBucket({
+    startTimeMillis = JUNE_15_MS_STR,
+    startTimeNanos = undefined,
+    stepPoints = [],
+    distPoints = [],
+    includeDistDataset = true,
+    stepDataSourceId = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
+    distDataSourceId = 'derived:com.google.distance.delta:com.google.android.gms:estimated_distance',
+  } = {}) {
+    const dataset = [
+      {
+        dataSourceId: stepDataSourceId,
+        point: stepPoints.map((intVal) => ({ value: [{ intVal }] })),
+      },
+    ];
+    if (includeDistDataset) {
+      dataset.push({
+        dataSourceId: distDataSourceId,
+        point: distPoints.map((fpVal) => ({ value: [{ fpVal }] })),
+      });
+    }
+    const bucket = { dataset };
+    if (startTimeMillis != null) bucket.startTimeMillis = startTimeMillis;
+    if (startTimeNanos != null) bucket.startTimeNanos = startTimeNanos;
+    return bucket;
+  }
+
+  // ── 1: Empty dataset array → 0-step record (zero-fill, not a skip) ───────────
+
+  it('bucket with empty dataset array produces a record with effective_steps: 0 and effective_distance_km: 0 — not a skipped day', () => {
+    const bucket = { startTimeMillis: JUNE_15_MS_STR, dataset: [] };
+    const records = _normalizeBuckets([bucket]);
+    expect(records.length).toBe(1);
+    expect(records[0].effective_steps).toBe(0);
+    expect(records[0].effective_distance_km).toBe(0);
+  });
+
+  // ── 2: Step sum ───────────────────────────────────────────────────────────────
+
+  it('bucket with step_count.delta dataset returns correct summed original_steps', () => {
+    const bucket = makeBucket({ stepPoints: [1000, 2000, 500] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(3500);
+  });
+
+  // ── 3: Distance metres → km at 3 decimal places ───────────────────────────────
+
+  it('distance.delta fpVal metres converted to km rounded to 3 decimals', () => {
+    const metres = 1234.567;
+    const bucket = makeBucket({ stepPoints: [5000], distPoints: [metres] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
+  });
+
+  // ── 4: Real distance preferred over step-derived value ────────────────────────
+
+  it('real distance.delta value used in preference to step-derived fallback when present', () => {
+    const steps = 5000;
+    const metres = 4500; // != steps * STEP_TO_KM * 1000
+    const bucket = makeBucket({ stepPoints: [steps], distPoints: [metres] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
+    expect(record.original_distance_km).not.toBe(Number((steps * STEP_TO_KM).toFixed(3)));
+  });
+
+  // ── 5: Missing distance dataset → step-derived fallback ──────────────────────
+
+  it('day with missing distance.delta dataset → effective_distance_km derived from steps * STEP_TO_KM', () => {
+    const steps = 8000;
+    const bucket = makeBucket({ stepPoints: [steps], includeDistDataset: false });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
+  });
+
+  // ── 6: Empty distance dataset (no points) → step-derived fallback ────────────
+
+  it('empty distance.delta dataset (no points) → step-derived fallback used', () => {
+    const steps = 6000;
+    const bucket = makeBucket({ stepPoints: [steps], distPoints: [] }); // distPoints: [] → empty
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
+  });
+
+  // ── 7: Non-finite distance total → step-derived fallback ─────────────────────
+
+  it('distance total of Infinity → step-derived fallback used', () => {
+    const steps = 7000;
+    const bucket = makeBucket({ stepPoints: [steps], distPoints: [Infinity] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
+  });
+
+  // ── 8: steps === 0, distance > 0 (cycling / manual log) ─────────────────────
+
+  it('day with steps === 0 and distance_km > 0 is persisted as-is — not treated as inconsistent', () => {
+    const bucket = makeBucket({ stepPoints: [0], distPoints: [5000] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(0);
+    expect(record.original_distance_km).toBeGreaterThan(0);
+    expect(record.effective_steps).toBe(0);
+    expect(record.effective_distance_km).toBeGreaterThan(0);
+  });
+
+  // ── 9: Dataset located by dataSourceId substring, not position ────────────────
+
+  it('datasets located by dataSourceId.includes substring — reordering still yields correct steps', () => {
+    // Distance dataset is placed at index 0, steps at index 1 — reversed from request order
+    const bucket = {
+      startTimeMillis: JUNE_15_MS_STR,
+      dataset: [
+        {
+          dataSourceId: 'derived:com.google.distance.delta:...',
+          point: [{ value: [{ fpVal: 3000 }] }],
+        },
+        {
+          dataSourceId: 'derived:com.google.step_count.delta:...',
+          point: [{ value: [{ intVal: 9999 }] }],
+        },
+      ],
+    };
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(9999);
+    expect(record.original_distance_km).toBe(Number((3000 / 1000).toFixed(3)));
+  });
+
+  // ── 10: Positional fallback when dataSourceId absent ─────────────────────────
+
+  it('positional fallback (index 0 for steps, index 1 for distance) used when dataSourceId absent', () => {
+    const steps = 4321;
+    const metres = 3000;
+    const bucket = {
+      startTimeMillis: JUNE_15_MS_STR,
+      dataset: [
+        { point: [{ value: [{ intVal: steps }] }] }, // index 0 → steps
+        { point: [{ value: [{ fpVal: metres }] }] }, // index 1 → distance
+      ],
+    };
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(steps);
+    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
+  });
+
+  // ── 11: Date label from local getters, never toISOString() ───────────────────
+
+  it('date label derived from bucket.startTimeMillis via local getters (getFullYear/getMonth/getDate)', () => {
+    vi.useFakeTimers();
+    const localMidnightMs = new Date(2025, 5, 15, 0, 0, 0, 0).getTime();
+    vi.setSystemTime(localMidnightMs);
+
+    const bucket = { startTimeMillis: String(localMidnightMs), dataset: [] };
+    const [record] = _normalizeBuckets([bucket]);
+
+    const d = new Date(localMidnightMs);
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(record.date).toBe(expected);
+  });
+
+  // ── 12: Nanos fallback when startTimeMillis absent ───────────────────────────
+
+  it('nanos fallback: when startTimeMillis absent, Number(startTimeNanos) / 1e6 used for date derivation', () => {
+    // Use a small ms value (1000 ms) so nanos = 1e9 stays well below MAX_SAFE_INTEGER
+    const testMs = 1000;
+    const nanos = String(testMs * 1_000_000); // "1000000000"
+    const bucket = { startTimeNanos: nanos, dataset: [] };
+    const [record] = _normalizeBuckets([bucket]);
+
+    const d = new Date(testMs);
+    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(record.date).toBe(expected);
+  });
+
+  // ── 13: Missing dataset property → no throw, 0-step record ──────────────────
+
+  it('missing dataset property on bucket does not throw; produces 0-step record', () => {
+    const bucket = { startTimeMillis: JUNE_15_MS_STR }; // no dataset
+    expect(() => _normalizeBuckets([bucket])).not.toThrow();
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(0);
+  });
+
+  // ── 14: Missing point array inside dataset → no throw ────────────────────────
+
+  it('missing point array inside dataset does not throw', () => {
+    const bucket = {
+      startTimeMillis: JUNE_15_MS_STR,
+      dataset: [
+        { dataSourceId: 'derived:com.google.step_count.delta:...' }, // no point
+      ],
+    };
+    expect(() => _normalizeBuckets([bucket])).not.toThrow();
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(0);
+  });
+
+  // ── 15: Missing value array inside point → no throw ──────────────────────────
+
+  it('missing value array inside point does not throw', () => {
+    const bucket = {
+      startTimeMillis: JUNE_15_MS_STR,
+      dataset: [
+        {
+          dataSourceId: 'derived:com.google.step_count.delta:...',
+          point: [{ /* no value */ }],
+        },
+      ],
+    };
+    expect(() => _normalizeBuckets([bucket])).not.toThrow();
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.original_steps).toBe(0);
+  });
+
+  // ── 16: synced_at is ISO 8601 ─────────────────────────────────────────────────
+
+  it('synced_at is an ISO 8601 timestamp string on every output record', () => {
+    const bucket = { startTimeMillis: JUNE_15_MS_STR, dataset: [] };
+    const [record] = _normalizeBuckets([bucket]);
+    expect(typeof record.synced_at).toBe('string');
+    expect(Number.isFinite(new Date(record.synced_at).getTime())).toBe(true);
+  });
+
+  // ── Output shape ─────────────────────────────────────────────────────────────
+
+  it('every output record carries the full { date, original_steps, original_distance_km, effective_steps, effective_distance_km, synced_at } shape', () => {
+    const bucket = makeBucket({ stepPoints: [500], distPoints: [400] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(Object.keys(record).sort()).toEqual([
+      'date',
+      'effective_distance_km',
+      'effective_steps',
+      'original_distance_km',
+      'original_steps',
+      'synced_at',
+    ]);
+  });
+
+  it('effective_steps and effective_distance_km equal their original_ counterparts from _normalizeBuckets (no override at this layer)', () => {
+    const bucket = makeBucket({ stepPoints: [1234], distPoints: [999] });
+    const [record] = _normalizeBuckets([bucket]);
+    expect(record.effective_steps).toBe(record.original_steps);
+    expect(record.effective_distance_km).toBe(record.original_distance_km);
   });
 });
