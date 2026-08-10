@@ -8,6 +8,8 @@ import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { createStepSync } from './steps.js'
 import { initTabs } from './tabs.js'
+import { createGoal } from './goal.js'
+import { createProgressUI } from './progress-ui.js'
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -38,22 +40,36 @@ export async function bootstrap(doc = document) {
   // 6. Step sync engine
   const stepSync = createStepSync(auth, db, reporter, doc)
 
+  // 6a. Goal + progress UI (wired after db is ready)
+  const goal = createGoal(db)
+  const progressUI = createProgressUI(doc, goal, db, reporter)
+
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
     authBtn.addEventListener('click', () => auth.requestToken())
   }
 
-  // 8. Bind sync button
+  // 8. Bind sync button (SF-12: re-render after each sync click)
   const syncBtn = doc.getElementById('sync-btn')
   if (syncBtn) {
-    syncBtn.addEventListener('click', () => stepSync.sync())
+    syncBtn.addEventListener('click', async () => {
+      await stepSync.sync()
+      progressUI.render()
+    })
   }
 
   // 9. Init tab navigation
   const tabBar = doc.querySelector('.tab-bar')
   if (tabBar) {
     initTabs(tabBar, doc)
+  }
+
+  // 10. Render Today's Progress card on page load (fail-open)
+  try {
+    await progressUI.render()
+  } catch (err) {
+    console.error('[main] progressUI.render failed, continuing', err)
   }
 }
 

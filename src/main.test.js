@@ -5,6 +5,17 @@ import { resolve } from 'node:path'
 // All vi.mock calls are hoisted — they run before any imports
 vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
 
+// Task 6: mock goal.js and progress-ui.js
+const mockGoalInstance = { getActiveGoal: vi.fn(), setActiveGoal: vi.fn() }
+vi.mock('./goal.js', () => ({
+  createGoal: vi.fn(() => mockGoalInstance)
+}))
+
+const mockProgressUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./progress-ui.js', () => ({
+  createProgressUI: vi.fn(() => mockProgressUIInstance)
+}))
+
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
@@ -42,6 +53,8 @@ vi.mock('./steps.js', () => ({
 }))
 
 // Import mocked modules so we have references to the spy fns
+import { createGoal } from './goal.js'
+import { createProgressUI } from './progress-ui.js'
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
@@ -234,5 +247,79 @@ describe('main.js — Task 11 step sync wiring', () => {
     `
     await expect(bootstrap(document)).resolves.toBeUndefined()
     expect(createStepSync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('main.js — Task 6: composition-root wiring (createGoal + createProgressUI + render)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createGoal is invoked exactly once with mockDb', async () => {
+    await boot()
+    expect(createGoal).toHaveBeenCalledTimes(1)
+    expect(createGoal).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createProgressUI is invoked once with (document, goalInstance, mockDb, mockReporter)', async () => {
+    await boot()
+    expect(createProgressUI).toHaveBeenCalledTimes(1)
+    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter)
+  })
+
+  it('progressUI.render() called exactly once on bootstrap', async () => {
+    await boot()
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('render() is called after initTabs (call-order enforced)', async () => {
+    await boot()
+    const initTabsCallOrder = initTabs.mock.invocationCallOrder[0]
+    const renderCallOrder = mockProgressUIInstance.render.mock.invocationCallOrder[0]
+    expect(renderCallOrder).toBeGreaterThan(initTabsCallOrder)
+  })
+
+  it('bootstrap resolves even if progressUI.render() rejects (fail-open)', async () => {
+    mockProgressUIInstance.render.mockRejectedValue(new Error('render fail'))
+    await expect(boot()).resolves.toBeUndefined()
+  })
+
+  it('clicking #sync-btn calls stepSync.sync() once then progressUI.render() once', async () => {
+    await boot()
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    const btn = document.getElementById('sync-btn')
+    btn.click()
+    // wait for async handler to complete
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('render() is called only after sync() resolves (ordering enforced)', async () => {
+    await boot()
+    vi.clearAllMocks()
+    let syncResolved = false
+    mockStepSyncInstance.sync.mockImplementation(() =>
+      new Promise(res => setTimeout(() => { syncResolved = true; res() }, 10))
+    )
+    let renderCalledAfterSync = false
+    mockProgressUIInstance.render.mockImplementation(() => {
+      renderCalledAfterSync = syncResolved
+      return Promise.resolve()
+    })
+    const btn = document.getElementById('sync-btn')
+    btn.click()
+    await new Promise(res => setTimeout(res, 30))
+    expect(renderCalledAfterSync).toBe(true)
   })
 })
