@@ -42,6 +42,7 @@ relevant to your current task.**
 - [Google Account Connection](.context/flows/google-account-connection.md)
 - [Historical Step Sync](.context/flows/historical-step-sync.md)
 - [Streak Calculation Render](.context/flows/streak-calculation-render.md)
+- [Today's Progress Card & Goal Commitment](.context/flows/today-progress-goal.md)
 
 <!-- repo-agentifier:managed:end -->
 

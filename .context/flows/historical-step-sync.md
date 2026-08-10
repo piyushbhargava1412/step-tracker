@@ -1,8 +1,8 @@
 # Flow: Historical Step Sync (Chunked Google Fit Aggregate Fetch)
 
 <!-- context-meta
-verification-commit: 8eac5589e7fe87b00de879dba314b4bf7691a8e0
-generated-at: 2026-08-10T06:36:28Z
+verification-commit: aca2d4d0ae7839cc32e14469e9c559ab32142398
+generated-at: 2026-08-10T10:00:00Z
 confidence: high
 -->
 
@@ -15,7 +15,7 @@ confidence: high
 - **File**: `src/steps.js` (engine), `src/main.js` (wiring)
 
 ## Core Path
-1. `#sync-btn` click invokes `stepSync.sync()`, which pre-flight-checks `auth.getAccessToken()` (null token → `🔑 Connect your Google Account first`), then guards against re-entry with a closure-scoped `isSyncing` flag and disables the button.
+1. `#sync-btn` click invokes `stepSync.sync()` (wired in `src/main.js` as `async () => { await stepSync.sync(); progressUI.render(); }`), which pre-flight-checks `auth.getAccessToken()` (null token → `🔑 Connect your Google Account first`), then guards against re-entry with a closure-scoped `isSyncing` flag and disables the button. On completion, `progressUI.render()` refreshes the Today's Progress card with the newly-persisted step data.
 2. `_determineSyncWindows(db)` resolves the two-segment window model from persisted state alone:
    - Empty DB → a single `[2013-01-01 → tomorrow's local midnight]` full-history window.
    - Non-empty DB → an incremental `[latest stored date − 3 days → tomorrow]` window (the 3-day `SAFETY_BUFFER_DAYS` catches late-arriving wearable/Health Connect data), always.

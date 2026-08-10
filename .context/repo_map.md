@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `8eac5589e7fe87b00de879dba314b4bf7691a8e0`
-- generated-at: `2026-08-10T06:36:28Z`
+- verification-commit: `aca2d4d0ae7839cc32e14469e9c559ab32142398`
+- generated-at: `2026-08-10T10:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -33,8 +33,10 @@
 - `DOMContentLoaded` → `bootstrap()` in `src/main.js` (composition root)
 - UI event handlers (bound in `src/main.js`):
   - `#auth-btn` click → `auth.requestToken()` (from `src/auth.js`)
-  - `#sync-btn` click → `stepSync.sync()` (from `src/steps.js`, wired as `createStepSync(auth, db, reporter, doc)`)
+  - `#sync-btn` click → `stepSync.sync()` then `progressUI.render()` (from `src/steps.js` + `src/progress-ui.js`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
+  - `#goal-selector` delegated click → `goal.setActiveGoal()` then `progressUI.render()` (from `src/goal.js` + `src/progress-ui.js`)
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()` on load (Today's Progress card)
 - Streak calculation not yet re-implemented in `src/` (see Streak Calculation Render flow file)
 
 ## Implementation Areas
@@ -46,12 +48,15 @@
 - Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
 - Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch)
+- Goal Commitment engine: `src/goal.js` (`createGoal` factory; `getActiveGoal`/`setActiveGoal`; persists `active_goal` row in Dexie `settings` store)
+- Progress computation: `src/progress.js` (pure functions: `getTodayRecord`, `computeProgress`)
+- Today's Progress card renderer: `src/progress-ui.js` (`createProgressUI` factory; `render()` builds card + goal-selector into `#tab-dashboard`)
 - UI structure: `index.html` (tab-bar + tab-panel layout)
-- Presentation: `styles.css` (dark theme, tab bar, panels)
+- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector)
 - Streak calculation: not yet in `src/` (see Streak Calculation Render flow file)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

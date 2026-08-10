@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-- verification-commit: `8eac5589e7fe87b00de879dba314b4bf7691a8e0`
-- generated-at: `2026-08-10T06:36:28Z`
+- verification-commit: `aca2d4d0ae7839cc32e14469e9c559ab32142398`
+- generated-at: `2026-08-10T10:00:00Z`
 - confidence: `high`
 
 ## Purpose
@@ -16,6 +16,8 @@ This repository is a client-side step streak tracker web app that connects to Go
 - IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`)
 - Application bootstrap / composition root (`src/main.js`)
 - Google Fitness aggregate step/distance fetch and incremental sync engine (`src/steps.js`) — chunked requests, normalisation, Dexie `daily_records` persistence, retry/error contract, backfill latch
+- Goal Commitment management (`src/goal.js`) — read/write active daily distance goal (`active_goal` key) in Dexie `settings` store; preset (1/3/5/10 km) and custom km input
+- Today's Progress computation and card rendering (`src/progress.js`, `src/progress-ui.js`) — pure computation of steps/distance vs. goal, progress-bar + goal-met/remaining-hint card injected into `#tab-dashboard` on load and after each sync
 - Streak computation and output rendering — not yet re-implemented in `src/`
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
