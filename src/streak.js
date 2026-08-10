@@ -167,3 +167,96 @@ export function computeUnifiedStreak(records, goalHistory, today) {
 
   return streak;
 }
+
+/**
+ * Tier streaks for each threshold in TIER_THRESHOLDS.
+ *
+ * Returns an array in TIER_THRESHOLDS order. For each threshold:
+ * - `active`: backward walk from today with the in-progress rule (SF-9).
+ *   Today's record missing or below threshold → skip today, evaluate from
+ *   yesterday. First failing or missing past day terminates (SF-2).
+ * - `best`: longest consecutive `>=` run anywhere in the full history,
+ *   including today if it passes. A failing or missing calendar day breaks
+ *   the run.
+ *
+ * SF-8: evaluation uses `>=` (not `>`).
+ * SF-9: in-progress rule applies only to the active streak, not to best.
+ * SF-13: non-finite `effective_distance_km` is treated as 0 (fails the tier).
+ *
+ * @param {Array<{ date: string, effective_distance_km: number }>} records
+ * @param {string} today - YYYY-MM-DD (in-progress anchor for the active streak)
+ * @returns {Array<{ threshold: number, active: number, best: number }>}
+ */
+export function computeTierStreaks(records, today) {
+  const ZERO_STATE = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
+
+  if (!Array.isArray(records) || records.length === 0) return ZERO_STATE;
+  if (typeof today !== 'string' || today === '') return ZERO_STATE;
+
+  const usable = _sortByDate(records.filter(_isValidRecord));
+  if (usable.length === 0) return ZERO_STATE;
+
+  const byDate = new Map(usable.map((r) => [r.date, r]));
+  const earliest = usable[0].date;
+
+  return TIER_THRESHOLDS.map((threshold) => {
+    // ── Active streak (in-progress rule, SF-9) ────────────────────────────
+    // Walk backward from today; today gets a skip pass if below/missing;
+    // any past day that is missing or below threshold terminates the streak.
+    let active = 0;
+    let day = today;
+
+    while (day >= earliest) {
+      const isToday = day === today;
+      const record = byDate.get(day);
+
+      if (!record) {
+        if (!isToday) break; // past gap terminates (SF-2)
+        day = _addDaysUtc(day, -1); // today in-progress — skip
+        continue;
+      }
+
+      const km = Number.isFinite(record.effective_distance_km)
+        ? record.effective_distance_km
+        : 0; // SF-13: non-finite fails the tier
+
+      if (km >= threshold) {
+        active += 1;
+      } else if (!isToday) {
+        break; // past shortfall terminates
+      }
+      // today shortfall: skip (no increment, no break), fall through to decrement
+
+      day = _addDaysUtc(day, -1);
+    }
+
+    // ── Best-ever (full history scan, no in-progress concept) ─────────────
+    // A single ascending pass; a calendar gap (missing day) or a failing day
+    // both reset the current run.
+    let best = 0;
+    let currentRun = 0;
+    let prevDate = null;
+
+    for (const record of usable) {
+      // Non-consecutive calendar dates → gap; reset before evaluating this day
+      if (prevDate !== null && record.date !== _addDaysUtc(prevDate, 1)) {
+        currentRun = 0;
+      }
+
+      const km = Number.isFinite(record.effective_distance_km)
+        ? record.effective_distance_km
+        : 0; // SF-13
+
+      if (km >= threshold) {
+        currentRun += 1;
+        if (currentRun > best) best = currentRun;
+      } else {
+        currentRun = 0; // failing day breaks the run
+      }
+
+      prevDate = record.date;
+    }
+
+    return { threshold, active, best };
+  });
+}

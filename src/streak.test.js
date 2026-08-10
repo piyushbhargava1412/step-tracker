@@ -11,6 +11,7 @@ import {
   _sortByDate,
   resolveGoalForDate,
   computeUnifiedStreak,
+  computeTierStreaks,
 } from './streak.js';
 import { DEFAULT_GOAL_KM } from './goal.js';
 
@@ -401,5 +402,308 @@ describe('computeUnifiedStreak — guards and boundaries', () => {
       { date: '2026-08-08', effective_steps: 6000, effective_distance_km: 4.6 },
     ];
     expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — AC Scenario 3 (varying distances per tier)
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — AC Scenario 3 (varying distances per tier)', () => {
+  const TODAY = '2026-08-10';
+
+  /**
+   * Fixture (distances chosen so active differs per tier):
+   *   2026-08-06: 5.0 km — passes 1, 3, 5  (fails 10)
+   *   2026-08-07: 2.0 km — passes 1         (fails 3, 5, 10)
+   *   2026-08-08: 11.0 km — passes all
+   *   2026-08-09: 6.0 km — passes 1, 3, 5  (fails 10)
+   *   2026-08-10: 4.0 km — passes 1, 3     (fails 5, 10)
+   *
+   * Expected active (backward from today):
+   *   1.0: 4≥1, 6≥1, 11≥1, 2≥1, 5≥1 → 5
+   *   3.0: 4≥3, 6≥3, 11≥3, 2<3→stop → 3
+   *   5.0: 4<5→skip today, 6≥5, 11≥5, 2<5→stop → 2
+   *  10.0: 4<10→skip today, 6<10→stop → 0
+   *
+   * Expected best (full history scan):
+   *   1.0: 5,2,11,6,4 all≥1 consecutively → 5
+   *   3.0: 5≥3(1), 2<3(0), 11≥3(1), 6≥3(2), 4≥3(3) → 3
+   *   5.0: 5≥5(1), 2<5(0), 11≥5(1), 6≥5(2), 4<5(0) → 2
+   *  10.0: 5<10(0), 2<10(0), 11≥10(1), 6<10(0), 4<10(0) → 1
+   */
+  const RECORDS = [
+    { date: '2026-08-06', effective_distance_km: 5.0, effective_steps: 6562 },
+    { date: '2026-08-07', effective_distance_km: 2.0, effective_steps: 2625 },
+    { date: '2026-08-08', effective_distance_km: 11.0, effective_steps: 14436 },
+    { date: '2026-08-09', effective_distance_km: 6.0, effective_steps: 7874 },
+    { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+  ];
+
+  it('returns four entries in TIER_THRESHOLDS order each with { threshold, active, best }', () => {
+    const result = computeTierStreaks(RECORDS, TODAY);
+    expect(result).toHaveLength(4);
+    expect(result.map((r) => r.threshold)).toEqual([1.0, 3.0, 5.0, 10.0]);
+    result.forEach((entry) => {
+      expect(entry).toHaveProperty('threshold');
+      expect(entry).toHaveProperty('active');
+      expect(entry).toHaveProperty('best');
+    });
+  });
+
+  it('active streak for 1.0 km threshold = 5 (all five days pass)', () => {
+    const result = computeTierStreaks(RECORDS, TODAY);
+    expect(result[0]).toEqual({ threshold: 1.0, active: 5, best: 5 });
+  });
+
+  it('active streak for 3.0 km threshold = 3 (past 2.0 km day terminates)', () => {
+    const result = computeTierStreaks(RECORDS, TODAY);
+    expect(result[1]).toEqual({ threshold: 3.0, active: 3, best: 3 });
+  });
+
+  it('active streak for 5.0 km threshold = 2 (today skipped; past 2.0 km day terminates)', () => {
+    const result = computeTierStreaks(RECORDS, TODAY);
+    expect(result[2]).toEqual({ threshold: 5.0, active: 2, best: 2 });
+  });
+
+  it('active streak for 10.0 km threshold = 0; best = 1 (only 11 km day qualifies)', () => {
+    const result = computeTierStreaks(RECORDS, TODAY);
+    expect(result[3]).toEqual({ threshold: 10.0, active: 0, best: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — today skip rules (SF-9)
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — today skip rules (SF-9)', () => {
+  const TODAY = '2026-08-10';
+  const GOAL = { threshold: 3.0 };
+
+  it('today below threshold → skip today, active count preserved from yesterday', () => {
+    // 08-09 and 08-08 both pass (>= 3.0); 08-10 below
+    const records = [
+      { date: '2026-08-08', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-10', effective_distance_km: 1.0, effective_steps: 1312 }, // below 3.0
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier3 = result.find((r) => r.threshold === 3.0);
+    expect(tier3.active).toBe(2); // only 08-09 and 08-08
+  });
+
+  it("today's record missing → skip today, active count preserved from yesterday", () => {
+    // 08-09 and 08-08 pass; today (08-10) absent
+    const records = [
+      { date: '2026-08-08', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier3 = result.find((r) => r.threshold === 3.0);
+    expect(tier3.active).toBe(2);
+  });
+
+  it('today at/above threshold → counted in active streak (SF-8 >=)', () => {
+    // today passes exactly at threshold (boundary)
+    const records = [
+      { date: '2026-08-09', effective_distance_km: 3.0, effective_steps: 3937 },
+      { date: '2026-08-10', effective_distance_km: 3.0, effective_steps: 3937 }, // exact
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier3 = result.find((r) => r.threshold === 3.0);
+    expect(tier3.active).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — active streak termination rules
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — active streak termination', () => {
+  const TODAY = '2026-08-10';
+
+  it('past failing day terminates the active streak', () => {
+    // 08-10 & 08-09 pass (>= 3.0); 08-08 fails (1.5 < 3.0); 08-07 passes but unreachable
+    const records = [
+      { date: '2026-08-07', effective_distance_km: 5.0, effective_steps: 6562 },
+      { date: '2026-08-08', effective_distance_km: 1.5, effective_steps: 1968 }, // fails
+      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier3 = result.find((r) => r.threshold === 3.0);
+    expect(tier3.active).toBe(2); // only 08-10 and 08-09
+  });
+
+  it('past missing day terminates the active streak (SF-2 semantics)', () => {
+    // 08-10 & 08-09 pass; 08-08 missing; 08-07 exists but unreachable
+    const records = [
+      { date: '2026-08-07', effective_distance_km: 4.0, effective_steps: 5249 },
+      // 2026-08-08 missing
+      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier3 = result.find((r) => r.threshold === 3.0);
+    expect(tier3.active).toBe(2); // only 08-10 and 08-09
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — best-ever
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — best-ever', () => {
+  const TODAY = '2026-08-10';
+
+  it('best-ever spans a historical run that ended before today', () => {
+    /**
+     * Fixture for threshold 10.0:
+     *   2026-07-01 .. 2026-07-05: 12 km each (5-day run, ends before today)
+     *   2026-07-06: 0.5 km (fails — breaks best run)
+     *   gap: 2026-07-07 .. 2026-08-08 missing
+     *   2026-08-09: 12 km (active run of 1 day; today missing)
+     */
+    const records = [
+      { date: '2026-07-01', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-02', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-03', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-04', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-05', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-06', effective_distance_km: 0.5, effective_steps: 656 },
+      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier10 = result.find((r) => r.threshold === 10.0);
+    expect(tier10.active).toBe(1); // only 08-09 (today missing → skipped; 08-08 missing → terminate)
+    expect(tier10.best).toBe(5);  // the historical run in July
+  });
+
+  it('single passing day yields best = 1', () => {
+    const records = [
+      { date: '2026-08-09', effective_distance_km: 11.0, effective_steps: 14436 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier10 = result.find((r) => r.threshold === 10.0);
+    expect(tier10.best).toBe(1);
+  });
+
+  it('best run separated by a gap is not merged (calendar-consecutive only)', () => {
+    // Three separate single days for threshold 5.0
+    const records = [
+      { date: '2026-08-05', effective_distance_km: 6.0, effective_steps: 7874 },
+      { date: '2026-08-07', effective_distance_km: 6.0, effective_steps: 7874 }, // gap at 08-06
+      { date: '2026-08-09', effective_distance_km: 6.0, effective_steps: 7874 }, // gap at 08-08
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier5 = result.find((r) => r.threshold === 5.0);
+    expect(tier5.best).toBe(1); // non-consecutive — each is its own run of 1
+  });
+
+  it('all days pass every tier — active and best equal record length', () => {
+    // 5 consecutive days all at 12 km (passes all four thresholds)
+    const records = [
+      { date: '2026-08-06', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-07', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-08', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-10', effective_distance_km: 12.0, effective_steps: 15748 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    result.forEach(({ active, best }) => {
+      expect(active).toBe(5);
+      expect(best).toBe(5);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — zero-state and guards
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — zero-state and guards', () => {
+  const TODAY = '2026-08-10';
+
+  it('empty records → all { active: 0, best: 0 } (SF-12)', () => {
+    const result = computeTierStreaks([], TODAY);
+    expect(result).toHaveLength(4);
+    result.forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+  });
+
+  it('null/undefined records → all zero (guard)', () => {
+    expect(computeTierStreaks(null, TODAY)).toHaveLength(4);
+    computeTierStreaks(null, TODAY).forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+  });
+
+  it('non-finite effective_distance_km is treated as 0 for every tier — no exception (SF-13)', () => {
+    const records = [
+      { date: '2026-08-09', effective_distance_km: NaN, effective_steps: 5000 },
+      { date: '2026-08-10', effective_distance_km: Infinity, effective_steps: 5000 },
+    ];
+    expect(() => computeTierStreaks(records, TODAY)).not.toThrow();
+    const result = computeTierStreaks(records, TODAY);
+    // All km are non-finite → treated as 0 → fail every tier
+    result.forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+  });
+
+  it('boundary-exact day (distance === threshold) passes (SF-8 >=)', () => {
+    // Record exactly at 5.0 km; today is yesterday (not today) so no skip rule
+    const records = [
+      { date: '2026-08-09', effective_distance_km: 5.0, effective_steps: 6562 },
+      { date: '2026-08-10', effective_distance_km: 5.0, effective_steps: 6562 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    const tier5 = result.find((r) => r.threshold === 5.0);
+    expect(tier5.active).toBe(2); // both days at exactly 5.0 pass
+    expect(tier5.best).toBe(2);
+  });
+
+  it('records with corrupt/absent date keys are ignored (guard)', () => {
+    const records = [
+      null,
+      { effective_distance_km: 12.0 }, // no date
+      { date: '', effective_distance_km: 12.0 }, // empty date
+      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    // Only the valid record counts
+    const tier10 = result.find((r) => r.threshold === 10.0);
+    expect(tier10.active).toBe(1);
+    expect(tier10.best).toBe(1);
+  });
+
+  it('invalid today string → all zero (guard)', () => {
+    const records = [
+      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+    ];
+    expect(computeTierStreaks(records, '')).toHaveLength(4);
+    computeTierStreaks(records, '').forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+    computeTierStreaks(records, null).forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+  });
+
+  it('all records with corrupt/absent dates → usable empty → all zero (guard, line 197)', () => {
+    // Every record fails _isValidRecord → usable.length === 0 → ZERO_STATE returned
+    const records = [
+      null,
+      { effective_distance_km: 12.0 },       // missing date
+      { date: 42, effective_distance_km: 12.0 }, // numeric date
+      { date: '', effective_distance_km: 12.0 },  // empty date
+    ];
+    const result = computeTierStreaks(records, TODAY);
+    expect(result).toHaveLength(4);
+    result.forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
   });
 });
