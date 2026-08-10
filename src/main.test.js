@@ -404,26 +404,40 @@ describe('main.js — Task 10: streak engine wiring', () => {
     expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStepSyncInstance.sync.mock.invocationCallOrder[0]).toBeLessThan(mockProgressUIInstance.render.mock.invocationCallOrder[0])
+    expect(mockProgressUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockStreakUIInstance.render.mock.invocationCallOrder[0])
   })
 
   it('streakUI.render() is called after progressUI.render() in sync handler (ordering)', async () => {
     await boot()
     vi.clearAllMocks()
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
-    let progressRenderCalled = false
     mockProgressUIInstance.render.mockImplementation(() => {
-      progressRenderCalled = true
       return Promise.resolve()
     })
     let streakRenderCalledAfterProgress = false
     mockStreakUIInstance.render.mockImplementation(() => {
-      streakRenderCalledAfterProgress = progressRenderCalled
+      streakRenderCalledAfterProgress = mockProgressUIInstance.render.mock.invocationCallOrder[0] < mockStreakUIInstance.render.mock.invocationCallOrder[0]
       return Promise.resolve()
     })
     const btn = document.getElementById('sync-btn')
     btn.click()
     await new Promise(res => setTimeout(res, 30))
     expect(streakRenderCalledAfterProgress).toBe(true)
+  })
+
+  it('sync-time streak render rejection is fail-open', async () => {
+    await boot()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockRejectedValueOnce(new Error('sync streak render fail'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    document.getElementById('sync-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] streakUI.render failed after sync, continuing',
+      expect.any(Error),
+    )
   })
 
   it('bootstrap resolves even if streakUI.render() rejects on load (fail-open)', async () => {

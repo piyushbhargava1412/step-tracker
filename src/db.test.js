@@ -135,6 +135,37 @@ describe('createDb() — upgrade handler', () => {
     expect(putFn).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { target_distance_km: 5, target_steps: 0 },
+    { target_distance_km: 5, target_steps: NaN },
+    { target_distance_km: 0, target_steps: 6500 },
+  ])('seeds nothing for invalid goal values', async (row) => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const putFn = vi.fn();
+    const tx = {
+      table: (name) => name === 'settings'
+        ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', ...row }) }
+        : { put: putFn },
+    };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it('resolves and logs when goal_history.put rejects', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const error = new Error('history write failed');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = {
+      table: (name) => name === 'settings'
+        ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', target_distance_km: 5, target_steps: 6500 }) }
+        : { put: vi.fn().mockRejectedValue(error) },
+    };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
   it('resolves without throwing when settings.get() rejects (fail-open)', async () => {
     const db = createDb();
     const handler = getHandler(db);

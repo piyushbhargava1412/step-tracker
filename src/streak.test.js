@@ -1177,14 +1177,44 @@ describe('createStreak — factory (data orchestration)', () => {
     await expect(compute()).rejects.toThrow('DB read failed');
   });
 
-  it('goal_history.toArray() rejecting → compute() rejects', async () => {
+  it('goal_history.toArray() rejecting → falls back to the current active goal', async () => {
+    const db = {
+      daily_records: { toArray: vi.fn().mockResolvedValue([
+        { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
+      ]) },
+      goal_history:  { toArray: vi.fn().mockRejectedValue(new Error('History read failed')) },
+      settings:      { get: vi.fn().mockResolvedValue({
+        effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937,
+      }) },
+    };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { compute } = createStreak(db);
+    await expect(compute()).resolves.toMatchObject({ unified: 1, activeGoalKm: 3.0 });
+  });
+
+  it('initialized default goal remains the baseline before a later goal change', async () => {
+    const db = makeMockDb({
+      records: [{ date: '2026-08-09', effective_steps: 4000, effective_distance_km: 3.5 }],
+      history: [
+        { effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 },
+        { effective_from: TODAY, target_distance_km: 5.0, target_steps: 6562 },
+      ],
+      activeGoal: { effective_from: TODAY, target_distance_km: 5.0, target_steps: 6562 },
+    });
+    const { compute } = createStreak(db);
+    const result = await compute();
+    expect(result.unified).toBe(1);
+  });
+
+  it('goal_history.toArray() rejecting with no active goal still computes with default goal', async () => {
     const db = {
       daily_records: { toArray: vi.fn().mockResolvedValue([]) },
       goal_history:  { toArray: vi.fn().mockRejectedValue(new Error('History read failed')) },
       settings:      { get:     vi.fn().mockResolvedValue(null) },
     };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const { compute } = createStreak(db);
-    await expect(compute()).rejects.toThrow('History read failed');
+    await expect(compute()).resolves.toMatchObject({ unified: 0, activeGoalKm: 3.0 });
   });
 
   it('settings.get() rejecting → compute() rejects', async () => {

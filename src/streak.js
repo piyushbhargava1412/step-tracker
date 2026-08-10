@@ -88,9 +88,15 @@ function _isValidRecord(row) {
  * @returns {number} target distance in km
  */
 export function resolveGoalForDate(goalHistory, dateStr) {
-  if (!Array.isArray(goalHistory)) return DEFAULT_GOAL_KM;
+  return _resolvePreparedGoalForDate(_prepareGoalHistory(goalHistory), dateStr);
+}
 
-  const valid = _sortByEffectiveFrom(goalHistory.filter(_isValidGoalRow));
+function _prepareGoalHistory(goalHistory) {
+  if (!Array.isArray(goalHistory)) return [];
+  return _sortByEffectiveFrom(goalHistory.filter(_isValidGoalRow));
+}
+
+function _resolvePreparedGoalForDate(valid, dateStr) {
   if (valid.length === 0) return DEFAULT_GOAL_KM;
 
   let resolved = valid[0].target_distance_km; // seed baseline for pre-log dates
@@ -136,6 +142,7 @@ export function computeUnifiedStreak(records, goalHistory, today) {
   if (usable.length === 0) return 0;
 
   const byDate = new Map(usable.map((r) => [r.date, r]));
+  const preparedGoals = _prepareGoalHistory(goalHistory);
   const earliest = usable[0].date;
 
   let streak = 0;
@@ -154,7 +161,7 @@ export function computeUnifiedStreak(records, goalHistory, today) {
     const distanceKm = Number.isFinite(record.effective_distance_km)
       ? record.effective_distance_km
       : 0; // SF-13: corrupt value fails the day
-    const goalKm = resolveGoalForDate(goalHistory, day);
+    const goalKm = _resolvePreparedGoalForDate(preparedGoals, day);
 
     if (distanceKm >= goalKm) {
       streak += 1;
@@ -281,6 +288,7 @@ export function computeHallOfFame(records, goalHistory) {
   if (usable.length === 0) return [];
 
   const periods = [];
+  const preparedGoals = _prepareGoalHistory(goalHistory);
   let periodStart = null;
   let periodEnd = null;
   let periodDays = 0;
@@ -291,7 +299,7 @@ export function computeHallOfFame(records, goalHistory) {
     const distance = Number.isFinite(record.effective_distance_km)
       ? record.effective_distance_km
       : 0; // SF-13: non-finite fails the day
-    const goalKm = resolveGoalForDate(goalHistory, date);
+    const goalKm = _resolvePreparedGoalForDate(preparedGoals, date);
     const passes = distance >= goalKm;
 
     // A passing day extends the period only when it is calendar-consecutive.
@@ -401,11 +409,18 @@ export function createStreak(db) {
    * @returns {Promise<{ unified: number, tiers: Array, hallOfFame: Array, lifetime: object, activeGoalKm: number }>}
    */
   async function compute() {
-    const [records, history, activeGoal] = await Promise.all([
+    const [records, activeGoal] = await Promise.all([
       db.daily_records.toArray(),
-      db.goal_history.toArray(),
       db.settings.get('active_goal'),
     ]);
+
+    let history = [];
+    try {
+      history = await db.goal_history.toArray();
+    } catch (err) {
+      // History is an optional audit aid; current active_goal remains usable.
+      console.error('[streak]', err);
+    }
 
     const today = _localDate();
 

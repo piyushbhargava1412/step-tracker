@@ -60,7 +60,11 @@ export async function bootstrap(doc = document) {
     syncBtn.addEventListener('click', async () => {
       await stepSync.sync()
       progressUI.render()
-      streakUI.render()
+      try {
+        await streakUI.render()
+      } catch (err) {
+        console.error('[main] streakUI.render failed after sync, continuing', err)
+      }
     })
   }
 

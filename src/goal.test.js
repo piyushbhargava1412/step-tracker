@@ -93,6 +93,12 @@ describe('createGoal', () => {
       expect(putArg.target_steps).toBe(3937);
       expect(putArg.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
+      expect(mockHistoryPut).toHaveBeenCalledWith({
+        effective_from: putArg.effective_from,
+        target_distance_km: 3.0,
+        target_steps: 3937,
+      });
+
       expect(result.target_distance_km).toBe(3.0);
       expect(result.target_steps).toBe(3937);
       expect(result.key).toBe('active_goal');

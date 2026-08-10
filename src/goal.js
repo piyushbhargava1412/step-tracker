@@ -82,6 +82,13 @@ export function createGoal(db) {
     const defaultRow = _defaultGoalRow();
     try {
       await db.settings.put(defaultRow);
+      if (db.goal_history?.put) {
+        await db.goal_history.put({
+          effective_from: defaultRow.effective_from,
+          target_distance_km: defaultRow.target_distance_km,
+          target_steps: defaultRow.target_steps,
+        });
+      }
     } catch (err) {
       console.error('[goal]', err);
     }
