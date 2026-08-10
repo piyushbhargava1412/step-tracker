@@ -1,4 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // All vi.mock calls are hoisted — they run before any imports
 vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
@@ -34,12 +36,18 @@ vi.mock('./tabs.js', () => ({
   switchTab: vi.fn()
 }))
 
+const mockStepSyncInstance = { sync: vi.fn() }
+vi.mock('./steps.js', () => ({
+  createStepSync: vi.fn(() => mockStepSyncInstance)
+}))
+
 // Import mocked modules so we have references to the spy fns
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { initTabs } from './tabs.js'
+import { createStepSync } from './steps.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -48,9 +56,11 @@ import { bootstrap } from './main.js'
 async function boot() {
   document.body.innerHTML = `
     <button id="auth-btn">Connect</button>
+    <button id="sync-btn">Sync Steps</button>
     <nav class="tab-bar"></nav>
     <div id="db-status"></div>
     <div id="auth-status"></div>
+    <span id="sync-status"></span>
   `
   await bootstrap(document)
 }
@@ -174,5 +184,55 @@ describe('main.js — dependency injection contract (regression)', () => {
     await boot()
     const [configArg] = createAuth.mock.calls[0]
     expect(configArg).toHaveProperty('CLIENT_ID')
+  })
+})
+
+describe('main.js — Task 11 step sync wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('invokes createStepSync exactly once on DOMContentLoaded', async () => {
+    await boot()
+    expect(createStepSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('createStepSync receives auth, db, the shared reporter and the shared doc as the fourth argument', async () => {
+    await boot()
+    expect(createStepSync).toHaveBeenCalledWith(
+      mockAuthInstance,
+      mockDb,
+      mockReporter,
+      document
+    )
+  })
+
+  it('clicking #sync-btn invokes stepSync.sync() exactly once', async () => {
+    await boot()
+    const btn = document.getElementById('sync-btn')
+    btn.click()
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('main.js source does not directly mutate #sync-btn state (no disabled set, no label swap)', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src', 'main.js'), 'utf8')
+    expect(source).not.toContain('sync-btn.disabled')
+    expect(source).not.toContain('disabled =')
+    expect(source).not.toContain('Syncing')
+  })
+
+  it('bootstrap() does not throw when #sync-btn is missing (fail-open)', async () => {
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <nav class="tab-bar"></nav>
+    `
+    await expect(bootstrap(document)).resolves.toBeUndefined()
+    expect(createStepSync).toHaveBeenCalledTimes(1)
   })
 })

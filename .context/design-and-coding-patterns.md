@@ -1,8 +1,8 @@
 # Design & Coding Patterns
 
 <!-- context-meta
-verification-commit: 7885320b799cb2d504ca189beba691d0e1a4d2cc
-generated-at: 2026-08-09T00:00:00Z
+verification-commit: 8eac5589e7fe87b00de879dba314b4bf7691a8e0
+generated-at: 2026-08-10T06:36:28Z
 confidence: high
 -->
 

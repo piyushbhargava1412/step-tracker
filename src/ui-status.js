@@ -4,7 +4,7 @@
  * report status without directly touching the DOM.
  * 
  * @param {Document} doc - The document object to use (defaults to global document)
- * @returns {Object} Object with db(text) and auth(text) methods
+ * @returns {Object} Object with db(text), auth(text), and sync(text) methods
  */
 export function createStatusReporter(doc = document) {
   return {
@@ -29,6 +29,19 @@ export function createStatusReporter(doc = document) {
       const element = doc.getElementById('auth-status');
       if (!element) {
         console.warn('[createStatusReporter] Missing element: #auth-status');
+        return;
+      }
+      element.textContent = text;
+    },
+
+    /**
+     * Update the sync status element.
+     * @param {string} text - The text to display
+     */
+    sync(text) {
+      const element = doc.getElementById('sync-status');
+      if (!element) {
+        console.warn('[createStatusReporter] Missing element: #sync-status');
         return;
       }
       element.textContent = text;

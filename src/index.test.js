@@ -81,4 +81,17 @@ describe('index.html tabbed shell contract', () => {
   it('no fetch_btn reference remains', () => {
     expect(html).not.toContain('fetch_btn');
   });
+
+  it('#sync-btn element is present inside <header> with exact label Sync Steps', () => {
+    const syncBtn = document.getElementById('sync-btn');
+    expect(syncBtn).not.toBeNull();
+    expect(syncBtn.textContent).toBe('Sync Steps');
+    expect(syncBtn.closest('header')).not.toBeNull();
+  });
+
+  it('#sync-status element is present inside <header>', () => {
+    const syncStatus = document.getElementById('sync-status');
+    expect(syncStatus).not.toBeNull();
+    expect(syncStatus.closest('header')).not.toBeNull();
+  });
 });

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>step-tracker — Visual Preview</title>
+  <style>
+    :root {
+      --bg-dark: #0b0f17;
+      --bg-card: #161f2e;
+      --bg-card-border: #263347;
+      --text-primary: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-emerald: #10b981;
+      --accent-emerald-glow: rgba(16, 185, 129, 0.25);
+      --accent-cyan: #06b6d4;
+      --accent-amber: #f59e0b;
+      --font-mono: 'JetBrains Mono', Courier, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      max-width: 1200px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Header Shell */
+    header {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: 12px;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .app-title {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .status-group { display: flex; gap: 8px; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-badge.connected {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--accent-emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-badge.persisted {
+      background: rgba(6, 182, 212, 0.1);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+    }
+
+    .status-badge .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background-color: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .header-actions { display: flex; gap: 12px; }
+
+    .btn {
+      font-weight: 600; font-size: 0.875rem;
+      padding: 8px 16px; border-radius: 8px;
+      cursor: pointer; transition: all 0.2s ease;
+      border: none;
+    }
+
+    .btn-secondary {
+      background: transparent; color: var(--text-muted);
+      border: 1px solid var(--bg-card-border);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      box-shadow: 0 0 12px var(--accent-emerald-glow);
+    }
+
+    /* Tab Bar */
+    nav.tab-bar {
+      display: flex;
+      background: rgba(22, 31, 46, 0.6);
+      border: 1px solid var(--bg-card-border);
+      padding: 4px; border-radius: 10px; gap: 4px;
+    }
+
+    .tab-btn {
+      flex: 1; background: transparent; border: none;
+      color: var(--text-muted); padding: 10px 16px;
+      font-weight: 600; font-size: 0.875rem;
+      border-radius: 6px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+
+    .tab-btn.active {
+      background: var(--bg-card);
+      color: var(--accent-emerald);
+      border: 1px solid var(--bg-card-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Dashboard Grid */
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+
+    .card-title {
+      font-size: 0.85rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: var(--text-muted); margin-bottom: 16px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+
+    /* Today's Progress Bar */
+    .metric-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 2.2rem; font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-sub {
+      font-size: 1rem; color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      background: rgba(255,255,255,0.06);
+      height: 12px; border-radius: 6px; overflow: hidden;
+      margin: 12px 0;
+    }
+
+    .progress-fill {
+      background: linear-gradient(90deg, #10b981, #06b6d4);
+      height: 100%; width: 84%;
+      border-radius: 6px;
+      box-shadow: 0 0 10px var(--accent-emerald-glow);
+    }
+
+    .remaining-hint {
+      font-size: 0.85rem; color: var(--accent-cyan); font-weight: 500;
+    }
+
+    /* Streak Card */
+    .streak-number {
+      font-size: 2.8rem; font-weight: 900;
+      color: var(--accent-emerald);
+      line-height: 1;
+    }
+
+    .tier-badges {
+      display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap;
+    }
+
+    .tier-chip {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--bg-card-border);
+      padding: 4px 8px; border-radius: 6px;
+      font-size: 0.75rem; font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+
+    /* Journey Tracker */
+    .journey-bar {
+      display: flex; justify-content: space-between;
+      font-size: 0.8rem; color: var(--text-muted); margin-top: 8px;
+      font-family: var(--font-mono);
+    }
+
+    /* Heatmap Grid */
+    .heatmap-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 12px;
+    }
+
+    .heatmap-tile {
+      aspect-ratio: 1; border-radius: 6px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--bg-card-border);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 600; font-family: var(--font-mono);
+    }
+
+    .heatmap-tile.met {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald);
+    }
+
+    .heatmap-tile.exceeded {
+      background: rgba(6, 182, 212, 0.2);
+      border-color: rgba(6, 182, 212, 0.5);
+      color: var(--accent-cyan);
+    }
+
+    .heatmap-tile.overridden {
+      border-color: var(--accent-amber);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-group">
+      <h1 class="app-title">🚶 step-tracker</h1>
+      <div class="status-group">
+        <span class="status-badge connected"><span class="dot"></span> Connected</span>
+        <span class="status-badge persisted"><span class="dot"></span> Storage Persisted</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-secondary">Reconnect</button>
+      <button class="btn btn-primary">⚡ Sync Steps</button>
+    </div>
+  </header>
+
+  <!-- Segmented Navigation Bar -->
+  <nav class="tab-bar">
+    <button class="tab-btn active">🏠 Dashboard</button>
+    <button class="tab-btn">📅 Calendar</button>
+    <button class="tab-btn">🔍 Search Lab</button>
+    <button class="tab-btn">🗺️ Spatial Map</button>
+  </nav>
+
+  <!-- Main Dashboard Grid -->
+  <div class="grid-layout">
+    <!-- Left Column: Today's Progress -->
+    <div class="card">
+      <div class="card-title">
+        <span>Today's Progress</span>
+        <span style="color: var(--accent-emerald); font-family: var(--font-mono);">84.2%</span>
+      </div>
+      <div class="metric-row">
+        <div class="metric-value">8,420 <span style="font-size: 1rem; color: var(--text-muted);">/ 10,000 steps</span></div>
+        <div class="metric-sub">6.42 / 7.62 km</div>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill"></div>
+      </div>
+      <div class="remaining-hint">⏱️ 1,580 steps remaining to fulfill daily target (~1.20 km)</div>
+    </div>
+
+    <!-- Right Column: Active Streaks -->
+    <div class="card">
+      <div class="card-title">
+        <span>Unified Active Streak</span>
+        <span style="color: var(--accent-amber);">🔒 Effective Date Lock</span>
+      </div>
+      <div class="streak-number">14 <span style="font-size: 1rem; color: var(--text-muted); font-weight: 500;">Days</span></div>
+      <div class="tier-badges">
+        <span class="tier-chip">>1km: 42d</span>
+        <span class="tier-chip">>3km: 21d</span>
+        <span class="tier-chip" style="color: var(--accent-emerald); border-color: var(--accent-emerald);">>5km: 14d</span>
+        <span class="tier-chip">>10km: 3d</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real World Journey -->
+  <div class="card">
+    <div class="card-title">
+      <span>Real-World Journey — Delhi to London</span>
+      <span style="font-family: var(--font-mono);">1,840 / 6,700 km</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: 27.4%; background: linear-gradient(90deg, #06b6d4, #10b981);"></div>
+    </div>
+    <div class="journey-bar">
+      <span style="color: var(--accent-cyan); font-weight: 700;">📍 Delhi (0km)</span>
+      <span>Tashkent (1,600km)</span>
+      <span>Istanbul (4,500km)</span>
+      <span>Vienna (5,800km)</span>
+      <span>London (6,700km)</span>
+    </div>
+  </div>
+
+  <!-- Mini Calendar Heatmap Grid -->
+  <div class="card">
+    <div class="card-title">
+      <span>August 2026 Heatmap</span>
+      <span>Hit Rate: 87.5%</span>
+    </div>
+    <div class="heatmap-grid">
+      <div class="heatmap-tile met">1<br>7.2k</div>
+      <div class="heatmap-tile met">2<br>8.1k</div>
+      <div class="heatmap-tile met">3<br>5.4k</div>
+      <div class="heatmap-tile exceeded">4<br>12.1k</div>
+      <div class="heatmap-tile met">5<br>6.2k</div>
+      <div class="heatmap-tile exceeded">6<br>11.5k</div>
+      <div class="heatmap-tile met overridden">7<br>9.4k*</div>
+      <div class="heatmap-tile met">8<br>8.4k</div>
+      <div class="heatmap-tile" style="border-color: var(--accent-emerald);">9<br>Today</div>
+      <div class="heatmap-tile">10</div>
+      <div class="heatmap-tile">11</div>
+      <div class="heatmap-tile">12</div>
+      <div class="heatmap-tile">13</div>
+      <div class="heatmap-tile">14</div>
+    </div>
+  </div>
+
+</body>
+</html>
