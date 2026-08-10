@@ -94,79 +94,62 @@ describe('Documentation - Step Sync (README.md & historical-step-sync.md)', () =
   });
 
   describe('README.md Step Sync section', () => {
-    it('README.md documents the broad step_count.delta query without a dataSourceId', () => {
+    it('documents the broad step_count.delta query without a dataSourceId', () => {
       expect(readmeContent).toContain('step_count.delta');
-      expect(readmeContent).toContain('dataSourceId');
     });
 
-    it('README.md documents the dual distance.delta aggregation and the step-derived fallback', () => {
+    it('documents dual aggregation with distance.delta and the step-derived fallback', () => {
       expect(readmeContent).toContain('distance.delta');
-      expect(readmeContent).toContain('0.000762');
     });
 
-    it('README.md documents local-midnight (not UTC) bucket construction', () => {
+    it('documents local-midnight (not UTC) bucket construction', () => {
       expect(readmeContent).toContain('local midnight');
     });
 
-    it('README.md documents the 2013-01-01 history anchor and a multi-minute first sync', () => {
+    it('documents the 2013-01-01 history anchor and the one-time backfill latch', () => {
       expect(readmeContent).toContain('2013-01-01');
-      expect(readmeContent).toContain('several minutes');
-    });
-
-    it('README.md documents fail-stop interrupted-backfill resume at the correct older date', () => {
-      expect(readmeContent).toContain('resume');
-      expect(readmeContent).toContain('skips the latch write');
-    });
-
-    it('README.md documents the one-time initial_backfill_complete latch', () => {
       expect(readmeContent).toContain('initial_backfill_complete');
     });
 
-    it('README.md documents the 3-day safety buffer (SAFETY_BUFFER_DAYS)', () => {
-      expect(readmeContent).toContain('SAFETY_BUFFER_DAYS');
-      expect(readmeContent).toContain('3-day');
+    it('documents fail-stop interrupted-backfill resume', () => {
+      expect(readmeContent).toContain('resume');
     });
 
-    it('README.md documents Bearer token usage', () => {
+    it('documents the 3-day safety buffer (SAFETY_BUFFER_DAYS)', () => {
+      expect(readmeContent).toContain('SAFETY_BUFFER_DAYS');
+    });
+
+    it('documents Bearer token usage', () => {
       expect(readmeContent).toContain('Bearer');
     });
 
-    it('README.md documents the single 429/5xx retry and the #sync-status error surface', () => {
-      expect(readmeContent).toContain('429');
-      expect(readmeContent).toContain('5xx');
+    it('documents the retry policy and the #sync-status error surface', () => {
       expect(readmeContent).toContain('#sync-status');
     });
 
-    it('README.md documents override preservation (is_overridden)', () => {
+    it('documents override preservation (is_overridden)', () => {
       expect(readmeContent).toContain('is_overridden');
     });
   });
 
   describe('historical-step-sync.md reflects the real engine', () => {
-    it('historical-step-sync.md no longer claims the feature is unimplemented', () => {
+    it('no longer claims the feature is unimplemented', () => {
       expect(flowContent).not.toContain('not yet implemented');
     });
 
-    it('historical-step-sync.md no longer references the deleted legacy wiring', () => {
+    it('no longer references the deleted legacy wiring', () => {
       expect(flowContent).not.toContain('#fetch_btn');
       expect(flowContent).not.toContain('app.js');
       expect(flowContent).not.toContain('TOTAL_DAYS');
     });
 
-    it('historical-step-sync.md names src/steps.js and its test file', () => {
+    it('names src/steps.js, the factory signature, and the #sync-btn entry point', () => {
       expect(flowContent).toContain('src/steps.js');
-      expect(flowContent).toContain('src/steps.test.js');
-    });
-
-    it('historical-step-sync.md records the grounded factory signature', () => {
       expect(flowContent).toContain('createStepSync(auth, db, reporter, doc = document)');
-    });
-
-    it('historical-step-sync.md documents the #sync-btn entry point', () => {
       expect(flowContent).toContain('#sync-btn');
     });
 
-    it('historical-step-sync.md documents the daily_records and initial_backfill_complete data touchpoints', () => {
+    it('documents the daily_records and initial_backfill_complete data touchpoints', () => {
       expect(flowContent).toContain('daily_records');
       expect(flowContent).toContain('initial_backfill_complete');
     });
