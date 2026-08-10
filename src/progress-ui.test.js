@@ -416,72 +416,28 @@ describe('createProgressUI', () => {
   });
 
   describe('goal selector — preset click', () => {
-    it('clicking preset "3 km" calls setActiveGoal(3) exactly once', async () => {
-      const doc = buildDoc();
-      const goalObj = makeGoal(GOAL_3K);
-      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
-      const db = makeDb(null);
-      const reporter = { db: vi.fn() };
+    const PRESET_VALUES = [1, 3, 5, 10];
 
-      const ui = createProgressUI(doc, goalObj, db, reporter);
-      await ui.render();
+    it.each(PRESET_VALUES)(
+      'clicking preset "%s km" calls setActiveGoal(%s) exactly once',
+      async (preset) => {
+        const doc = buildDoc();
+        const goalObj = makeGoal(GOAL_3K);
+        goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+        const db = makeDb(null);
+        const reporter = { db: vi.fn() };
 
-      const btn = doc.querySelector('[data-goal-preset="3"]');
-      btn.click();
-      // allow microtasks to settle
-      await new Promise(r => setTimeout(r, 0));
+        const ui = createProgressUI(doc, goalObj, db, reporter);
+        await ui.render();
 
-      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(3);
-      expect(goalObj.setActiveGoal).toHaveBeenCalledTimes(1);
-    });
+        doc.querySelector(`[data-goal-preset="${preset}"]`).click();
+        // allow microtasks to settle
+        await new Promise(r => setTimeout(r, 0));
 
-    it('clicking preset "5 km" calls setActiveGoal(5)', async () => {
-      const doc = buildDoc();
-      const goalObj = makeGoal(GOAL_5K);
-      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
-      const db = makeDb(null);
-      const reporter = { db: vi.fn() };
-
-      const ui = createProgressUI(doc, goalObj, db, reporter);
-      await ui.render();
-
-      doc.querySelector('[data-goal-preset="5"]').click();
-      await new Promise(r => setTimeout(r, 0));
-
-      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(5);
-    });
-
-    it('clicking preset "1 km" calls setActiveGoal(1)', async () => {
-      const doc = buildDoc();
-      const goalObj = makeGoal(GOAL_3K);
-      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
-      const db = makeDb(null);
-      const reporter = { db: vi.fn() };
-
-      const ui = createProgressUI(doc, goalObj, db, reporter);
-      await ui.render();
-
-      doc.querySelector('[data-goal-preset="1"]').click();
-      await new Promise(r => setTimeout(r, 0));
-
-      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(1);
-    });
-
-    it('clicking preset "10 km" calls setActiveGoal(10)', async () => {
-      const doc = buildDoc();
-      const goalObj = makeGoal(GOAL_3K);
-      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
-      const db = makeDb(null);
-      const reporter = { db: vi.fn() };
-
-      const ui = createProgressUI(doc, goalObj, db, reporter);
-      await ui.render();
-
-      doc.querySelector('[data-goal-preset="10"]').click();
-      await new Promise(r => setTimeout(r, 0));
-
-      expect(goalObj.setActiveGoal).toHaveBeenCalledWith(10);
-    });
+        expect(goalObj.setActiveGoal).toHaveBeenCalledWith(preset);
+        expect(goalObj.setActiveGoal).toHaveBeenCalledTimes(1);
+      }
+    );
 
     it('preset click triggers re-render (card shows new target after preset)', async () => {
       const doc = buildDoc();
