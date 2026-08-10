@@ -4,23 +4,7 @@
  * All collaborators are injected.
  */
 
-import { KM_TO_STEPS, DEFAULT_GOAL_KM, DEFAULT_GOAL_STEPS } from './goal.js';
-
-/**
- * Local-time YYYY-MM-DD formatter.
- * Uses getFullYear/getMonth/getDate — never toISOString() — so dates are
- * timezone-safe (mirrors the _formatLocalDate convention in steps.js:161-167).
- *
- * @param {number} [ms=Date.now()] - timestamp in milliseconds
- * @returns {string} YYYY-MM-DD
- */
-export function _formatLocalDate(ms = Date.now()) {
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${MM}-${dd}`;
-}
+import { KM_TO_STEPS, DEFAULT_GOAL_KM, DEFAULT_GOAL_STEPS, _localDate } from './goal.js';
 
 /**
  * Thin data-access passthrough: fetch today's daily_records row.
@@ -30,7 +14,7 @@ export function _formatLocalDate(ms = Date.now()) {
  * @returns {Promise<object|undefined>}
  */
 export function getTodayRecord(db) {
-  return db.daily_records.get(_formatLocalDate(Date.now()));
+  return db.daily_records.get(_localDate(Date.now()));
 }
 
 /**

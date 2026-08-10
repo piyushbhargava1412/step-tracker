@@ -4,7 +4,8 @@
  * getTodayRecord and _formatLocalDate tested with simple stubs.
  */
 
-import { computeProgress, getTodayRecord, _formatLocalDate } from './progress.js';
+import { computeProgress, getTodayRecord } from './progress.js';
+import { _localDate as _formatLocalDate } from './goal.js';
 
 afterEach(() => vi.restoreAllMocks());
 
