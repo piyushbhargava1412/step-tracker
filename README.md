@@ -149,3 +149,36 @@ The Today's Progress card renders in one of two exclusive states based on the pe
 - Displays `100%` and a `✅ Daily Commitment Met` badge.
 - The progress bar fills to 100% via the `.progress-fill--full` CSS class (no inline width).
 - The remaining counter is hidden.
+
+## Streak Engine
+
+The Dashboard calculates the Unified Active Streak using an Effective Date Lock. Each historical
+date `D` is evaluated against `G(D)`, the goal that was effective on that date, rather than the
+current goal. The calculation:
+
+1. Resolves `G(D)` from the latest `goal_history` entry whose `effective_from` is on or before `D`.
+2. Uses the earliest history entry as the baseline for dates before the first logged change.
+3. Compares `effective_distance_km` with `G(D)` using `>=`.
+4. Counts consecutive passing days backwards from today.
+5. Skips an incomplete today, but stops at the first non-passing past day.
+
+The `goal_history` Dexie store was added in `DB_VERSION 2` with `effective_from` as its primary key,
+alongside `target_distance_km` and `target_steps`. The migration seeds history from the existing
+`settings.active_goal` row, and every later goal change appends or replaces the row for that local
+date. If history is unavailable, computation falls back to the current active goal and then the
+3.0 km default.
+
+### Unified vs. Goal-Tier Streaks
+
+The Unified Active Streak follows the user's date-effective goal. Independent Goal-Tier streaks
+use fixed daily distance thresholds of **1 km**, **3 km**, **5 km**, and **10 km**. Their active
+counts are displayed as the Dashboard's tier chips; the engine also computes each tier's best-ever
+run for analytics. The chips use `>=` evaluation even though their compact labels use the mockup's
+`>1km`, `>3km`, `>5km`, and `>10km` display format.
+
+Today's incomplete or missing record does not break an active streak, because the day is still in
+progress. A missing record for a past date is treated as non-passing and terminates the streak.
+Non-finite distance or step values fail their respective thresholds. The engine also computes the
+lifetime 10k metric shown in the banner: `total_10k_days / total_days * 100`, including days with
+at least 10,000 steps. The Hall of Fame retains the top three unified streak periods for future
+analytics; rendering that list is outside this story's scope.
