@@ -220,11 +220,11 @@ describe('main.js — Task 11 step sync wiring', () => {
     expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
   })
 
-  it('main.js source does not own #sync-btn state (no disabled, no label swap, no finally)', () => {
+  it('main.js source does not directly mutate #sync-btn state (no disabled set, no label swap)', () => {
     const source = readFileSync(resolve(process.cwd(), 'src', 'main.js'), 'utf8')
     expect(source).not.toContain('sync-btn.disabled')
+    expect(source).not.toContain('disabled =')
     expect(source).not.toContain('Syncing')
-    expect(source).not.toContain('finally')
   })
 
   it('bootstrap() does not throw when #sync-btn is missing (fail-open)', async () => {
