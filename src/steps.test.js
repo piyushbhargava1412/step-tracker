@@ -13,10 +13,13 @@ import {
   MAX_RETRY_AFTER_MS,
   BACKFILL_COMPLETE_KEY,
   STEP_API_URL,
+  PHASE_FULL_HISTORY,
+  PHASE_INCREMENTAL,
   _localMidnight,
   _addDays,
   _formatLocalDate,
   _chunkWindow,
+  _determineSyncWindows,
 } from './steps.js';
 
 describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date helpers', () => {
@@ -357,5 +360,320 @@ describe('Task 3: _chunkWindow — newest-first calendar chunker', () => {
       expect(new Date(chunk.startMs).getHours()).toBe(0);
       expect(new Date(chunk.endMs).getHours()).toBe(0);
     }
+  });
+});
+
+// ── Task 4: _determineSyncWindows — two-segment window resolution ────────────
+
+describe('Task 4: _determineSyncWindows — two-segment window resolution', () => {
+  /** Fixed "now" for every test in this block: June 15, 2025 09:00 LOCAL time. */
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+
+  /**
+   * Build a minimal Dexie double exposing only the surface
+   * _determineSyncWindows is allowed to touch.
+   *
+   * @param {object}  opts
+   * @param {object=} opts.oldest         Row returned by orderBy('date').first()
+   * @param {object=} opts.latest         Row returned by orderBy('date').last()
+   * @param {object=} opts.flagRow        Row returned by settings.get(key)
+   * @param {Error=}  opts.settingsError  When set, settings.get rejects with it
+   */
+  function makeDb({ oldest, latest, flagRow, settingsError } = {}) {
+    const get = settingsError
+      ? vi.fn().mockRejectedValue(settingsError)
+      : vi.fn().mockResolvedValue(flagRow);
+    return {
+      settings: { get, put: vi.fn() },
+      daily_records: {
+        orderBy: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(oldest),
+          last: vi.fn().mockResolvedValue(latest),
+        }),
+      },
+    };
+  }
+
+  /** Tomorrow's local midnight relative to the frozen clock. */
+  const tomorrowMs = () => _addDays(_localMidnight(new Date()), 1).getTime();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Empty database ─────────────────────────────────────────────────────────
+
+  it('empty daily_records → a single anchor→tomorrow window tagged Full history sync', async () => {
+    const db = makeDb({ oldest: undefined, latest: undefined });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(1);
+    expect(windows[0].startMs).toBe(_localMidnight(HISTORY_ANCHOR_DATE).getTime());
+    expect(windows[0].endMs).toBe(tomorrowMs());
+    expect(windows[0].phase).toBe(PHASE_FULL_HISTORY);
+    expect(PHASE_FULL_HISTORY).toBe('Full history sync');
+  });
+
+  // ── Fully backfilled ───────────────────────────────────────────────────────
+
+  it("fully backfilled DB (oldest.date === '2013-01-01', flag true) → one incremental window", async () => {
+    const db = makeDb({
+      oldest: { date: '2013-01-01' },
+      latest: { date: '2025-06-14' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(1);
+    expect(windows[0].phase).toBe(PHASE_INCREMENTAL);
+    expect(PHASE_INCREMENTAL).toBe('Incremental sync');
+  });
+
+  it('oldest.date === HISTORY_ANCHOR_DATE with the flag absent → incremental window only', async () => {
+    const db = makeDb({
+      oldest: { date: '2013-01-01' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(1);
+    expect(windows[0].phase).toBe(PHASE_INCREMENTAL);
+  });
+
+  // ── Partially backfilled ───────────────────────────────────────────────────
+
+  it('partially backfilled DB with the flag absent → [Incremental sync, Full history sync]', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(2);
+    expect(windows[0].phase).toBe(PHASE_INCREMENTAL);
+    expect(windows[1].phase).toBe(PHASE_FULL_HISTORY);
+  });
+
+  it('the backfill segment leaves no uncovered day at the seam with the stored range', async () => {
+    // Stored rows already cover [oldest … latest]. The backfill window must reach
+    // at least the oldest stored day, and the incremental window must start no
+    // later than the latest stored day — so anchor→tomorrow is fully covered.
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+    const oldestMidnightMs = new Date(2024, 0, 10).getTime();
+    const latestMidnightMs = new Date(2025, 5, 14).getTime();
+
+    const [incremental, backfill] = await _determineSyncWindows(db);
+
+    expect(backfill.startMs).toBe(_localMidnight(HISTORY_ANCHOR_DATE).getTime());
+    expect(backfill.endMs).toBeGreaterThan(oldestMidnightMs);
+    expect(incremental.startMs).toBeLessThanOrEqual(latestMidnightMs);
+    expect(incremental.endMs).toBe(tomorrowMs());
+  });
+
+  it('backfill window end equals oldest local midnight plus one day (overlap guard)', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    const expectedEnd = _addDays(new Date(2024, 0, 10), 1).getTime();
+    expect(windows[1].endMs).toBe(expectedEnd);
+  });
+
+  // ── Latch flag semantics ───────────────────────────────────────────────────
+
+  it('flag row { value: true } → one incremental window even when oldest.date > anchor', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(1);
+    expect(windows[0].phase).toBe(PHASE_INCREMENTAL);
+    expect(db.settings.get).toHaveBeenCalledWith(BACKFILL_COMPLETE_KEY);
+  });
+
+  it('flag row { value: false } → treated as not complete; backfill window emitted', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: false },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(2);
+    expect(windows[1].phase).toBe(PHASE_FULL_HISTORY);
+  });
+
+  it("flag row with a truthy-but-not-true value ('yes') → treated as not complete", async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: 'yes' },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(2);
+  });
+
+  it('db.settings.get rejecting → treated as not complete; backfill emitted, no throw, error logged', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      settingsError: new Error('IDB read failed'),
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(2);
+    expect(windows[1].phase).toBe(PHASE_FULL_HISTORY);
+    expect(console.error).toHaveBeenCalled();
+    expect(console.error.mock.calls[0][0]).toContain('[steps]');
+  });
+
+  // ── Incremental start / window end arithmetic ──────────────────────────────
+
+  it('incremental start equals latest local midnight minus SAFETY_BUFFER_DAYS (10 days ago → 13 days ago)', async () => {
+    // Acceptance Scenario 3: newest record is 10 days old → window starts 13 days ago.
+    const latestDate = _addDays(_localMidnight(TODAY), -10);
+    const db = makeDb({
+      oldest: { date: '2013-01-01' },
+      latest: { date: _formatLocalDate(latestDate.getTime()) },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    const expectedStart = _addDays(_localMidnight(TODAY), -13);
+    expect(windows[0].startMs).toBe(expectedStart.getTime());
+    expect(new Date(windows[0].startMs).getHours()).toBe(0);
+    expect(SAFETY_BUFFER_DAYS).toBe(3);
+  });
+
+  it("resolves a 'YYYY-MM-DD' row date on its own local calendar day (never UTC-parsed)", async () => {
+    // new Date('2025-06-05') is UTC-parsed and would fall on June 4 in negative-offset
+    // zones, shifting the incremental start to June 1 instead of June 2.
+    const db = makeDb({
+      oldest: { date: '2013-01-01' },
+      latest: { date: '2025-06-05' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    const start = new Date(windows[0].startMs);
+    expect(start.getFullYear()).toBe(2025);
+    expect(start.getMonth()).toBe(5); // June
+    expect(start.getDate()).toBe(2);
+    expect(start.getHours()).toBe(0);
+  });
+
+  it('_localMidnight fails fast on a malformed date string rather than guessing', () => {
+    expect(() => _localMidnight('05/06/2025')).toThrow(TypeError);
+    expect(() => _localMidnight('2025-6-5')).toThrow(/YYYY-MM-DD/);
+    expect(() => _localMidnight('')).toThrow(TypeError);
+  });
+
+  it("every emitted window's bounds land on local midnight", async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    for (const window of windows) {
+      expect(new Date(window.startMs).getHours()).toBe(0);
+      expect(new Date(window.endMs).getHours()).toBe(0);
+      expect(new Date(window.startMs).getMinutes()).toBe(0);
+      expect(new Date(window.endMs).getMilliseconds()).toBe(0);
+    }
+  });
+
+  it("the recent window always ends at tomorrow's local midnight so today is refreshed", async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: _formatLocalDate(_localMidnight(TODAY).getTime()) },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows[0].endMs).toBe(new Date(2025, 5, 16).getTime());
+    expect(windows[0].endMs).toBe(tomorrowMs());
+  });
+
+  it('window objects are shaped { startMs, endMs, phase } — same base shape as _chunkWindow output', async () => {
+    const db = makeDb({
+      oldest: { date: '2024-01-10' },
+      latest: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    for (const window of windows) {
+      expect(Object.keys(window).sort()).toEqual(['endMs', 'phase', 'startMs']);
+      expect(typeof window.startMs).toBe('number');
+      expect(typeof window.endMs).toBe('number');
+      expect(window.endMs).toBeGreaterThan(window.startMs);
+    }
+  });
+
+  // ── Regression ─────────────────────────────────────────────────────────────
+
+  it('src/db.js still declares DB_VERSION = 1 and no sync_meta store', () => {
+    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
+    expect(dbContent).toContain('export const DB_VERSION = 1;');
+    expect(dbContent).not.toContain('sync_meta');
+  });
+
+  it('src/steps.js does not reference a sync_meta store or bump the schema', () => {
+    const stepsContent = fs.readFileSync(
+      path.resolve(__dirname, './steps.js'),
+      'utf-8'
+    );
+    // No sync_meta table access (a doc comment naming it is fine), no schema work.
+    expect(stepsContent).not.toMatch(/db\.sync_meta|['"]sync_meta['"]|sync_meta\s*:/);
+    expect(stepsContent).not.toContain('DB_VERSION');
+    expect(stepsContent).not.toContain('.version(');
+  });
+
+  it('sync() is still the untouched stub — this task does not orchestrate', async () => {
+    const db = makeDb({ oldest: undefined, latest: undefined });
+    const reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
+    const auth = { getAccessToken: vi.fn() };
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(reporter.sync).not.toHaveBeenCalled();
+    expect(auth.getAccessToken).not.toHaveBeenCalled();
   });
 });

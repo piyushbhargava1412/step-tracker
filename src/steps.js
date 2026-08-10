@@ -50,6 +50,15 @@ export const MAX_RETRY_AFTER_MS = 30_000;
 /** Key in the Dexie `settings` store that latches a completed backfill. */
 export const BACKFILL_COMPLETE_KEY = 'initial_backfill_complete';
 
+/** Phase tag for a window that walks history back to HISTORY_ANCHOR_DATE. */
+export const PHASE_FULL_HISTORY = 'Full history sync';
+
+/** Phase tag for the recent-days window fetched on every run. */
+export const PHASE_INCREMENTAL = 'Incremental sync';
+
+/** Matches the 'YYYY-MM-DD' primary key stored on every daily_records row. */
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Google Fit Dataset aggregate endpoint. */
 export const STEP_API_URL =
   'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
@@ -57,13 +66,28 @@ export const STEP_API_URL =
 // ── Private date helpers (exported for testability; _ prefix = impl detail) ──
 
 /**
- * Return a new Date at local midnight for the given Date or millisecond
- * timestamp. Never mutates the input.
+ * Return a new Date at local midnight for the given Date, millisecond
+ * timestamp, or 'YYYY-MM-DD' string (the daily_records primary-key form).
+ * Never mutates the input.
  *
- * @param {Date|number} dateOrMs
+ * The string form is split into numeric parts and rebuilt with
+ * new Date(y, m - 1, d) — never new Date('2025-06-05'), which the language
+ * parses as UTC midnight and which therefore resolves to the *previous*
+ * calendar day in every negative-offset timezone.
+ *
+ * @param {Date|number|string} dateOrMs
  * @returns {Date}
+ * @throws {TypeError} When given a string that is not 'YYYY-MM-DD'.
  */
 export function _localMidnight(dateOrMs) {
+  if (typeof dateOrMs === 'string') {
+    if (!LOCAL_DATE_PATTERN.test(dateOrMs)) {
+      throw new TypeError(`[steps] Expected a YYYY-MM-DD date, got "${dateOrMs}"`);
+    }
+    const [year, month, day] = dateOrMs.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
   const d =
     dateOrMs instanceof Date
       ? new Date(dateOrMs.getTime())
@@ -140,6 +164,73 @@ export function _chunkWindow(startDate, endDate) {
   }
 
   return chunks;
+}
+
+/**
+ * Resolve the sync windows for this run from persisted state alone.
+ *
+ * Every window ends at **tomorrow's** local midnight so today's partial record
+ * is refreshed on each run. Reads use only the existing `date` primary index —
+ * there is no `sync_meta` store and no schema bump.
+ *
+ *  - Empty DB              → one [anchor → tomorrow] window, PHASE_FULL_HISTORY.
+ *  - Non-empty DB          → PHASE_INCREMENTAL first, always:
+ *                            [latest − SAFETY_BUFFER_DAYS → tomorrow].
+ *  - Backfill still owed   → PHASE_FULL_HISTORY appended second:
+ *                            [anchor → oldest + 1 day]. The extra day is a
+ *                            deliberate one-bucket overlap guard at the seam.
+ *
+ * The latch is authoritative once set: a `true` flag suppresses the backfill
+ * window without any reconciliation against the `date` index — that derivation
+ * is exactly what the latch exists to avoid. Conversely a missing row, a falsy
+ * `value`, or a failed read all mean *not complete*: a redundant backfill is
+ * idempotent, a skipped one is silent data loss.
+ *
+ * @param {object} db  Dexie database exposing `settings` and `daily_records`.
+ * @returns {Promise<Array<{startMs: number, endMs: number, phase: string}>>}
+ *          Windows in processing order.
+ */
+export async function _determineSyncWindows(db) {
+  const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+  const endMs = _addDays(_localMidnight(new Date()), 1).getTime();
+
+  let backfillComplete = false;
+  try {
+    const flagRow = await db.settings.get(BACKFILL_COMPLETE_KEY);
+    backfillComplete = flagRow?.value === true;
+  } catch (error) {
+    // Fail open toward doing the work — never let a read error skip history.
+    console.error('[steps] Failed to read the backfill latch', error);
+  }
+
+  const oldest = await db.daily_records.orderBy('date').first();
+  const latest = await db.daily_records.orderBy('date').last();
+
+  if (!latest) {
+    return [{ startMs: anchorMs, endMs, phase: PHASE_FULL_HISTORY }];
+  }
+
+  const windows = [
+    {
+      startMs: _addDays(
+        _localMidnight(latest.date),
+        -SAFETY_BUFFER_DAYS
+      ).getTime(),
+      endMs,
+      phase: PHASE_INCREMENTAL,
+    },
+  ];
+
+  const oldestMidnight = _localMidnight(oldest.date);
+  if (!backfillComplete && oldestMidnight.getTime() > anchorMs) {
+    windows.push({
+      startMs: anchorMs,
+      endMs: _addDays(oldestMidnight, 1).getTime(),
+      phase: PHASE_FULL_HISTORY,
+    });
+  }
+
+  return windows;
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
