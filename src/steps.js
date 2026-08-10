@@ -626,10 +626,109 @@ export function createStepSync(auth, db, reporter, doc = document) {
 
   /**
    * Synchronise Google Fit step data into the local Dexie database.
-   * Full implementation added in Tasks 9 and 10; this is the scaffolded stub.
+   *
+   * Orchestration (decision 12a / 13 / 14 / 16): pre-flight token guard, a
+   * silent closure-scoped re-entrancy guard, the button busy state, window
+   * resolution, a strictly sequential per-chunk fetch→normalize→upsert loop,
+   * the backfill latch, a decision-12a success message, and a `finally` that
+   * restores the button and clears the guard without touching `#sync-status`.
+   *
+   * The `catch` stays minimal in Task 9 — the full error-message contract is
+   * Task 10's scope; it only logs here.
+   *
+   * @returns {Promise<void>}
    */
   async function sync() {
-    // TODO: implement in Tasks 9–10
+    // 1. Pre-flight token guard — before touching the button.
+    const token = auth.getAccessToken();
+    if (!token) {
+      reporter.sync('🔑 Connect your Google Account first');
+      return;
+    }
+
+    // 2. Silent re-entrancy guard — never clobbers the in-flight message.
+    if (isSyncing) return;
+
+    // 3. Button busy state — owned here, unwound in `finally`.
+    isSyncing = true;
+    const syncBtn = doc?.getElementById?.('sync-btn');
+    if (syncBtn) {
+      syncBtn.disabled = true;
+      syncBtn.textContent = 'Syncing…';
+    }
+
+    try {
+      // 4. Resolve the windows from persisted state (full/incremental).
+      const windows = await _determineSyncWindows(db);
+      const backfillRan = windows.some((w) => w.phase === PHASE_FULL_HISTORY);
+
+      if (backfillRan) {
+        reporter.sync(
+          '⏳ Full history sync — fetching all Google Fit data since 2013. This can take several minutes; keep this tab open.'
+        );
+      }
+
+      // 5. Flatten every window into chunk descriptors and tally the day count.
+      const chunks = [];
+      let dayCount = 0;
+      for (const window of windows) {
+        dayCount += Math.round((window.endMs - window.startMs) / BUCKET_MS);
+        for (const chunk of _chunkWindow(window.startMs, window.endMs)) {
+          chunks.push({ ...chunk, phase: window.phase });
+        }
+      }
+      const total = chunks.length;
+
+      // 6. Sequential fetch → normalize → upsert, one progress line per chunk.
+      for (let i = 0; i < total; i += 1) {
+        const chunk = chunks[i];
+        const index = i + 1;
+        reporter.sync(
+          `⏳ ${chunk.phase} — chunk ${index}/${total} (${_formatLocalDate(chunk.startMs)} → ${_formatLocalDate(chunk.endMs)})…`
+        );
+
+        const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
+        const records = _normalizeBuckets(raw.bucket ?? []);
+        await _upsertChunk(db, records);
+      }
+
+      // 7. Latch the backfill when a full-history window completed it.
+      if (backfillRan) {
+        await _latchBackfillComplete(db);
+      }
+
+      // 8. Success message variant (decision 12a).
+      const oldestRow = await db.daily_records.orderBy('date').first();
+      const oldestMs = oldestRow
+        ? _localMidnight(oldestRow.date).getTime()
+        : null;
+      const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+
+      if (backfillRan && oldestMs != null && oldestMs <= anchorMs) {
+        reporter.sync(
+          `✅ Synced ${dayCount} days across ${total} requests — full history complete back to ${_formatLocalDate(HISTORY_ANCHOR_DATE.getTime())}. Future syncs will be fast.`
+        );
+      } else if (backfillRan && oldestMs != null) {
+        reporter.sync(
+          `✅ Synced ${dayCount} days — history now goes back to ${_formatLocalDate(oldestMs)}; click Sync Steps again to continue the backfill.`
+        );
+      } else {
+        reporter.sync(
+          `✅ Synced ${dayCount} days (${total} request${total === 1 ? '' : 's'}) — up to date.`
+        );
+      }
+    } catch (error) {
+      // Minimal for Task 9 — Task 10 owns the full error-message contract.
+      console.error('[steps]', error);
+    } finally {
+      // 9. finally invariants: restore the button, clear the guard, and leave
+      //    #sync-status exactly as the last reporter.sync() wrote it.
+      if (syncBtn) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = 'Sync Steps';
+      }
+      isSyncing = false;
+    }
   }
 
   return { sync };

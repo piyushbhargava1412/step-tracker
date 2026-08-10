@@ -678,7 +678,7 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     expect(stepsContent).not.toContain('.version(');
   });
 
-  it('sync() is still the untouched stub — this task does not orchestrate', async () => {
+  it('sync() now orchestrates — a null token is caught by the pre-flight guard without touching the db', async () => {
     const db = makeDb({ oldest: undefined, latest: undefined });
     const reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
     const auth = { getAccessToken: vi.fn() };
@@ -686,8 +686,9 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     const engine = createStepSync(auth, db, reporter, document);
     await engine.sync();
 
-    expect(reporter.sync).not.toHaveBeenCalled();
-    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
+    expect(db.settings.get).not.toHaveBeenCalled();
   });
 });
 
@@ -1401,14 +1402,15 @@ describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit',
     }
   });
 
-  it('sync() remains the untouched stub — this task does not orchestrate', async () => {
+  it('sync() now orchestrates — a null token short-circuits before any db or fetch work', async () => {
+    auth.getAccessToken.mockReturnValue(null);
     const db = { daily_records: {}, settings: {} };
     const engine = createStepSync(auth, db, reporter, document);
 
     await engine.sync();
 
-    expect(reporter.sync).not.toHaveBeenCalled();
-    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
@@ -1835,5 +1837,566 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
     const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
     expect(dbContent).toContain('export const DB_VERSION = 1;');
     expect(dbContent).not.toContain('sync_meta');
+  });
+});
+
+// ── Task 9: sync() orchestrator — guards, run loop, progress and success ─────
+
+describe('Task 9: sync() orchestrator — guards, run loop, progress and success messages', () => {
+  /** Fixed "now" for every test in this block: June 15, 2025 09:00 local time. */
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+
+  let auth, db, reporter;
+
+  /**
+   * Build a stateful in-memory Dexie double. orderBy('date').first()/.last()
+   * sort the live row Map; bulkPut writes into it; settings is a Map-backed
+   * store; transaction executes its callback (like Task 7's tests).
+   */
+  function makeStatefulDb({ seed = [], flag = undefined } = {}) {
+    const rows = new Map(seed.map((r) => [r.date, r]));
+    let flagValue = flag;
+    const sortAsc = () =>
+      [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      settings: {
+        get: vi.fn(async (key) =>
+          flagValue === undefined ? undefined : { key, value: flagValue }
+        ),
+        put: vi.fn(async (row) => {
+          flagValue = row.value;
+        }),
+      },
+      daily_records: {
+        orderBy: vi.fn(() => ({
+          first: vi.fn(async () => sortAsc()[0]),
+          last: vi.fn(async () => {
+            const sorted = sortAsc();
+            return sorted[sorted.length - 1];
+          }),
+        })),
+        bulkGet: vi.fn(async (dates) => dates.map((d) => rows.get(d))),
+        bulkPut: vi.fn(async (records) => {
+          for (const r of records) rows.set(r.date, r);
+        }),
+      },
+      transaction: vi.fn(async (_mode, _table, callback) => callback()),
+      _rows: rows,
+    };
+  }
+
+  /**
+   * Build a scripted Dexie double. orderBy('date').first() returns firstSeq[i]
+   * for the i-th invocation (window resolution, latch re-read, final message
+   * read); last() always returns latestValue.
+   */
+  function makeScriptedDb({ firstSeq, latestValue, flagRow } = {}) {
+    const first = vi.fn();
+    for (const value of firstSeq) first.mockResolvedValueOnce(value);
+    first.mockResolvedValue(firstSeq[firstSeq.length - 1]);
+    return {
+      settings: {
+        get: vi.fn().mockResolvedValue(flagRow),
+        put: vi.fn().mockResolvedValue(undefined),
+      },
+      daily_records: {
+        orderBy: vi.fn().mockReturnValue({
+          first,
+          last: vi.fn().mockResolvedValue(latestValue),
+        }),
+        bulkGet: vi.fn().mockResolvedValue([]),
+        bulkPut: vi.fn().mockResolvedValue(undefined),
+      },
+      transaction: vi.fn(async (_mode, _table, callback) => callback()),
+    };
+  }
+
+  /** A full-shaped row for seeding the stateful double. */
+  function seedRow(date) {
+    return {
+      date,
+      original_steps: 100,
+      original_distance_km: 0.08,
+      effective_steps: 100,
+      effective_distance_km: 0.08,
+      is_overridden: false,
+      override: null,
+      synced_at: '2025-01-01T00:00:00.000Z',
+    };
+  }
+
+  /**
+   * Stub global fetch. The default implementation derives one bucket at the
+   * request body's startTimeMillis so a persisted oldest record converges to
+   * the anchor when a full backfill run completes.
+   */
+  function stubFetch(impl) {
+    const mock = impl
+      ? vi.fn(impl)
+      : vi.fn(async (_url, init) => {
+        const body = JSON.parse(init.body);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            bucket: [
+              {
+                startTimeMillis: String(body.startTimeMillis),
+                dataset: [
+                  {
+                    dataSourceId:
+                      'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
+                    point: [{ value: [{ intVal: 500 }] }],
+                  },
+                ],
+              },
+            ],
+          }),
+        };
+      });
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  }
+
+  /** The live #sync-btn element injected into the jsdom document. */
+  const syncBtn = () => document.getElementById('sync-btn');
+  const lastSyncMessage = () => {
+    const calls = reporter.sync.mock.calls;
+    return calls.length ? calls[calls.length - 1][0] : undefined;
+  };
+  const messages = () => reporter.sync.mock.calls.map((call) => call[0]);
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
+    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Pre-flight token guard (decision 14) ──────────────────────────────────
+
+  it('getAccessToken() returning null → the connect guard fires and fetch is never called', async () => {
+    const fetchMock = stubFetch();
+    auth.getAccessToken.mockReturnValue(null);
+    db = {};
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('getAccessToken() returning an empty string → the same guard fires', async () => {
+    const fetchMock = stubFetch();
+    auth.getAccessToken.mockReturnValue('');
+    db = {};
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('the token guard fires before the button is touched — sync-btn stays enabled', async () => {
+    stubFetch();
+    auth.getAccessToken.mockReturnValue(null);
+    db = {};
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Re-entrancy guard (decision 13) ───────────────────────────────────────
+
+  it('a second sync() while the first is in flight returns immediately and issues no fetch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = stubFetch(async () => {
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+    const first = engine.sync();
+
+    await vi.advanceTimersByTimeAsync(0);
+    const fetchCalls = fetchMock.mock.calls.length;
+    const messageCount = reporter.sync.mock.calls.length;
+
+    // The first run must genuinely be in flight — one fetch issued, hanging.
+    expect(fetchCalls).toBe(1);
+    expect(messageCount).toBe(1);
+
+    await engine.sync();
+
+    expect(fetchMock.mock.calls.length).toBe(fetchCalls);
+    expect(reporter.sync.mock.calls.length).toBe(messageCount);
+
+    release();
+    await first;
+  });
+
+  it('a re-entrant sync() does not overwrite the in-flight #sync-status message', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    stubFetch(async () => {
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+    const first = engine.sync();
+
+    await vi.advanceTimersByTimeAsync(0);
+    const inFlight = lastSyncMessage();
+
+    // The first run must genuinely be in flight — a progress line was written.
+    expect(inFlight).toContain('⏳');
+
+    await engine.sync();
+
+    expect(lastSyncMessage()).toBe(inFlight);
+    expect(reporter.sync).not.toHaveBeenCalledWith(
+      '🔑 Connect your Google Account first'
+    );
+
+    release();
+    await first;
+  });
+
+  // ── Button lifecycle (decision 12a finally contract) ──────────────────────
+
+  it('#sync-btn is disabled immediately after the entry guards pass, before any await resolves', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    stubFetch(async () => {
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+    const pending = engine.sync();
+
+    expect(syncBtn().disabled).toBe(true);
+    expect(syncBtn().textContent).toBe('Syncing…');
+
+    release();
+    await pending;
+  });
+
+  it('#sync-btn is re-enabled in finally after a successful run', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(syncBtn().disabled).toBe(false);
+  });
+
+  it('#sync-btn.textContent is restored to exactly "Sync Steps" in finally', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(syncBtn().textContent).toBe('Sync Steps');
+  });
+
+  it('a doc whose getElementById("sync-btn") returns null → sync() completes normally without throw', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, {
+      getElementById: () => null,
+    });
+    await expect(engine.sync()).resolves.toBeUndefined();
+    expect(lastSyncMessage()).toContain('up to date');
+  });
+
+  // ── Progress messages (decision 12a) ──────────────────────────────────────
+
+  it('a full backfill run writes the opening full-history message first', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, { date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(messages()[0]).toBe(
+      '⏳ Full history sync — fetching all Google Fit data since 2013. This can take several minutes; keep this tab open.'
+    );
+  });
+
+  it('a per-chunk ⏳ progress message is written for every chunk with the phase label and date range', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: { date: '2025-05-01' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const progress = messages().filter((m) => m.startsWith('⏳'));
+    expect(progress).toEqual([
+      '⏳ Incremental sync — chunk 1/2 (2025-05-17 → 2025-06-16)…',
+      '⏳ Incremental sync — chunk 2/2 (2025-04-28 → 2025-05-17)…',
+    ]);
+  });
+
+  // ── Per-chunk persistence and sequentiality ───────────────────────────────
+
+  it('each chunk is persisted immediately after its own fetch — fetch → upsert interleaving', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    const timeline = [];
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-05-01')] });
+    db.transaction.mockImplementation(async (_mode, _table, callback) => {
+      const result = await callback();
+      timeline.push('upsert');
+      return result;
+    });
+    stubFetch(async () => {
+      timeline.push('fetch');
+      return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(timeline).toEqual(['fetch', 'upsert', 'fetch', 'upsert']);
+  });
+
+  it('requests are strictly sequential — no chunk fetch overlaps the previous upsert', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    let active = 0;
+    let maxActive = 0;
+    db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-05-01')] });
+    stubFetch(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(maxActive).toBe(1);
+  });
+
+  // ── Success message variants (decision 12a) ───────────────────────────────
+
+  it('reports the completed-backfill success message when a full-history run reaches the anchor', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, { date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    const endMs = _addDays(_localMidnight(TODAY), 1).getTime();
+    const dayCount = Math.round((endMs - anchorMs) / BUCKET_MS);
+    const total = _chunkWindow(new Date(anchorMs), new Date(endMs)).length;
+
+    expect(lastSyncMessage()).toBe(
+      `✅ Synced ${dayCount} days across ${total} requests — full history complete back to 2013-01-01. Future syncs will be fast.`
+    );
+  });
+
+  it('reports the incremental "up to date" message when the backfill flag is already set', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [{ date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: { date: '2025-06-12' },
+      flagRow: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(lastSyncMessage()).toBe('✅ Synced 7 days (1 request) — up to date.');
+  });
+
+  it('reports the in-progress backfill message when the oldest record is still newer than the anchor', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [
+        { date: '2024-01-10' },
+        { date: '2024-01-10' },
+        { date: '2024-01-10' },
+      ],
+      latestValue: { date: '2025-06-14' },
+      flagRow: undefined,
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    const endMs = _addDays(_localMidnight(TODAY), 1).getTime();
+    const incStartMs = _addDays(
+      _localMidnight(new Date(2025, 5, 14)),
+      -SAFETY_BUFFER_DAYS
+    ).getTime();
+    const backfillEndMs = _addDays(
+      _localMidnight(new Date(2024, 0, 10)),
+      1
+    ).getTime();
+    const dayCount =
+      Math.round((endMs - incStartMs) / BUCKET_MS) +
+      Math.round((backfillEndMs - anchorMs) / BUCKET_MS);
+
+    expect(lastSyncMessage()).toBe(
+      `✅ Synced ${dayCount} days — history now goes back to 2024-01-10; click Sync Steps again to continue the backfill.`
+    );
+  });
+
+  // ── Backfill latch (decision 16) ──────────────────────────────────────────
+
+  it('writes the backfill completion latch exactly once when a full-history run completes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeScriptedDb({
+      firstSeq: [undefined, { date: '2013-01-01' }, { date: '2013-01-01' }],
+      latestValue: undefined,
+      flagRow: undefined,
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(db.settings.put).toHaveBeenCalledTimes(1);
+    expect(db.settings.put).toHaveBeenCalledWith({
+      key: BACKFILL_COMPLETE_KEY,
+      value: true,
+    });
+  });
+
+  // ── Interrupted-backfill resume (decision 16) ─────────────────────────────
+
+  it('a mid-backfill failure leaves the latch unwritten and the next sync resumes at the correct older date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    db = makeStatefulDb({ seed: [seedRow('2024-01-10'), seedRow('2025-06-14')] });
+
+    let callNo = 0;
+    let failMidBackfill = true;
+    const fetchMock = stubFetch(async (_url, init) => {
+      callNo += 1;
+      if (failMidBackfill && callNo === 2) throw new TypeError('network down');
+      const body = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          bucket: [
+            {
+              startTimeMillis: String(body.startTimeMillis),
+              dataset: [
+                {
+                  dataSourceId:
+                    'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
+                  point: [{ value: [{ intVal: 500 }] }],
+                },
+              ],
+            },
+          ],
+        }),
+      };
+    });
+
+    const engine = createStepSync(auth, db, reporter, document);
+
+    await engine.sync();
+    expect(db.settings.put).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
+    expect(lastSyncMessage()).not.toContain('✅');
+    expect(syncBtn().disabled).toBe(false);
+    expect(syncBtn().textContent).toBe('Sync Steps');
+
+    failMidBackfill = false;
+    callNo = 0;
+    fetchMock.mockClear();
+    db.settings.put.mockClear();
+
+    await engine.sync();
+
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body)
+    );
+    const backfillEndMs = _addDays(
+      _localMidnight(new Date(2024, 0, 10)),
+      1
+    ).getTime();
+    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    expect(bodies.some((b) => b.endTimeMillis === backfillEndMs)).toBe(true);
+    expect(bodies.some((b) => b.startTimeMillis === anchorMs)).toBe(true);
+    expect(db.settings.put).toHaveBeenCalledTimes(1);
+    expect(db.settings.put).toHaveBeenCalledWith({
+      key: BACKFILL_COMPLETE_KEY,
+      value: true,
+    });
   });
 });
