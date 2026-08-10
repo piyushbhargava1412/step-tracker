@@ -2640,6 +2640,14 @@ describe('Task 10: sync() error contract — every terminal path and the finally
 
   // ── Empty-store full-history success (latch guard + null-oldest branches) ──
 
+  // A full-history run over an empty store that persists zero buckets leaves
+  // oldestMs == null and falls through to the incremental "— up to date."
+  // success branch (decision 12a). This is a deliberate, pinned fallback, NOT
+  // the backfill-completed variant: nothing was persisted and the latch is not
+  // written (asserted below), so "full history complete… Future syncs will be
+  // fast" would be false. The case is degenerate — decision-6 zero-fill turns
+  // every real bucket into a stored record, so oldestMs is null only if the
+  // API returned no buckets at all for the whole window.
   it('a full-history run with no stored rows resolves via the empty-store success branch (latch guard, null oldest)', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(TODAY);
@@ -2661,7 +2669,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     const engine = createStepSync(auth, db, reporter, document);
     await expect(engine.sync()).resolves.toBeUndefined();
 
-    expect(lastSyncMessage()).toMatch(/^✅/);
+    expect(lastSyncMessage()).toContain('up to date');
     expect(statusText()).toBe(lastSyncMessage());
     expect(syncBtn().disabled).toBe(false);
     expect(syncBtn().textContent).toBe('Sync Steps');
