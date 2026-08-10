@@ -35,6 +35,13 @@ import {
   FAILURE_NETWORK_ERROR,
   SYNC_ERROR_NAME,
 } from './steps.js';
+import {
+  makeStatefulDb,
+  makeScriptedDb,
+  seedRow,
+  syncBtn,
+  lastSyncMessage as lastSyncMessageFor,
+} from './steps.fixtures.js';
 
 describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date helpers', () => {
   let auth, db, reporter, doc;
@@ -1850,83 +1857,6 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
   let auth, db, reporter;
 
   /**
-   * Build a stateful in-memory Dexie double. orderBy('date').first()/.last()
-   * sort the live row Map; bulkPut writes into it; settings is a Map-backed
-   * store; transaction executes its callback (like Task 7's tests).
-   */
-  function makeStatefulDb({ seed = [], flag = undefined } = {}) {
-    const rows = new Map(seed.map((r) => [r.date, r]));
-    let flagValue = flag;
-    const sortAsc = () =>
-      [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
-    return {
-      settings: {
-        get: vi.fn(async (key) =>
-          flagValue === undefined ? undefined : { key, value: flagValue }
-        ),
-        put: vi.fn(async (row) => {
-          flagValue = row.value;
-        }),
-      },
-      daily_records: {
-        orderBy: vi.fn(() => ({
-          first: vi.fn(async () => sortAsc()[0]),
-          last: vi.fn(async () => {
-            const sorted = sortAsc();
-            return sorted[sorted.length - 1];
-          }),
-        })),
-        bulkGet: vi.fn(async (dates) => dates.map((d) => rows.get(d))),
-        bulkPut: vi.fn(async (records) => {
-          for (const r of records) rows.set(r.date, r);
-        }),
-      },
-      transaction: vi.fn(async (_mode, _table, callback) => callback()),
-      _rows: rows,
-    };
-  }
-
-  /**
-   * Build a scripted Dexie double. orderBy('date').first() returns firstSeq[i]
-   * for the i-th invocation (window resolution, latch re-read, final message
-   * read); last() always returns latestValue.
-   */
-  function makeScriptedDb({ firstSeq, latestValue, flagRow } = {}) {
-    const first = vi.fn();
-    for (const value of firstSeq) first.mockResolvedValueOnce(value);
-    first.mockResolvedValue(firstSeq[firstSeq.length - 1]);
-    return {
-      settings: {
-        get: vi.fn().mockResolvedValue(flagRow),
-        put: vi.fn().mockResolvedValue(undefined),
-      },
-      daily_records: {
-        orderBy: vi.fn().mockReturnValue({
-          first,
-          last: vi.fn().mockResolvedValue(latestValue),
-        }),
-        bulkGet: vi.fn().mockResolvedValue([]),
-        bulkPut: vi.fn().mockResolvedValue(undefined),
-      },
-      transaction: vi.fn(async (_mode, _table, callback) => callback()),
-    };
-  }
-
-  /** A full-shaped row for seeding the stateful double. */
-  function seedRow(date) {
-    return {
-      date,
-      original_steps: 100,
-      original_distance_km: 0.08,
-      effective_steps: 100,
-      effective_distance_km: 0.08,
-      is_overridden: false,
-      override: null,
-      synced_at: '2025-01-01T00:00:00.000Z',
-    };
-  }
-
-  /**
    * Stub global fetch. The default implementation derives one bucket at the
    * request body's startTimeMillis so a persisted oldest record converges to
    * the anchor when a full backfill run completes.
@@ -1959,12 +1889,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     return mock;
   }
 
-  /** The live #sync-btn element injected into the jsdom document. */
-  const syncBtn = () => document.getElementById('sync-btn');
-  const lastSyncMessage = () => {
-    const calls = reporter.sync.mock.calls;
-    return calls.length ? calls[calls.length - 1][0] : undefined;
-  };
+  const lastSyncMessage = () => lastSyncMessageFor(reporter);
   const messages = () => reporter.sync.mock.calls.map((call) => call[0]);
 
   beforeEach(() => {
@@ -2414,82 +2339,6 @@ describe('Task 10: sync() error contract — every terminal path and the finally
 
   let auth, db, reporter, syncStatus;
 
-  /**
-   * Stateful in-memory Dexie double (mirrors Task 9's). orderBy('date').first()
-   * sorts the live row Map; bulkPut writes into it; settings is Map-backed;
-   * transaction executes its callback.
-   */
-  function makeStatefulDb({ seed = [], flag = undefined } = {}) {
-    const rows = new Map(seed.map((r) => [r.date, r]));
-    let flagValue = flag;
-    const sortAsc = () =>
-      [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
-    return {
-      settings: {
-        get: vi.fn(async (key) =>
-          flagValue === undefined ? undefined : { key, value: flagValue }
-        ),
-        put: vi.fn(async (row) => {
-          flagValue = row.value;
-        }),
-      },
-      daily_records: {
-        orderBy: vi.fn(() => ({
-          first: vi.fn(async () => sortAsc()[0]),
-          last: vi.fn(async () => {
-            const sorted = sortAsc();
-            return sorted[sorted.length - 1];
-          }),
-        })),
-        bulkGet: vi.fn(async (dates) => dates.map((d) => rows.get(d))),
-        bulkPut: vi.fn(async (records) => {
-          for (const r of records) rows.set(r.date, r);
-        }),
-      },
-      transaction: vi.fn(async (_mode, _table, callback) => callback()),
-      _rows: rows,
-    };
-  }
-
-  /**
-   * Scripted Dexie double (mirrors Task 9's). orderBy('date').first() resolves
-   * firstSeq[i] for the i-th invocation; last() always returns latestValue.
-   */
-  function makeScriptedDb({ firstSeq, latestValue, flagRow } = {}) {
-    const first = vi.fn();
-    for (const value of firstSeq) first.mockResolvedValueOnce(value);
-    first.mockResolvedValue(firstSeq[firstSeq.length - 1]);
-    return {
-      settings: {
-        get: vi.fn().mockResolvedValue(flagRow),
-        put: vi.fn().mockResolvedValue(undefined),
-      },
-      daily_records: {
-        orderBy: vi.fn().mockReturnValue({
-          first,
-          last: vi.fn().mockResolvedValue(latestValue),
-        }),
-        bulkGet: vi.fn().mockResolvedValue([]),
-        bulkPut: vi.fn().mockResolvedValue(undefined),
-      },
-      transaction: vi.fn(async (_mode, _table, callback) => callback()),
-    };
-  }
-
-  /** A full-shaped row for seeding the stateful double. */
-  function seedRow(date) {
-    return {
-      date,
-      original_steps: 100,
-      original_distance_km: 0.08,
-      effective_steps: 100,
-      effective_distance_km: 0.08,
-      is_overridden: false,
-      override: null,
-      synced_at: '2025-01-01T00:00:00.000Z',
-    };
-  }
-
   /** Minimal Response double (mirrors Task 6's). */
   function makeResponse(status, { json = { bucket: [] }, headers = {} } = {}) {
     return {
@@ -2505,11 +2354,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     return { startTimeMillis: String(ms), dataset: [] };
   }
 
-  const syncBtn = () => document.getElementById('sync-btn');
-  const lastSyncMessage = () => {
-    const calls = reporter.sync.mock.calls;
-    return calls.length ? calls[calls.length - 1][0] : undefined;
-  };
+  const lastSyncMessage = () => lastSyncMessageFor(reporter);
   const statusText = () => syncStatus.textContent;
 
   beforeEach(() => {
