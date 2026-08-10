@@ -6,6 +6,7 @@ import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
+import { createStepSync } from './steps.js'
 import { initTabs } from './tabs.js'
 
 export async function bootstrap(doc = document) {
@@ -34,13 +35,22 @@ export async function bootstrap(doc = document) {
   const auth = createAuth(config, reporter)
   auth.init()
 
-  // 6. Bind auth button
+  // 6. Step sync engine
+  const stepSync = createStepSync(auth, db, reporter, doc)
+
+  // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
     authBtn.addEventListener('click', () => auth.requestToken())
   }
 
-  // 7. Init tab navigation
+  // 8. Bind sync button
+  const syncBtn = doc.getElementById('sync-btn')
+  if (syncBtn) {
+    syncBtn.addEventListener('click', () => stepSync.sync())
+  }
+
+  // 9. Init tab navigation
   const tabBar = doc.querySelector('.tab-bar')
   if (tabBar) {
     initTabs(tabBar, doc)
