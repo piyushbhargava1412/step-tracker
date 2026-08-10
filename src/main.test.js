@@ -26,7 +26,7 @@ vi.mock('./db.js', () => ({
   createDb: vi.fn(() => mockDb),
   initDB: vi.fn(() => Promise.resolve()),
   DB_NAME: 'StepTrackerDB',
-  DB_VERSION: 1
+  DB_VERSION: 2
 }))
 
 vi.mock('./storage.js', () => ({
