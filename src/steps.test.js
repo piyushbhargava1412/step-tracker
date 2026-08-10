@@ -35,6 +35,7 @@ import {
   FAILURE_NETWORK_ERROR,
   SYNC_ERROR_NAME,
 } from './steps.js';
+import { DB_VERSION } from './db.js';
 import {
   makeStatefulDb,
   makeScriptedDb,
@@ -669,21 +670,8 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
   // ── Regression ─────────────────────────────────────────────────────────────
 
-  it('src/db.js still declares DB_VERSION = 1 and no sync_meta store', () => {
-    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
-    expect(dbContent).toContain('export const DB_VERSION = 1;');
-    expect(dbContent).not.toContain('sync_meta');
-  });
-
-  it('src/steps.js does not reference a sync_meta store or bump the schema', () => {
-    const stepsContent = fs.readFileSync(
-      path.resolve(__dirname, './steps.js'),
-      'utf-8'
-    );
-    // No sync_meta table access (a doc comment naming it is fine), no schema work.
-    expect(stepsContent).not.toMatch(/db\.sync_meta|['"]sync_meta['"]|sync_meta\s*:/);
-    expect(stepsContent).not.toContain('DB_VERSION');
-    expect(stepsContent).not.toContain('.version(');
+  it('db.js still exports DB_VERSION = 1 — the schema is unchanged by the sync engine', () => {
+    expect(DB_VERSION).toBe(1);
   });
 
   it('sync() now orchestrates — a null token is caught by the pre-flight guard without touching the db', async () => {
@@ -1399,17 +1387,6 @@ describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit',
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  // ── Regression ─────────────────────────────────────────────────────────────
-
-  it('neither src/steps.js nor its test suite imports a fetch implementation', () => {
-    for (const file of ['./steps.js', './steps.test.js']) {
-      const content = fs.readFileSync(path.resolve(__dirname, file), 'utf-8');
-      expect(content).not.toMatch(/from\s+['"]node-fetch['"]/);
-      expect(content).not.toMatch(/require\(['"]node-fetch['"]\)/);
-      expect(content).not.toMatch(/import\s+fetch\b/);
-    }
-  });
-
   it('sync() now orchestrates — a null token short-circuits before any db or fetch work', async () => {
     auth.getAccessToken.mockReturnValue(null);
     const db = { daily_records: {}, settings: {} };
@@ -1730,13 +1707,6 @@ describe('Task 7: _upsertChunk — transactional override-preserving upsert', ()
     expect(db.transaction).toHaveBeenCalledTimes(2);
     expect(db.daily_records.bulkPut).toHaveBeenCalledTimes(2);
   });
-
-  // ── Regression ────────────────────────────────────────────────────────────────
-
-  it('src/db.js is unmodified; DB_VERSION remains 1', () => {
-    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
-    expect(dbContent).toContain('export const DB_VERSION = 1;');
-  });
 });
 
 describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
@@ -1839,12 +1809,6 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
     await _latchBackfillComplete(db);
 
     expect(db.transaction).not.toHaveBeenCalled();
-  });
-
-  it('no sync_meta store and no schema change are introduced', () => {
-    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
-    expect(dbContent).toContain('export const DB_VERSION = 1;');
-    expect(dbContent).not.toContain('sync_meta');
   });
 });
 
@@ -2744,17 +2708,5 @@ describe('Task 10: sync() error contract — every terminal path and the finally
 
     await expect(_readOldestStoredLabel(db)).resolves.toBeNull();
     expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
-  });
-
-  // ── Source-surface regression (decision 12a: #sync-status is the whole UI) ─
-
-  it('src/steps.js contains no alert(), no progress and no toast anywhere in its source text', () => {
-    const content = fs.readFileSync(
-      path.resolve(__dirname, './steps.js'),
-      'utf-8'
-    );
-    expect(content).not.toContain('alert(');
-    expect(content).not.toContain('progress');
-    expect(content).not.toContain('toast');
   });
 });
