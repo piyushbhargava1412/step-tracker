@@ -159,6 +159,7 @@ export function createProgressUI(doc, goal, db, reporter) {
    */
   function _buildSelector() {
     const ERROR_MSG = '⚠️ Enter a distance greater than 0';
+    const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';
 
     const container = doc.createElement('div');
     container.className = 'goal-selector';
@@ -203,7 +204,7 @@ export function createProgressUI(doc, goal, db, reporter) {
           await render();
         } catch (_err) {
           const errEl = doc.getElementById('goal-error');
-          if (errEl) errEl.textContent = ERROR_MSG;
+          if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
         }
         return;
       }
@@ -221,7 +222,7 @@ export function createProgressUI(doc, goal, db, reporter) {
           await render();
         } catch (_err) {
           const errEl2 = doc.getElementById('goal-error');
-          if (errEl2) errEl2.textContent = ERROR_MSG;
+          if (errEl2) errEl2.textContent = GOAL_SAVE_ERROR;
         }
       }
     });

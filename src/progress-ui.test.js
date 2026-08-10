@@ -568,7 +568,7 @@ describe('createProgressUI', () => {
       await new Promise(r => setTimeout(r, 0));
 
       expect(doc.getElementById('goal-error').textContent).toBe(
-        '⚠️ Enter a distance greater than 0'
+        '⚠️ Failed to save goal — please try again'
       );
     });
 
@@ -587,7 +587,7 @@ describe('createProgressUI', () => {
       await new Promise(r => setTimeout(r, 0));
 
       expect(doc.getElementById('goal-error').textContent).toBe(
-        '⚠️ Enter a distance greater than 0'
+        '⚠️ Failed to save goal — please try again'
       );
     });
   });
