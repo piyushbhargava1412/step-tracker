@@ -186,36 +186,20 @@ describe('createGoal', () => {
   // ---- setActiveGoal ----
 
   describe('setActiveGoal', () => {
-    it('1 km → target_steps = 1312', async () => {
+    it.each([
+      { km: 1,  expectedSteps: 1312  },
+      { km: 3,  expectedSteps: 3937  },
+      { km: 5,  expectedSteps: 6562  },
+      { km: 10, expectedSteps: 13123 },
+    ])('$km km → persisted row has key=active_goal, target_steps=$expectedSteps', async ({ km, expectedSteps }) => {
       const goal = createGoal(mockDb);
-      await goal.setActiveGoal(1);
+      await goal.setActiveGoal(km);
       expect(mockPut).toHaveBeenCalledTimes(1);
       const arg = mockPut.mock.calls[0][0];
-      expect(arg.target_distance_km).toBe(1);
-      expect(arg.target_steps).toBe(1312);
       expect(arg.key).toBe('active_goal');
+      expect(arg.target_distance_km).toBe(km);
+      expect(arg.target_steps).toBe(expectedSteps);
       expect(arg.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    });
-
-    it('3 km → target_steps = 3937', async () => {
-      const goal = createGoal(mockDb);
-      await goal.setActiveGoal(3);
-      const arg = mockPut.mock.calls[0][0];
-      expect(arg.target_steps).toBe(3937);
-    });
-
-    it('5 km → target_steps = 6562', async () => {
-      const goal = createGoal(mockDb);
-      await goal.setActiveGoal(5);
-      const arg = mockPut.mock.calls[0][0];
-      expect(arg.target_steps).toBe(6562);
-    });
-
-    it('10 km → target_steps = 13123', async () => {
-      const goal = createGoal(mockDb);
-      await goal.setActiveGoal(10);
-      const arg = mockPut.mock.calls[0][0];
-      expect(arg.target_steps).toBe(13123);
     });
 
     it('4.5 km → target_steps = 5905, effective_from refreshed to today', async () => {
