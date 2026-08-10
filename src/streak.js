@@ -100,10 +100,20 @@ function _prepareGoalHistory(goalHistory) {
 function _resolvePreparedGoalForDate(valid, dateStr) {
   if (valid.length === 0) return DEFAULT_GOAL_KM;
 
-  let resolved = valid[0].target_distance_km; // seed baseline for pre-log dates
-  for (const row of valid) {
-    if (row.effective_from > dateStr) break;
-    resolved = row.target_distance_km; // `<=` so a same-day overwrite wins
+  if (dateStr < valid[0].effective_from) return valid[0].target_distance_km;
+
+  let low = 0;
+  let high = valid.length - 1;
+  let resolved = valid[0].target_distance_km;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const row = valid[middle];
+    if (row.effective_from <= dateStr) {
+      resolved = row.target_distance_km;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
   }
   return resolved;
 }
@@ -371,17 +381,7 @@ export function computeLifetime10k(records) {
   if (!Array.isArray(records) || records.length === 0) {
     return { total10k: 0, totalDays: 0, pct: 0 };
   }
-
-  const totalDays = records.length;
-  const total10k = records.filter(
-    (record) =>
-      record &&
-      Number.isFinite(record.effective_steps) &&
-      record.effective_steps >= LIFETIME_STEP_THRESHOLD,
-  ).length;
-
-  const pct = totalDays > 0 ? (total10k / totalDays) * 100 : 0; // division-by-zero guard
-  return { total10k, totalDays, pct };
+  return _computeLifetime10kPrepared(records);
 }
 
 function _computeLifetime10kPrepared(records) {
