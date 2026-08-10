@@ -299,12 +299,18 @@ export async function _determineSyncWindows(db) {
  * }>}
  */
 export function _normalizeBuckets(buckets) {
-  return buckets.map((bucket) => {
+  return buckets.flatMap((bucket) => {
     // ── Date label ────────────────────────────────────────────────────────────
     const millis =
       bucket.startTimeMillis != null
         ? Number(bucket.startTimeMillis)
         : Number(bucket.startTimeNanos) / 1_000_000;
+
+    // Fail-safe: a bucket with neither (or a non-numeric) timestamp would
+    // otherwise persist a 'NaN-NaN-NaN' primary key. Skip it instead.
+    if (!isFinite(millis)) {
+      return [];
+    }
     const date = _formatLocalDate(millis);
 
     // ── Dataset lookup ────────────────────────────────────────────────────────
@@ -336,14 +342,16 @@ export function _normalizeBuckets(buckets) {
       ? Number((metres / METRES_PER_KM).toFixed(3))
       : Number((steps * STEP_TO_KM).toFixed(3));
 
-    return {
-      date,
-      original_steps: steps,
-      original_distance_km: distanceKm,
-      effective_steps: steps,
-      effective_distance_km: distanceKm,
-      synced_at: new Date().toISOString(),
-    };
+    return [
+      {
+        date,
+        original_steps: steps,
+        original_distance_km: distanceKm,
+        effective_steps: steps,
+        effective_distance_km: distanceKm,
+        synced_at: new Date().toISOString(),
+      },
+    ];
   });
 }
 

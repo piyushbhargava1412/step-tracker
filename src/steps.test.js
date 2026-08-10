@@ -915,6 +915,20 @@ describe('Task 5: _normalizeBuckets — dual data type, zero-fill, distance fall
     expect(Number.isFinite(new Date(record.synced_at).getTime())).toBe(true);
   });
 
+  // ── 17: Both timestamp fields absent → bucket skipped, no NaN primary key ─────
+
+  it('a bucket with neither startTimeMillis nor startTimeNanos is skipped rather than persisted with a NaN date key', () => {
+    const bucket = { dataset: [] };
+    const records = _normalizeBuckets([bucket]);
+    expect(records.length).toBe(0);
+  });
+
+  it('a bucket with a non-numeric startTimeMillis is skipped rather than persisted with a NaN date key', () => {
+    const bucket = { startTimeMillis: 'not-a-number', dataset: [] };
+    const records = _normalizeBuckets([bucket]);
+    expect(records.length).toBe(0);
+  });
+
   // ── Output shape ─────────────────────────────────────────────────────────────
 
   it('every output record carries the full { date, original_steps, original_distance_km, effective_steps, effective_distance_km, synced_at } shape', () => {
