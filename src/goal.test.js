@@ -57,13 +57,19 @@ describe('createGoal', () => {
   let mockGet;
   let mockPut;
 
+  let mockHistoryPut;
+
   beforeEach(() => {
     mockGet = vi.fn();
     mockPut = vi.fn().mockResolvedValue(undefined);
+    mockHistoryPut = vi.fn().mockResolvedValue(undefined);
     mockDb = {
       settings: {
         get: mockGet,
         put: mockPut,
+      },
+      goal_history: {
+        put: mockHistoryPut,
       },
     };
   });
@@ -246,6 +252,37 @@ describe('createGoal', () => {
       // Should resolve (not reject)
       await expect(goal.setActiveGoal(3)).resolves.toBeUndefined();
       expect(consoleSpy).toHaveBeenCalledWith('[goal]', err);
+    });
+
+    it.each([
+      { km: 1,  expectedSteps: 1312  },
+      { km: 3,  expectedSteps: 3937  },
+      { km: 5,  expectedSteps: 6562  },
+      { km: 10, expectedSteps: 13123 },
+    ])('$km km → goal_history.put called once with exact row shape', async ({ km, expectedSteps }) => {
+      const goal = createGoal(mockDb);
+      await goal.setActiveGoal(km);
+      expect(mockHistoryPut).toHaveBeenCalledTimes(1);
+      const arg = mockHistoryPut.mock.calls[0][0];
+      expect(arg.target_distance_km).toBe(km);
+      expect(arg.target_steps).toBe(expectedSteps);
+      expect(arg.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it('goal_history.put rejects → resolves without throwing, settings.put still called', async () => {
+      const err = new Error('history write failed');
+      mockHistoryPut.mockRejectedValue(err);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const goal = createGoal(mockDb);
+      await expect(goal.setActiveGoal(3)).resolves.toBeUndefined();
+      expect(mockPut).toHaveBeenCalledTimes(1);
+    });
+
+    it('db without goal_history → setActiveGoal writes settings only, no throw', async () => {
+      const dbWithoutHistory = { settings: { get: vi.fn(), put: vi.fn().mockResolvedValue(undefined) } };
+      const goal = createGoal(dbWithoutHistory);
+      await expect(goal.setActiveGoal(3)).resolves.toBeUndefined();
+      expect(dbWithoutHistory.settings.put).toHaveBeenCalledTimes(1);
     });
   });
 });
