@@ -578,6 +578,32 @@ export async function _upsertChunk(db, records) {
   });
 }
 
+/**
+ * Latch the backfill as complete once the oldest stored record reaches or
+ * passes HISTORY_ANCHOR_DATE.
+ *
+ * Re-reads the oldest record itself — never trusts a caller-supplied value —
+ * and writes the terminal flag to the `settings` store. The write sits
+ * deliberately outside any `daily_records` transaction so a latch failure can
+ * never roll back step data. A failed write is logged and swallowed: the only
+ * consequence of a lost latch is one extra idempotent backfill pass, never a
+ * sync failure.
+ *
+ * @param {object} db  Dexie database exposing `daily_records` and `settings`.
+ * @returns {Promise<void>}
+ */
+export async function _latchBackfillComplete(db) {
+  try {
+    const oldest = await db.daily_records.orderBy('date').first();
+    if (!oldest) return;
+    if (_localMidnight(oldest.date).getTime() <= HISTORY_ANCHOR_DATE.getTime()) {
+      await db.settings.put({ key: BACKFILL_COMPLETE_KEY, value: true });
+    }
+  } catch (error) {
+    console.error('[steps]', error);
+  }
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**

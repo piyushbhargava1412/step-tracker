@@ -23,6 +23,7 @@ import {
   _normalizeBuckets,
   _fetchChunk,
   _upsertChunk,
+  _latchBackfillComplete,
   _sleep,
   _resolveBackoffMs,
   _syncFailure,
@@ -1725,5 +1726,114 @@ describe('Task 7: _upsertChunk — transactional override-preserving upsert', ()
   it('src/db.js is unmodified; DB_VERSION remains 1', () => {
     const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
     expect(dbContent).toContain('export const DB_VERSION = 1;');
+  });
+});
+
+describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
+  let db;
+
+  /**
+   * Build a minimal Dexie double exposing only the surface the latch touches.
+   *
+   * @param {object}  opts
+   * @param {object=} opts.oldest        Row returned by orderBy('date').first()
+   * @param {Error=}  opts.putError      When set, settings.put rejects with it
+   */
+  function makeDb({ oldest, putError } = {}) {
+    return {
+      daily_records: {
+        orderBy: vi.fn().mockReturnValue({
+          first: vi.fn().mockResolvedValue(oldest),
+        }),
+      },
+      settings: {
+        put: putError
+          ? vi.fn().mockRejectedValue(putError)
+          : vi.fn().mockResolvedValue(undefined),
+      },
+      transaction: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Oldest record reaches or passes the anchor → latch ─────────────────────
+
+  it("puts { key: BACKFILL_COMPLETE_KEY, value: true } when the oldest record reaches the anchor", async () => {
+    const db = makeDb({ oldest: { date: '2013-01-01' } });
+
+    await _latchBackfillComplete(db);
+
+    expect(db.settings.put).toHaveBeenCalledTimes(1);
+    expect(db.settings.put).toHaveBeenCalledWith({
+      key: BACKFILL_COMPLETE_KEY,
+      value: true,
+    });
+  });
+
+  it('latches when the oldest record predates the anchor (dates before 2013)', async () => {
+    const db = makeDb({ oldest: { date: '2012-12-31' } });
+
+    await _latchBackfillComplete(db);
+
+    expect(db.settings.put).toHaveBeenCalledTimes(1);
+    expect(db.settings.put).toHaveBeenCalledWith({
+      key: BACKFILL_COMPLETE_KEY,
+      value: true,
+    });
+  });
+
+  it('latches exactly once — a single put call for a single invocation', async () => {
+    const db = makeDb({ oldest: { date: '2013-01-01' } });
+
+    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db);
+
+    // Each invocation performs its own read+write; a single run writes once.
+    expect(db.daily_records.orderBy).toHaveBeenCalledWith('date');
+  });
+
+  // ── Oldest record still newer than the anchor → no latch ───────────────────
+
+  it('does not latch when the oldest record is still newer than the anchor', async () => {
+    const db = makeDb({ oldest: { date: '2013-01-02' } });
+
+    await _latchBackfillComplete(db);
+
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  // ── Rejected write is non-fatal ─────────────────────────────────────────────
+
+  it('a rejecting settings.put logs console.error and does not throw', async () => {
+    const putError = new Error('write blocked');
+    const db = makeDb({ oldest: { date: '2013-01-01' }, putError });
+
+    await expect(_latchBackfillComplete(db)).resolves.toBeUndefined();
+
+    expect(console.error).toHaveBeenCalledWith('[steps]', putError);
+  });
+
+  // ── Transaction isolation and schema ────────────────────────────────────────
+
+  it('the put is issued outside any db.transaction call', async () => {
+    const db = makeDb({ oldest: { date: '2013-01-01' } });
+
+    await _latchBackfillComplete(db);
+
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('no sync_meta store and no schema change are introduced', () => {
+    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
+    expect(dbContent).toContain('export const DB_VERSION = 1;');
+    expect(dbContent).not.toContain('sync_meta');
   });
 });
