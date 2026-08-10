@@ -11,6 +11,7 @@ import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
 export const HALL_OF_FAME_SIZE = 3; // podium entries
+const ZERO_TIER_STREAKS = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
 
 const MS_PER_DAY = 86_400_000; // ms
 
@@ -139,10 +140,13 @@ export function computeUnifiedStreak(records, goalHistory, today) {
   if (typeof today !== 'string' || today === '') return 0;
 
   const usable = _sortByDate(records.filter(_isValidRecord));
+  return _computeUnifiedStreakPrepared(usable, _prepareGoalHistory(goalHistory), today);
+}
+
+function _computeUnifiedStreakPrepared(usable, preparedGoals, today) {
   if (usable.length === 0) return 0;
 
   const byDate = new Map(usable.map((r) => [r.date, r]));
-  const preparedGoals = _prepareGoalHistory(goalHistory);
   const earliest = usable[0].date;
 
   let streak = 0;
@@ -195,13 +199,15 @@ export function computeUnifiedStreak(records, goalHistory, today) {
  * @returns {Array<{ threshold: number, active: number, best: number }>}
  */
 export function computeTierStreaks(records, today) {
-  const ZERO_STATE = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
-
-  if (!Array.isArray(records) || records.length === 0) return ZERO_STATE;
-  if (typeof today !== 'string' || today === '') return ZERO_STATE;
+  if (!Array.isArray(records) || records.length === 0) return ZERO_TIER_STREAKS;
+  if (typeof today !== 'string' || today === '') return ZERO_TIER_STREAKS;
 
   const usable = _sortByDate(records.filter(_isValidRecord));
-  if (usable.length === 0) return ZERO_STATE;
+  return _computeTierStreaksPrepared(usable, today);
+}
+
+function _computeTierStreaksPrepared(usable, today) {
+  if (usable.length === 0) return ZERO_TIER_STREAKS;
 
   const byDate = new Map(usable.map((r) => [r.date, r]));
   const earliest = usable[0].date;
@@ -285,10 +291,13 @@ export function computeHallOfFame(records, goalHistory) {
   if (!Array.isArray(records) || records.length === 0) return [];
 
   const usable = _sortByDate(records.filter(_isValidRecord));
+  return _computeHallOfFamePrepared(usable, _prepareGoalHistory(goalHistory));
+}
+
+function _computeHallOfFamePrepared(usable, preparedGoals) {
   if (usable.length === 0) return [];
 
   const periods = [];
-  const preparedGoals = _prepareGoalHistory(goalHistory);
   let periodStart = null;
   let periodEnd = null;
   let periodDays = 0;
@@ -375,6 +384,16 @@ export function computeLifetime10k(records) {
   return { total10k, totalDays, pct };
 }
 
+function _computeLifetime10kPrepared(records) {
+  if (records.length === 0) return { total10k: 0, totalDays: 0, pct: 0 };
+  const totalDays = records.length;
+  const total10k = records.filter(
+    (record) => record && Number.isFinite(record.effective_steps)
+      && record.effective_steps >= LIFETIME_STEP_THRESHOLD,
+  ).length;
+  return { total10k, totalDays, pct: (total10k / totalDays) * 100 };
+}
+
 // ── createStreak helper ────────────────────────────────────────────────────
 
 /**
@@ -409,18 +428,16 @@ export function createStreak(db) {
    * @returns {Promise<{ unified: number, tiers: Array, hallOfFame: Array, lifetime: object, activeGoalKm: number }>}
    */
   async function compute() {
-    const [records, activeGoal] = await Promise.all([
-      db.daily_records.toArray(),
-      db.settings.get('active_goal'),
-    ]);
-
-    let history = [];
-    try {
-      history = await db.goal_history.toArray();
-    } catch (err) {
+    const historyPromise = db.goal_history.toArray().catch((err) => {
       // History is an optional audit aid; current active_goal remains usable.
       console.error('[streak]', err);
-    }
+      return [];
+    });
+    const [records, activeGoal, history] = await Promise.all([
+      db.daily_records.toArray(),
+      db.settings.get('active_goal'),
+      historyPromise,
+    ]);
 
     const today = _localDate();
 
@@ -457,12 +474,14 @@ export function createStreak(db) {
     const filteredRecords = (Array.isArray(records) ? records : []).filter(
       (r) => r && typeof r.date === 'string' && r.date <= today,
     );
+    const preparedRecords = _sortByDate(filteredRecords.filter(_isValidRecord));
+    const preparedGoals = _prepareGoalHistory(goalHistory);
 
     return {
-      unified:     computeUnifiedStreak(filteredRecords, goalHistory, today),
-      tiers:       computeTierStreaks(filteredRecords, today),
-      hallOfFame:  computeHallOfFame(filteredRecords, goalHistory),
-      lifetime:    computeLifetime10k(filteredRecords),
+      unified:     _computeUnifiedStreakPrepared(preparedRecords, preparedGoals, today),
+      tiers:       _computeTierStreaksPrepared(preparedRecords, today),
+      hallOfFame:  _computeHallOfFamePrepared(preparedRecords, preparedGoals),
+      lifetime:    _computeLifetime10kPrepared(preparedRecords),
       activeGoalKm,
     };
   }

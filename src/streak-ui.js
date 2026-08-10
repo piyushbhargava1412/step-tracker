@@ -37,8 +37,11 @@ function _buildBanner(doc, lifetime) {
   banner.id = 'lifetime-banner';
 
   // SF-5: exact format — "${total10k.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')} Days (${pct.toFixed(1)}% Lifetime)"
-  banner.textContent =
-    `${total10k.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')} Days (${pct.toFixed(1)}% Lifetime)`;
+  const count = doc.createElement('span');
+  count.className = 'lifetime-count';
+  count.textContent = `${total10k.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')}`;
+  banner.appendChild(count);
+  banner.appendChild(doc.createTextNode(` Days (${pct.toFixed(1)}% Lifetime)`));
 
   return banner;
 }
