@@ -6,7 +6,7 @@
  * judged against the goal that was in force on D, never against today's goal.
  */
 
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
 
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
@@ -365,4 +365,92 @@ export function computeLifetime10k(records) {
 
   const pct = totalDays > 0 ? (total10k / totalDays) * 100 : 0; // division-by-zero guard
   return { total10k, totalDays, pct };
+}
+
+// ── createStreak helper ────────────────────────────────────────────────────
+
+/**
+ * Returns true if an active_goal row can produce a valid goalHistory entry.
+ * Requires a non-empty `effective_from` string and a finite positive `target_distance_km`.
+ *
+ * @param {*} row
+ * @returns {boolean}
+ */
+function _isValidActiveGoalForHistory(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (typeof row.effective_from !== 'string' || row.effective_from === '') return false;
+  return Number.isFinite(row.target_distance_km) && row.target_distance_km > 0;
+}
+
+/**
+ * Streak data factory — orchestrates Dexie reads and delegates computation to
+ * the pure functions above.  Zero DOM writes; error handling delegated to the
+ * render layer (streak-ui.js) — `compute()` intentionally rejects on any DB
+ * failure (mirrors `getTodayRecord`'s contract in src/progress.js:16-18).
+ *
+ * @param {{ daily_records: { toArray: Function }, goal_history: { toArray: Function }, settings: { get: Function } }} db
+ * @returns {{ compute: Function }}
+ */
+export function createStreak(db) {
+  /**
+   * Reads all three stores in parallel, applies the SF-1 synthetic-history
+   * fallback, filters future-dated records, and returns the full compute result.
+   *
+   * May reject — the render layer owns the try/catch and reports the error.
+   *
+   * @returns {Promise<{ unified: number, tiers: Array, hallOfFame: Array, lifetime: object, activeGoalKm: number }>}
+   */
+  async function compute() {
+    const [records, history, activeGoal] = await Promise.all([
+      db.daily_records.toArray(),
+      db.goal_history.toArray(),
+      db.settings.get('active_goal'),
+    ]);
+
+    const today = _localDate();
+
+    // ── SF-1 goalHistory fallback ─────────────────────────────────────────
+    // If goal_history has rows, use them directly.
+    // Otherwise, synthesize a single-entry history from the current active_goal
+    // so that pre-log records are evaluated against the active goal (fail-open).
+    // If active_goal is also absent/corrupt, pass [] — pure functions already
+    // fall back to DEFAULT_GOAL_KM via resolveGoalForDate (SF-12).
+    let goalHistory;
+    if (Array.isArray(history) && history.length > 0) {
+      goalHistory = history;
+    } else if (_isValidActiveGoalForHistory(activeGoal)) {
+      goalHistory = [
+        {
+          effective_from: activeGoal.effective_from,
+          target_distance_km: activeGoal.target_distance_km,
+          target_steps: activeGoal.target_steps,
+        },
+      ];
+    } else {
+      goalHistory = [];
+    }
+
+    // ── SF-3/SF-6 activeGoalKm ────────────────────────────────────────────
+    // Drives the goal label and active tier chip in streak-ui.  Falls back to
+    // DEFAULT_GOAL_KM for absent, corrupt, or non-positive values.
+    const rawKm = activeGoal?.target_distance_km;
+    const activeGoalKm = Number.isFinite(rawKm) && rawKm > 0 ? rawKm : DEFAULT_GOAL_KM;
+
+    // ── Filter future-dated records ───────────────────────────────────────
+    // Sync can deposit rows with a future date (clock skew, ahead-of-midnight
+    // writes).  They must not inflate HoF, best-ever, or active streak counts.
+    const filteredRecords = (Array.isArray(records) ? records : []).filter(
+      (r) => r && typeof r.date === 'string' && r.date <= today,
+    );
+
+    return {
+      unified:     computeUnifiedStreak(filteredRecords, goalHistory, today),
+      tiers:       computeTierStreaks(filteredRecords, today),
+      hallOfFame:  computeHallOfFame(filteredRecords, goalHistory),
+      lifetime:    computeLifetime10k(filteredRecords),
+      activeGoalKm,
+    };
+  }
+
+  return { compute };
 }

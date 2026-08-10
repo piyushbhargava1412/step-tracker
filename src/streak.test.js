@@ -1032,3 +1032,223 @@ describe('computeLifetime10k — guards (SF-13, division-by-zero)', () => {
     expect(result.pct).toBe(50.0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createStreak — factory (Task 6)
+// ---------------------------------------------------------------------------
+
+import { createStreak } from './streak.js';
+
+describe('createStreak — factory (data orchestration)', () => {
+  const TODAY = '2026-08-10';
+
+  function makeMockDb({ records = [], history = [], activeGoal = null } = {}) {
+    return {
+      daily_records: { toArray: vi.fn().mockResolvedValue(records) },
+      goal_history:  { toArray: vi.fn().mockResolvedValue(history) },
+      settings:      { get:     vi.fn().mockResolvedValue(activeGoal) },
+    };
+  }
+
+  beforeEach(() => {
+    // Pin _localDate() to TODAY so filtering and compute are deterministic.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T12:00:00'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // ── Happy path — store reads ────────────────────────────────────────────
+  it('reads daily_records.toArray(), goal_history.toArray(), and settings.get("active_goal")', async () => {
+    const db = makeMockDb();
+    const { compute } = createStreak(db);
+    await compute();
+    expect(db.daily_records.toArray).toHaveBeenCalledTimes(1);
+    expect(db.goal_history.toArray).toHaveBeenCalledTimes(1);
+    expect(db.settings.get).toHaveBeenCalledWith('active_goal');
+  });
+
+  // ── Happy path — result shape ───────────────────────────────────────────
+  it('compute() resolves an object with exactly five keys: unified, tiers, hallOfFame, lifetime, activeGoalKm', async () => {
+    const db = makeMockDb();
+    const { compute } = createStreak(db);
+    const result = await compute();
+    expect(Object.keys(result).sort()).toEqual(
+      ['activeGoalKm', 'hallOfFame', 'lifetime', 'tiers', 'unified'].sort(),
+    );
+  });
+
+  // ── Zero-state DB (SF-12) ───────────────────────────────────────────────
+  it('zero-state DB → exact SF-12 result (unified 0, tiers all 0, hallOfFame [], lifetime {0,0,0}, activeGoalKm 3.0)', async () => {
+    const db = makeMockDb({ records: [], history: [], activeGoal: null });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    expect(result.unified).toBe(0);
+    expect(result.hallOfFame).toEqual([]);
+    expect(result.lifetime).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
+    expect(result.activeGoalKm).toBe(3.0);
+
+    expect(result.tiers).toHaveLength(4);
+    result.tiers.forEach(({ active, best }) => {
+      expect(active).toBe(0);
+      expect(best).toBe(0);
+    });
+  });
+
+  // ── SF-1 fallback: empty goal_history + valid active_goal ──────────────
+  it('SF-1: empty goal_history + valid active_goal at 5.0 km → synthetic history; 3.5 km records fail the 5.0 km goal', async () => {
+    const activeGoal = {
+      key: 'active_goal',
+      effective_from: TODAY,
+      target_distance_km: 5.0,
+      target_steps: 6562,
+    };
+    // Records at 3.5 km (below the synthetic 5.0 km goal)
+    const records = [
+      { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
+      { date: '2026-08-08', effective_steps: 4593, effective_distance_km: 3.5 },
+    ];
+    const db = makeMockDb({ records, history: [], activeGoal });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // Pre-log dates resolve to the seed baseline (5.0 km); 3.5 km fails → unified 0
+    expect(result.unified).toBe(0);
+    expect(result.activeGoalKm).toBe(5.0);
+  });
+
+  it('SF-1: empty goal_history + valid active_goal at 5.0 km → 5.2 km records pass the 5.0 km goal', async () => {
+    const activeGoal = {
+      key: 'active_goal',
+      effective_from: '2026-08-01',
+      target_distance_km: 5.0,
+      target_steps: 6562,
+    };
+    const records = [
+      { date: '2026-08-09', effective_steps: 7000, effective_distance_km: 5.2 },
+      { date: '2026-08-08', effective_steps: 7000, effective_distance_km: 5.2 },
+    ];
+    const db = makeMockDb({ records, history: [], activeGoal });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // Both records at 5.2 km pass the synthetic 5.0 km goal; today (08-10) missing → skip
+    expect(result.unified).toBe(2);
+    expect(result.activeGoalKm).toBe(5.0);
+  });
+
+  // ── Both empty → DEFAULT_GOAL_KM ───────────────────────────────────────
+  it('both goal_history and active_goal absent → goalHistory [], activeGoalKm = DEFAULT_GOAL_KM (3.0)', async () => {
+    const db = makeMockDb({ records: [], history: [], activeGoal: null });
+    const { compute } = createStreak(db);
+    const result = await compute();
+    expect(result.activeGoalKm).toBe(3.0);
+  });
+
+  it('active_goal present but corrupt (non-finite target_distance_km) → goalHistory [], activeGoalKm = 3.0', async () => {
+    const db = makeMockDb({
+      activeGoal: { key: 'active_goal', effective_from: TODAY, target_distance_km: NaN, target_steps: 0 },
+    });
+    const { compute } = createStreak(db);
+    const result = await compute();
+    expect(result.activeGoalKm).toBe(3.0);
+  });
+
+  it('active_goal with target_distance_km <= 0 → activeGoalKm = DEFAULT_GOAL_KM', async () => {
+    const db = makeMockDb({
+      activeGoal: { key: 'active_goal', effective_from: TODAY, target_distance_km: 0, target_steps: 0 },
+    });
+    const { compute } = createStreak(db);
+    const result = await compute();
+    expect(result.activeGoalKm).toBe(3.0);
+  });
+
+  // ── DB read failures propagate (never swallowed) ─────────────────────
+  it('daily_records.toArray() rejecting → compute() rejects (never swallowed)', async () => {
+    const db = {
+      daily_records: { toArray: vi.fn().mockRejectedValue(new Error('DB read failed')) },
+      goal_history:  { toArray: vi.fn().mockResolvedValue([]) },
+      settings:      { get:     vi.fn().mockResolvedValue(null) },
+    };
+    const { compute } = createStreak(db);
+    await expect(compute()).rejects.toThrow('DB read failed');
+  });
+
+  it('goal_history.toArray() rejecting → compute() rejects', async () => {
+    const db = {
+      daily_records: { toArray: vi.fn().mockResolvedValue([]) },
+      goal_history:  { toArray: vi.fn().mockRejectedValue(new Error('History read failed')) },
+      settings:      { get:     vi.fn().mockResolvedValue(null) },
+    };
+    const { compute } = createStreak(db);
+    await expect(compute()).rejects.toThrow('History read failed');
+  });
+
+  it('settings.get() rejecting → compute() rejects', async () => {
+    const db = {
+      daily_records: { toArray: vi.fn().mockResolvedValue([]) },
+      goal_history:  { toArray: vi.fn().mockResolvedValue([]) },
+      settings:      { get:     vi.fn().mockRejectedValue(new Error('Settings read failed')) },
+    };
+    const { compute } = createStreak(db);
+    await expect(compute()).rejects.toThrow('Settings read failed');
+  });
+
+  // ── Future-dated records excluded ────────────────────────────────────
+  it('future-dated records (date > today) are filtered out before compute', async () => {
+    const records = [
+      { date: '2026-08-09', effective_steps: 7000, effective_distance_km: 5.0 },
+      { date: '2026-08-11', effective_steps: 7000, effective_distance_km: 5.0 }, // future
+    ];
+    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+    const db = makeMockDb({ records, history });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // Today (08-10) is missing → in-progress skip; 08-09 passes → unified 1
+    // 08-11 is future and should NOT inflate lifetime.totalDays
+    expect(result.unified).toBe(1);
+    expect(result.lifetime.totalDays).toBe(1); // only 08-09 survives the filter
+  });
+
+  it('today-dated record (date === today) is kept, not filtered', async () => {
+    const records = [
+      { date: TODAY, effective_steps: 7000, effective_distance_km: 5.0 },
+    ];
+    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+    const db = makeMockDb({ records, history });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // Today's record passes (5.0 >= 3.0) → unified 1
+    expect(result.unified).toBe(1);
+    expect(result.lifetime.totalDays).toBe(1);
+  });
+
+  // ── goal_history non-empty path ──────────────────────────────────────
+  it('non-empty goal_history is passed directly to pure functions (not synthesized)', async () => {
+    // history has one row at 3.0 km; active_goal has 5.0 km
+    // If synthesis occurred, the result would use 5.0 km; correct behaviour uses 3.0 km
+    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+    const activeGoal = {
+      key: 'active_goal',
+      effective_from: TODAY,
+      target_distance_km: 5.0,
+      target_steps: 6562,
+    };
+    const records = [
+      { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
+    ];
+    const db = makeMockDb({ records, history, activeGoal });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // 3.5 km passes 3.0 km goal (from real history); would fail 5.0 km (from active_goal)
+    expect(result.unified).toBe(1);
+    // activeGoalKm still comes from active_goal (for the UI label), not the history
+    expect(result.activeGoalKm).toBe(5.0);
+  });
+});
