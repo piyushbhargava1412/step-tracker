@@ -12,6 +12,8 @@ import {
   resolveGoalForDate,
   computeUnifiedStreak,
   computeTierStreaks,
+  computeHallOfFame,
+  computeLifetime10k,
 } from './streak.js';
 import { DEFAULT_GOAL_KM } from './goal.js';
 
@@ -705,5 +707,328 @@ describe('computeTierStreaks — zero-state and guards', () => {
       expect(active).toBe(0);
       expect(best).toBe(0);
     });
+  });
+});
+
+/** Builds a range of consecutive records starting at startDate for `days` days at `km`. */
+function buildPeriod(startDate, days, km) {
+  return Array.from({ length: days }, (_, i) => ({
+    date: shiftDate(startDate, i),
+    effective_steps: Math.round(km * 1312.33),
+    effective_distance_km: km,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — happy-path (30/20/10/5-day history → top-3)
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — 30/20/10/5-day history → top-3', () => {
+  // Periods separated by missing days (gaps):
+  //   Period A: 30 days  2026-01-01 .. 2026-01-30
+  //   gap:                2026-01-31 (missing)
+  //   Period B: 20 days  2026-02-01 .. 2026-02-20
+  //   gap:                2026-02-21 (missing)
+  //   Period C: 10 days  2026-02-22 .. 2026-03-03
+  //   gap:                2026-03-04 (missing)
+  //   Period D:  5 days  2026-03-05 .. 2026-03-09
+  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+  const RECORDS = [
+    ...buildPeriod('2026-01-01', 30, 3.5),
+    ...buildPeriod('2026-02-01', 20, 3.5),
+    ...buildPeriod('2026-02-22', 10, 3.5),
+    ...buildPeriod('2026-03-05',  5, 3.5),
+  ];
+
+  it('returns exactly HALL_OF_FAME_SIZE (3) periods', () => {
+    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
+    expect(result).toHaveLength(HALL_OF_FAME_SIZE);
+  });
+
+  it('top-3 are ranked by length: 30, 20, 10', () => {
+    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
+    expect(result.map((p) => p.days)).toEqual([30, 20, 10]);
+  });
+
+  it('each period has correct { startDate, endDate, days }', () => {
+    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
+    expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-30', days: 30 });
+    expect(result[1]).toEqual({ startDate: '2026-02-01', endDate: '2026-02-20', days: 20 });
+    expect(result[2]).toEqual({ startDate: '2026-02-22', endDate: '2026-03-03', days: 10 });
+  });
+
+  it('the 5-day period (rank 4) is excluded', () => {
+    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
+    expect(result.find((p) => p.days === 5)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — recency tie-break (SF-7)
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — equal-length periods → later startDate first (SF-7)', () => {
+  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+
+  it('two 10-day periods → the more recent one ranks first', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 10, 3.5), // ends 2026-01-10; gap at 2026-01-11
+      ...buildPeriod('2026-01-12', 10, 3.5), // ends 2026-01-21 (more recent)
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ startDate: '2026-01-12', endDate: '2026-01-21', days: 10 });
+    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-10', days: 10 });
+  });
+
+  it('three equal-length periods → all ranked by recency (most recent first)', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 5, 3.5), // gap at 06
+      ...buildPeriod('2026-01-07', 5, 3.5), // gap at 12
+      ...buildPeriod('2026-01-13', 5, 3.5), // most recent
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result.map((p) => p.startDate)).toEqual(['2026-01-13', '2026-01-07', '2026-01-01']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — missing/failing day splits
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — missing/failing day splits periods', () => {
+  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+
+  it('missing day between two passing records splits the period', () => {
+    const records = [
+      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
+      // 2026-01-02 missing
+      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(2);
+    // Equal days (1 each) → later startDate first
+    expect(result[0]).toEqual({ startDate: '2026-01-03', endDate: '2026-01-03', days: 1 });
+    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
+  });
+
+  it('failing day between two passing records splits the period', () => {
+    const records = [
+      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-01-02', effective_distance_km: 0.5, effective_steps: 656 }, // fails
+      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ startDate: '2026-01-03', endDate: '2026-01-03', days: 1 });
+    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
+  });
+
+  it('non-finite effective_distance_km fails and splits without throwing (SF-13)', () => {
+    const records = [
+      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-01-02', effective_distance_km: NaN, effective_steps: 9000 }, // non-finite
+      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
+    ];
+    expect(() => computeHallOfFame(records, GOAL_HISTORY)).not.toThrow();
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(2);
+    expect(result.every((p) => p.days === 1)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — no in-progress concept (SF-7)
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — no in-progress concept for today (SF-7)', () => {
+  const TODAY = '2026-08-10';
+  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+
+  it('today failing on its own record ends the current period — not skipped', () => {
+    const records = [
+      { date: '2026-08-07', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-08-08', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-08-09', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: TODAY, effective_distance_km: 1.0, effective_steps: 1312 }, // today fails
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ startDate: '2026-08-07', endDate: '2026-08-09', days: 3 });
+  });
+
+  it('today missing → open period closes at the last passing record (no in-progress extension)', () => {
+    const records = [
+      { date: '2026-08-07', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-08-08', effective_distance_km: 3.5, effective_steps: 4593 },
+      { date: '2026-08-09', effective_distance_km: 3.5, effective_steps: 4593 },
+      // 2026-08-10 (today) missing
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ startDate: '2026-08-07', endDate: '2026-08-09', days: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — edge cases
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — edge cases', () => {
+  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+
+  it('single passing day → period of 1 day', () => {
+    const records = [{ date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 }];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
+  });
+
+  it('empty records → [] (SF-12)', () => {
+    expect(computeHallOfFame([], GOAL_HISTORY)).toEqual([]);
+  });
+
+  it('null/undefined records → [] (guard)', () => {
+    expect(computeHallOfFame(null, GOAL_HISTORY)).toEqual([]);
+    expect(computeHallOfFame(undefined, GOAL_HISTORY)).toEqual([]);
+  });
+
+  it('all records failing → []', () => {
+    const records = [
+      { date: '2026-01-01', effective_distance_km: 0.5, effective_steps: 656 },
+      { date: '2026-01-02', effective_distance_km: 0.5, effective_steps: 656 },
+    ];
+    expect(computeHallOfFame(records, GOAL_HISTORY)).toEqual([]);
+  });
+
+  it('HoF applies the G(D) rule — goal change mid-history splits a period', () => {
+    // Days 1-10 pass against 3.0 km goal (3.5 >= 3.0 ✓)
+    // Days 11-20 fail against 5.0 km goal (3.5 < 5.0 ✗)
+    const history = [goalRow('2026-01-01', 3.0), goalRow('2026-01-11', 5.0)];
+    const records = buildPeriod('2026-01-01', 20, 3.5);
+    const result = computeHallOfFame(records, history);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-10', days: 10 });
+  });
+
+  it('fewer than HALL_OF_FAME_SIZE periods → returns all available (no padding)', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 5, 3.5),
+      // gap at 2026-01-06
+      ...buildPeriod('2026-01-07', 3, 3.5),
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(2); // < HALL_OF_FAME_SIZE = 3
+  });
+
+  it('corrupt/absent date keys in records are ignored before evaluation (guard)', () => {
+    const records = [
+      null,
+      { effective_distance_km: 3.5 }, // no date key
+      { date: '', effective_distance_km: 3.5 }, // empty date
+      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 }, // valid
+    ];
+    const result = computeHallOfFame(records, GOAL_HISTORY);
+    expect(result).toHaveLength(1);
+    expect(result[0].days).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLifetime10k — AC Scenario 4
+// ---------------------------------------------------------------------------
+describe('computeLifetime10k — AC Scenario 4 (40 of 100 days)', () => {
+  it('returns { total10k: 40, totalDays: 100, pct: 40.0 }', () => {
+    const records = [
+      ...Array.from({ length: 40 }, (_, i) => ({
+        date: shiftDate('2026-01-01', i),
+        effective_steps: 10_000, // exactly at threshold
+        effective_distance_km: 8.0,
+      })),
+      ...Array.from({ length: 60 }, (_, i) => ({
+        date: shiftDate('2026-01-01', 40 + i),
+        effective_steps: 5_000, // below threshold
+        effective_distance_km: 4.0,
+      })),
+    ];
+    expect(computeLifetime10k(records)).toEqual({ total10k: 40, totalDays: 100, pct: 40.0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLifetime10k — threshold boundary and rounding
+// ---------------------------------------------------------------------------
+describe('computeLifetime10k — threshold and rounding', () => {
+  it('exactly at threshold (10_000 steps) counts toward total10k', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 10_000, effective_distance_km: 8.0 },
+      { date: '2026-01-02', effective_steps: 9_999, effective_distance_km: 7.6 }, // below
+    ];
+    const result = computeLifetime10k(records);
+    expect(result.total10k).toBe(1);
+    expect(result.totalDays).toBe(2);
+    expect(result.pct).toBe(50.0);
+  });
+
+  it('one step above threshold counts', () => {
+    const records = [{ date: '2026-01-01', effective_steps: 10_001, effective_distance_km: 8.0 }];
+    expect(computeLifetime10k(records).total10k).toBe(1);
+  });
+
+  it('non-integer result computed without rounding (1 of 3 days → 33.33…)', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 10_000 },
+      { date: '2026-01-02', effective_steps: 5_000 },
+      { date: '2026-01-03', effective_steps: 5_000 },
+    ];
+    const result = computeLifetime10k(records);
+    expect(result.total10k).toBe(1);
+    expect(result.totalDays).toBe(3);
+    expect(result.pct).toBeCloseTo(33.333, 2);
+  });
+
+  it('all days at threshold → pct is 100.0', () => {
+    const records = Array.from({ length: 10 }, (_, i) => ({
+      date: shiftDate('2026-01-01', i),
+      effective_steps: 10_000,
+    }));
+    const result = computeLifetime10k(records);
+    expect(result).toEqual({ total10k: 10, totalDays: 10, pct: 100.0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeLifetime10k — guards (SF-13, division-by-zero)
+// ---------------------------------------------------------------------------
+describe('computeLifetime10k — guards (SF-13, division-by-zero)', () => {
+  it('non-finite effective_steps contributes 0 to total10k but counts in totalDays (SF-13)', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: NaN, effective_distance_km: 8.0 },
+      { date: '2026-01-02', effective_steps: Infinity, effective_distance_km: 8.0 },
+      { date: '2026-01-03', effective_steps: undefined, effective_distance_km: 8.0 },
+      { date: '2026-01-04', effective_steps: 10_000, effective_distance_km: 8.0 },
+    ];
+    const result = computeLifetime10k(records);
+    expect(result.total10k).toBe(1);
+    expect(result.totalDays).toBe(4);
+    expect(result.pct).toBe(25.0);
+  });
+
+  it('empty records → { total10k: 0, totalDays: 0, pct: 0 } — no division-by-zero', () => {
+    const result = computeLifetime10k([]);
+    expect(result).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
+    expect(Number.isFinite(result.pct)).toBe(true);
+    expect(Number.isNaN(result.pct)).toBe(false);
+  });
+
+  it('null/undefined records → { 0, 0, 0 } (guard)', () => {
+    expect(computeLifetime10k(null)).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
+    expect(computeLifetime10k(undefined)).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
+  });
+
+  it('null entries in the array contribute to totalDays but 0 to total10k', () => {
+    const records = [
+      null,
+      { date: '2026-01-02', effective_steps: 10_000 },
+    ];
+    const result = computeLifetime10k(records);
+    expect(result.totalDays).toBe(2);
+    expect(result.total10k).toBe(1);
+    expect(result.pct).toBe(50.0);
   });
 });

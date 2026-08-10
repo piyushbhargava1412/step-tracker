@@ -260,3 +260,109 @@ export function computeTierStreaks(records, today) {
     return { threshold, active, best };
   });
 }
+
+/**
+ * Hall of Fame — top-N longest unified streak periods.
+ *
+ * Single ascending pass (SF-14): walks sorted records, evaluates each day
+ * against G(D), and splits the current period at any failing or missing day.
+ * No in-progress concept — today passes or fails on its own record (SF-7).
+ * Periods are ranked by `days` desc, then `startDate` desc (recency
+ * tie-break, SF-7). Returns up to `HALL_OF_FAME_SIZE` entries.
+ *
+ * @param {Array<{ date: string, effective_distance_km: number }>} records
+ * @param {Array<{ effective_from: string, target_distance_km: number }>} goalHistory
+ * @returns {Array<{ startDate: string, endDate: string, days: number }>}
+ */
+export function computeHallOfFame(records, goalHistory) {
+  if (!Array.isArray(records) || records.length === 0) return [];
+
+  const usable = _sortByDate(records.filter(_isValidRecord));
+  if (usable.length === 0) return [];
+
+  const periods = [];
+  let periodStart = null;
+  let periodEnd = null;
+  let periodDays = 0;
+  let prevDate = null;
+
+  for (const record of usable) {
+    const date = record.date;
+    const distance = Number.isFinite(record.effective_distance_km)
+      ? record.effective_distance_km
+      : 0; // SF-13: non-finite fails the day
+    const goalKm = resolveGoalForDate(goalHistory, date);
+    const passes = distance >= goalKm;
+
+    // A passing day extends the period only when it is calendar-consecutive.
+    const isConsecutive = prevDate !== null && date === _addDaysUtc(prevDate, 1);
+
+    if (passes) {
+      if (periodStart !== null && isConsecutive) {
+        // Extend the open period
+        periodEnd = date;
+        periodDays += 1;
+      } else {
+        // Close any open period before starting a new one
+        if (periodStart !== null) {
+          periods.push({ startDate: periodStart, endDate: periodEnd, days: periodDays });
+        }
+        periodStart = date;
+        periodEnd = date;
+        periodDays = 1;
+      }
+    } else {
+      // Failing day — close the open period (if any)
+      if (periodStart !== null) {
+        periods.push({ startDate: periodStart, endDate: periodEnd, days: periodDays });
+        periodStart = null;
+        periodEnd = null;
+        periodDays = 0;
+      }
+    }
+
+    prevDate = date;
+  }
+
+  // Close the final open period
+  if (periodStart !== null) {
+    periods.push({ startDate: periodStart, endDate: periodEnd, days: periodDays });
+  }
+
+  // Rank: days desc; same days → later startDate first (recency tie-break, SF-7)
+  periods.sort((a, b) => {
+    if (b.days !== a.days) return b.days - a.days;
+    // Descending startDate: a more recent than b → a before b (return -1)
+    return a.startDate > b.startDate ? -1 : a.startDate < b.startDate ? 1 : 0;
+  });
+
+  return periods.slice(0, HALL_OF_FAME_SIZE);
+}
+
+/**
+ * Lifetime 10k-step metrics (AC Scenario 4).
+ *
+ * `totalDays` is the full record count; `total10k` counts records whose
+ * `effective_steps` is finite and `>= LIFETIME_STEP_THRESHOLD` (SF-13:
+ * non-finite steps contribute 0). Division-by-zero guard: `pct = 0` when
+ * there are no records.
+ *
+ * @param {Array<{ effective_steps: number }>} records
+ * @returns {{ total10k: number, totalDays: number, pct: number }}
+ */
+export function computeLifetime10k(records) {
+  if (!Array.isArray(records) || records.length === 0) {
+    return { total10k: 0, totalDays: 0, pct: 0 };
+  }
+
+  const totalDays = records.length;
+  const total10k = records.filter(
+    (record) =>
+      record &&
+      Number.isFinite(record.effective_steps) &&
+      record.effective_steps >= LIFETIME_STEP_THRESHOLD,
+  ).length;
+
+  const pct = totalDays > 0 ? (total10k / totalDays) * 100 : 0; // division-by-zero guard
+  return { total10k, totalDays, pct };
+}
