@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `7885320b799cb2d504ca189beba691d0e1a4d2cc`
-- generated-at: `2026-08-09T00:00:00Z`
+- verification-commit: `d5f49974faf6d3136c3e19c2f7c278c919e86cb1`
+- generated-at: `2026-08-10T00:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -13,7 +13,7 @@
 - `package-lock.json` — lockfile
 - `vite.config.js` — Vite dev/build config and Vitest test config (`jsdom` environment)
 - `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
-- `README.md` — minimal project title
+- `README.md` — setup guide, Google Cloud Console registration, and Step Sync engine documentation
 - `.arcus/plans/PRD.md` — detailed product requirements and future module vision
 
 ## Tech Stack
@@ -33,8 +33,9 @@
 - `DOMContentLoaded` → `bootstrap()` in `src/main.js` (composition root)
 - UI event handlers (bound in `src/main.js`):
   - `#auth-btn` click → `auth.requestToken()` (from `src/auth.js`)
+  - `#sync-btn` click → `stepSync.sync()` (from `src/steps.js`, wired as `createStepSync(auth, db, reporter, doc)`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
-- Step sync and streak calculation not yet re-implemented in `src/` (see Historical Step Sync and Streak Calculation Render flow files)
+- Streak calculation not yet re-implemented in `src/` (see Streak Calculation Render flow file)
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
@@ -44,12 +45,13 @@
 - Persistent storage request: `src/storage.js` (`requestPersistentStorage`)
 - Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
+- Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch)
 - UI structure: `index.html` (tab-bar + tab-panel layout)
 - Presentation: `styles.css` (dark theme, tab bar, panels)
-- Step sync / streak calculation: not yet in `src/` (see flow files)
+- Streak calculation: not yet in `src/` (see Streak Calculation Render flow file)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, styles, docs
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 
