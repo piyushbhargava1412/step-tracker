@@ -1,13 +1,10 @@
 /**
  * Pure computation module for today's progress.
- * No DOM, no Dexie import, no imports from other src/ modules.
+ * No DOM, no Dexie import.
  * All collaborators are injected.
  */
 
-// Private constants — NOT imported from goal.js (no cross-module imports)
-const KM_TO_STEPS = 1312.33;
-const DEFAULT_GOAL_KM = 3.0;
-const DEFAULT_GOAL_STEPS = Math.round(DEFAULT_GOAL_KM * KM_TO_STEPS); // 3937
+import { KM_TO_STEPS, DEFAULT_GOAL_KM, DEFAULT_GOAL_STEPS } from './goal.js';
 
 /**
  * Local-time YYYY-MM-DD formatter.
