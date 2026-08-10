@@ -20,9 +20,10 @@ import { GOAL_PRESETS_KM } from './goal.js';
  * @param {{ getActiveGoal: Function }} goal  - Goal Commitment engine instance
  * @param {object} db             - Injected Dexie db handle
  * @param {{ db: Function }} reporter         - Status reporter (ui-status channel)
+ * @param {Function} onGoalApplied - Optional callback invoked after successful goal apply (default no-op)
  * @returns {{ render: Function }}
  */
-export function createProgressUI(doc, goal, db, reporter) {
+export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
   /**
    * Build the progress card HTML element from progress data.
    *
@@ -202,6 +203,11 @@ export function createProgressUI(doc, goal, db, reporter) {
         try {
           await goal.setActiveGoal(Number(preset));
           await render();
+          try {
+            onGoalApplied();
+          } catch (err) {
+            console.error('[progress]', err);
+          }
         } catch (_err) {
           const errEl = doc.getElementById('goal-error');
           if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
@@ -220,6 +226,11 @@ export function createProgressUI(doc, goal, db, reporter) {
         try {
           await goal.setActiveGoal(v);
           await render();
+          try {
+            onGoalApplied();
+          } catch (err) {
+            console.error('[progress]', err);
+          }
         } catch (_err) {
           const errEl2 = doc.getElementById('goal-error');
           if (errEl2) errEl2.textContent = GOAL_SAVE_ERROR;
