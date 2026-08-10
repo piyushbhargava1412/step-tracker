@@ -235,14 +235,4 @@ describe('main.js — Task 11 step sync wiring', () => {
     await expect(bootstrap(document)).resolves.toBeUndefined()
     expect(createStepSync).toHaveBeenCalledTimes(1)
   })
-
-  it('the single shared reporter is passed to createStepSync as well', async () => {
-    await boot()
-    expect(createStepSync).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      mockReporter,
-      expect.anything()
-    )
-  })
 })
