@@ -1,8 +1,8 @@
 # Flow: Historical Step Sync (Chunked Google Fit Aggregate Fetch)
 
 <!-- context-meta
-verification-commit: cd96906f6f225737f6ffc4dc188ee71ada14fb17
-generated-at: 2026-08-10T15:48:19Z
+verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
+generated-at: 2026-08-10T15:55:56Z
 confidence: high
 -->
 
