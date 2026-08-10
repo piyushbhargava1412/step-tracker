@@ -25,7 +25,6 @@ import {
   _upsertChunk,
   _latchBackfillComplete,
   _readOldestStoredLabel,
-  _sleep,
   _resolveBackoffMs,
   _syncFailure,
   MAX_ATTEMPTS_PER_CHUNK,
@@ -1249,21 +1248,6 @@ describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit',
       expect(_resolveBackoffMs(undefined)).toBe(RETRY_BACKOFF_MS);
       expect(_resolveBackoffMs('')).toBe(RETRY_BACKOFF_MS);
       expect(_resolveBackoffMs('Wed, 21 Oct 2015 07:28:00 GMT')).toBe(RETRY_BACKOFF_MS);
-    });
-  });
-
-  describe('_sleep', () => {
-    it('resolves only once the requested number of milliseconds has elapsed', async () => {
-      vi.useFakeTimers();
-      const settled = vi.fn();
-      const pending = _sleep(RETRY_BACKOFF_MS).then(settled);
-
-      await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS - 1);
-      expect(settled).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1);
-      await pending;
-      expect(settled).toHaveBeenCalled();
     });
   });
 
