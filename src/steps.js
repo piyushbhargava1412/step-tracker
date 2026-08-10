@@ -502,6 +502,82 @@ export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
   throw fail(FAILURE_RETRY_EXHAUSTED, lastStatus);
 }
 
+// ── Transactional upsert ─────────────────────────────────────────────────────
+
+/**
+ * Persist one chunk's normalized records into `daily_records` under a Dexie
+ * `rw` transaction, merging against existing rows so user-authored overrides
+ * survive.
+ *
+ * Merge rules (Decision 3):
+ *  - Absent row      → insert a fresh record with `is_overridden: false` and
+ *                       `override: null`.
+ *  - `is_overridden !== true` → overwrite `original_*` AND `effective_*`;
+ *                               refresh `synced_at`.
+ *  - `is_overridden === true` → overwrite `original_*` ONLY; carry
+ *                               `effective_*` and the `override` metadata
+ *                               object through byte-for-byte; refresh
+ *                               `synced_at`.
+ *
+ * Transaction scope is one chunk (≤30 dates) — never the whole run.
+ * Exactly one `bulkGet` and one `bulkPut` are issued per call.
+ *
+ * @param {object} db       Dexie database exposing `daily_records`.
+ * @param {Array<{
+ *   date: string,
+ *   original_steps: number,
+ *   original_distance_km: number,
+ *   effective_steps: number,
+ *   effective_distance_km: number,
+ *   synced_at: string,
+ * }>} records  Normalized records from `_normalizeBuckets` for this chunk.
+ * @returns {Promise<void>}
+ */
+export async function _upsertChunk(db, records) {
+  return db.transaction('rw', db.daily_records, async () => {
+    const dates = records.map((r) => r.date);
+    const existing = await db.daily_records.bulkGet(dates);
+
+    const synced_at = new Date().toISOString();
+    const merged = records.map((record, i) => {
+      const row = existing[i];
+
+      if (!row) {
+        // Absent → insert with sentinel defaults.
+        return {
+          ...record,
+          is_overridden: false,
+          override: null,
+          synced_at,
+        };
+      }
+
+      if (row.is_overridden === true) {
+        // Present and overridden → update original_* only; carry effective_*
+        // and the override object through unchanged.
+        return {
+          ...row,
+          original_steps: record.original_steps,
+          original_distance_km: record.original_distance_km,
+          synced_at,
+        };
+      }
+
+      // Present and not overridden → overwrite both original_* and effective_*.
+      return {
+        ...row,
+        original_steps: record.original_steps,
+        original_distance_km: record.original_distance_km,
+        effective_steps: record.effective_steps,
+        effective_distance_km: record.effective_distance_km,
+        synced_at,
+      };
+    });
+
+    await db.daily_records.bulkPut(merged);
+  });
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**

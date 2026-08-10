@@ -22,6 +22,7 @@ import {
   _determineSyncWindows,
   _normalizeBuckets,
   _fetchChunk,
+  _upsertChunk,
   _sleep,
   _resolveBackoffMs,
   _syncFailure,
@@ -1408,5 +1409,321 @@ describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit',
     expect(reporter.sync).not.toHaveBeenCalled();
     expect(auth.getAccessToken).not.toHaveBeenCalled();
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+// ── Task 7: _upsertChunk — transactional override-preserving upsert ────────────
+
+describe('Task 7: _upsertChunk — transactional override-preserving upsert', () => {
+  /** Timestamp captured just before each test; used to assert synced_at is refreshed. */
+  let testStartTimestamp;
+
+  /** Shared db double — transaction mock calls its callback; bulkGet/bulkPut spied. */
+  let db;
+
+  /**
+   * Build one incoming API record (the shape _normalizeBuckets produces).
+   */
+  function makeApiRecord({
+    date = '2025-06-15',
+    original_steps = 5000,
+    original_distance_km = 3.81,
+    effective_steps = 5000,
+    effective_distance_km = 3.81,
+  } = {}) {
+    return {
+      date,
+      original_steps,
+      original_distance_km,
+      effective_steps,
+      effective_distance_km,
+      synced_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Build a pre-existing DB row with full columns.
+   */
+  function makeExistingRow({
+    date = '2025-06-15',
+    original_steps = 3000,
+    original_distance_km = 2.286,
+    effective_steps = 3000,
+    effective_distance_km = 2.286,
+    is_overridden = false,
+    override = null,
+    synced_at = '2025-01-01T00:00:00.000Z',
+  } = {}) {
+    return {
+      date,
+      original_steps,
+      original_distance_km,
+      effective_steps,
+      effective_distance_km,
+      is_overridden,
+      override,
+      synced_at,
+    };
+  }
+
+  beforeEach(() => {
+    testStartTimestamp = Date.now();
+
+    db = {
+      daily_records: {
+        orderBy: vi.fn(),
+        first: vi.fn(),
+        last: vi.fn(),
+        bulkGet: vi.fn(),
+        bulkPut: vi.fn(),
+      },
+      settings: { get: vi.fn(), put: vi.fn() },
+      transaction: vi.fn(),
+    };
+
+    // Make db.transaction actually execute the callback so the inner logic runs.
+    db.transaction.mockImplementation(async (_mode, _table, callback) => {
+      return callback();
+    });
+
+    db.daily_records.bulkPut.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── Absent date → insert with sentinel defaults ─────────────────────────────
+
+  it('absent date is inserted with is_overridden: false and override: null', async () => {
+    const record = makeApiRecord();
+    db.daily_records.bulkGet.mockResolvedValue([undefined]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows.length).toBe(1);
+    expect(rows[0].is_overridden).toBe(false);
+    expect(rows[0].override).toBeNull();
+  });
+
+  it('absent date is inserted with original_steps and effective_steps from the API record', async () => {
+    // _normalizeBuckets always sets effective_steps === original_steps on a fresh API record.
+    const record = makeApiRecord({ original_steps: 7500, effective_steps: 7500 });
+    db.daily_records.bulkGet.mockResolvedValue([undefined]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(7500);
+    expect(rows[0].effective_steps).toBe(7500);
+  });
+
+  it('absent date: synced_at is an ISO 8601 string >= testStartTimestamp', async () => {
+    const record = makeApiRecord();
+    db.daily_records.bulkGet.mockResolvedValue([undefined]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    const syncedMs = new Date(rows[0].synced_at).getTime();
+    expect(syncedMs).toBeGreaterThanOrEqual(testStartTimestamp);
+  });
+
+  // ── Present, is_overridden !== true → overwrite original_* and effective_* ──
+
+  it('existing record with is_overridden: false — original_steps and effective_steps overwritten', async () => {
+    const existing = makeExistingRow({ original_steps: 3000, effective_steps: 3000 });
+    const record = makeApiRecord({ original_steps: 5000, effective_steps: 5000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(5000);
+    expect(rows[0].effective_steps).toBe(5000);
+  });
+
+  it('existing record with is_overridden: false — original_distance_km and effective_distance_km overwritten', async () => {
+    const existing = makeExistingRow({ original_distance_km: 2.0, effective_distance_km: 2.0 });
+    const record = makeApiRecord({ original_distance_km: 4.5, effective_distance_km: 4.5 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_distance_km).toBe(4.5);
+    expect(rows[0].effective_distance_km).toBe(4.5);
+  });
+
+  it('existing record with is_overridden: false — synced_at is refreshed', async () => {
+    const existing = makeExistingRow({ synced_at: '2025-01-01T00:00:00.000Z' });
+    const record = makeApiRecord();
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    const syncedMs = new Date(rows[0].synced_at).getTime();
+    expect(syncedMs).toBeGreaterThanOrEqual(testStartTimestamp);
+  });
+
+  // ── Present, is_overridden === true → update original_* only ─────────────────
+
+  it('existing record with is_overridden: true — original_steps updated to new API value', async () => {
+    const existing = makeExistingRow({
+      original_steps: 3000,
+      effective_steps: 6000,
+      is_overridden: true,
+      override: { steps: 6000 },
+    });
+    const record = makeApiRecord({ original_steps: 5000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(5000);
+  });
+
+  it('existing record with is_overridden: true — effective_steps unchanged (carries user override)', async () => {
+    const existing = makeExistingRow({
+      original_steps: 3000,
+      effective_steps: 6000,
+      is_overridden: true,
+      override: { steps: 6000 },
+    });
+    const record = makeApiRecord({ original_steps: 5000, effective_steps: 5000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].effective_steps).toBe(6000);
+  });
+
+  it('existing record with is_overridden: true — effective_distance_km unchanged (carries user override)', async () => {
+    const existing = makeExistingRow({
+      effective_distance_km: 9.9,
+      is_overridden: true,
+      override: { steps: 6000 },
+    });
+    const record = makeApiRecord({ effective_distance_km: 4.5 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].effective_distance_km).toBe(9.9);
+  });
+
+  it('existing record with is_overridden: true — override object carried through byte-for-byte', async () => {
+    const overrideObj = { steps: 6000, note: 'manually entered' };
+    const existing = makeExistingRow({
+      is_overridden: true,
+      override: overrideObj,
+    });
+    const record = makeApiRecord();
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].override).toEqual(overrideObj);
+    // Must be the same object reference (or deep equal), NOT replaced by null
+    expect(rows[0].override).not.toBeNull();
+    expect(rows[0].is_overridden).toBe(true);
+  });
+
+  it('existing record with is_overridden: true — synced_at is refreshed', async () => {
+    const existing = makeExistingRow({
+      is_overridden: true,
+      override: { steps: 9000 },
+      synced_at: '2025-01-01T00:00:00.000Z',
+    });
+    const record = makeApiRecord();
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    const syncedMs = new Date(rows[0].synced_at).getTime();
+    expect(syncedMs).toBeGreaterThanOrEqual(testStartTimestamp);
+  });
+
+  // ── synced_at refreshed on every record regardless of merge branch ───────────
+
+  it('synced_at >= testStartTimestamp on every written record (absent and existing)', async () => {
+    const records = [
+      makeApiRecord({ date: '2025-06-13' }),
+      makeApiRecord({ date: '2025-06-14' }),
+      makeApiRecord({ date: '2025-06-15' }),
+    ];
+    // First is absent, second has is_overridden false, third has is_overridden true
+    db.daily_records.bulkGet.mockResolvedValue([
+      undefined,
+      makeExistingRow({ date: '2025-06-14', is_overridden: false }),
+      makeExistingRow({ date: '2025-06-15', is_overridden: true, override: { steps: 9000 } }),
+    ]);
+
+    await _upsertChunk(db, records);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    for (const row of rows) {
+      const syncedMs = new Date(row.synced_at).getTime();
+      expect(syncedMs).toBeGreaterThanOrEqual(testStartTimestamp);
+    }
+  });
+
+  // ── Transaction scope and call count ─────────────────────────────────────────
+
+  it('merge runs inside a single db.transaction("rw", db.daily_records, …) call per chunk', async () => {
+    db.daily_records.bulkGet.mockResolvedValue([undefined]);
+
+    await _upsertChunk(db, [makeApiRecord()]);
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const [mode, table] = db.transaction.mock.calls[0];
+    expect(mode).toBe('rw');
+    expect(table).toBe(db.daily_records);
+  });
+
+  it('transaction scope is daily_records only — not settings', async () => {
+    db.daily_records.bulkGet.mockResolvedValue([undefined]);
+
+    await _upsertChunk(db, [makeApiRecord()]);
+
+    const [, table] = db.transaction.mock.calls[0];
+    // Second arg must be daily_records, not settings or an array including settings
+    expect(table).toBe(db.daily_records);
+    expect(table).not.toBe(db.settings);
+  });
+
+  it('exactly one bulkPut call is issued per chunk', async () => {
+    db.daily_records.bulkGet.mockResolvedValue([undefined, undefined]);
+
+    await _upsertChunk(db, [makeApiRecord({ date: '2025-06-14' }), makeApiRecord({ date: '2025-06-15' })]);
+
+    expect(db.daily_records.bulkPut).toHaveBeenCalledTimes(1);
+  });
+
+  it('a run with two chunks issues exactly two separate db.transaction calls', async () => {
+    db.daily_records.bulkGet
+      .mockResolvedValueOnce([undefined])
+      .mockResolvedValueOnce([undefined]);
+
+    await _upsertChunk(db, [makeApiRecord({ date: '2025-06-14' })]);
+    await _upsertChunk(db, [makeApiRecord({ date: '2025-06-15' })]);
+
+    expect(db.transaction).toHaveBeenCalledTimes(2);
+    expect(db.daily_records.bulkPut).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Regression ────────────────────────────────────────────────────────────────
+
+  it('src/db.js is unmodified; DB_VERSION remains 1', () => {
+    const dbContent = fs.readFileSync(path.resolve(__dirname, './db.js'), 'utf-8');
+    expect(dbContent).toContain('export const DB_VERSION = 1;');
   });
 });
