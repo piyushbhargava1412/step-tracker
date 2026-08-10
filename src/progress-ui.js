@@ -11,6 +11,7 @@
  */
 
 import { getTodayRecord, computeProgress } from './progress.js';
+import { GOAL_PRESETS_KM } from './goal.js';
 
 /**
  * Factory: Today's Progress card renderer.
@@ -164,7 +165,7 @@ export function createProgressUI(doc, goal, db, reporter) {
     container.id = 'goal-selector';
 
     // Preset buttons
-    const presets = [1, 3, 5, 10];
+    const presets = GOAL_PRESETS_KM;
     for (const km of presets) {
       const btn = doc.createElement('button');
       btn.className = 'goal-preset';
