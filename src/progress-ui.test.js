@@ -583,4 +583,194 @@ describe('createProgressUI', () => {
       expect(goalObj.setActiveGoal).toHaveBeenCalledTimes(1);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Task 9: onGoalApplied callback
+  // -------------------------------------------------------------------------
+  describe('onGoalApplied callback — preset click', () => {
+    it('preset click invokes onGoalApplied exactly once after re-render', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn();
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="5"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).toHaveBeenCalledTimes(1);
+    });
+
+    it('preset click does NOT invoke onGoalApplied when setActiveGoal rejects', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockRejectedValue(new Error('save failed'));
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn();
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="3"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).not.toHaveBeenCalled();
+      expect(doc.getElementById('goal-error').textContent).toContain('Failed to save');
+    });
+
+    it('preset click — callback throws but does not break the apply flow', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn().mockImplementation(() => {
+        throw new Error('callback error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="5"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('[progress]', expect.any(Error));
+      expect(doc.getElementById('goal-error').textContent).toBe('');
+    });
+  });
+
+  describe('onGoalApplied callback — custom apply', () => {
+    it('valid custom input + apply invokes onGoalApplied exactly once after re-render', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn();
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).toHaveBeenCalledTimes(1);
+    });
+
+    it('custom apply does NOT invoke onGoalApplied when setActiveGoal rejects', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockRejectedValue(new Error('save failed'));
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn();
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).not.toHaveBeenCalled();
+      expect(doc.getElementById('goal-error').textContent).toContain('Failed to save');
+    });
+
+    it('custom apply — callback throws but does not break the apply flow', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn().mockImplementation(() => {
+        throw new Error('callback error');
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('[progress]', expect.any(Error));
+      expect(doc.getElementById('goal-error').textContent).toBe('');
+    });
+
+    it('custom apply — invalid input does NOT invoke onGoalApplied', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+      const onGoalApplied = vi.fn();
+
+      const ui = createProgressUI(doc, goalObj, db, reporter, onGoalApplied);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '-5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(onGoalApplied).not.toHaveBeenCalled();
+      expect(doc.getElementById('goal-error').textContent).toContain('Enter a distance greater than 0');
+    });
+  });
+
+  describe('onGoalApplied callback — Liskov compatibility (default no-op)', () => {
+    it('no callback provided (5th param omitted) — render() succeeds', async () => {
+      const doc = buildDoc();
+      const goal = makeGoal(GOAL_3K);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      // Omit the 5th parameter entirely
+      const ui = createProgressUI(doc, goal, db, reporter);
+      await expect(ui.render()).resolves.toBeUndefined();
+    });
+
+    it('no callback provided — preset click succeeds without error', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      // Omit the 5th parameter
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.querySelector('[data-goal-preset="5"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(doc.getElementById('goal-error').textContent).toBe('');
+    });
+
+    it('no callback provided — custom apply succeeds without error', async () => {
+      const doc = buildDoc();
+      const goalObj = makeGoal(GOAL_3K);
+      goalObj.setActiveGoal = vi.fn().mockResolvedValue(undefined);
+      const db = makeDb(null);
+      const reporter = { db: vi.fn() };
+
+      // Omit the 5th parameter
+      const ui = createProgressUI(doc, goalObj, db, reporter);
+      await ui.render();
+
+      doc.getElementById('goal-input').value = '4.5';
+      doc.querySelector('[data-goal-apply]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(doc.getElementById('goal-error').textContent).toBe('');
+    });
+  });
 });

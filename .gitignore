@@ -8,3 +8,7 @@ coverage/
 
 # --- ARCUS generated artifacts (managed by arcus-opencode) ---
 .opencode/
+
+# --- ARCUS generated artifacts (managed by arcus-opencode) ---
+.opencode/skills/
+.opencode/agents/

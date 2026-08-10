@@ -1,8 +1,8 @@
 # Flow: Today's Progress Card & Goal Commitment
 
 <!-- context-meta
-verification-commit: aca2d4d0ae7839cc32e14469e9c559ab32142398
-generated-at: 2026-08-10T10:00:00Z
+verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
+generated-at: 2026-08-10T15:55:56Z
 confidence: medium
 -->
 
@@ -19,7 +19,7 @@ On page load the app reads today's step/distance record from Dexie and the user'
 - **File**: `src/main.js` (wiring), `src/progress-ui.js` (render + goal-selector), `src/progress.js` (computation), `src/goal.js` (goal engine)
 
 ## Core Path
-1. `bootstrap()` in `src/main.js` instantiates `createGoal(db)` and `createProgressUI(doc, goal, db, reporter)`, then awaits `progressUI.render()` inside a fail-open `try/catch`.
+1. `bootstrap()` in `src/main.js` instantiates `createGoal(db)`, `createStreak(db)`, `createStreakUI(...)`, and `createProgressUI(..., onGoalApplied)`, then awaits progress and streak rendering inside fail-open `try/catch` blocks.
 2. `render()` (in `src/progress-ui.js`) calls `Promise.all([getTodayRecord(db), goal.getActiveGoal()])`:
    - `getTodayRecord(db)` fetches `db.daily_records.get(todayLocalDate)` — returns `undefined` if no record yet.
    - `goal.getActiveGoal()` reads `db.settings.get('active_goal')`:
@@ -30,7 +30,7 @@ On page load the app reads today's step/distance record from Dexie and the user'
    - `target_steps`, `target_km` from goal (defaults on non-finite/absent values, pct=0 on target≤0).
    - `pct = min(100, round(steps/target_steps × 100))`, `remaining_steps`, `remaining_m`, `remaining_km`, `goalMet = pct >= 100`.
 4. `_buildCard(progress)` builds the card DOM (metric row, progress track+fill, `.goal-met-badge` or `.remaining-hint`).
-5. `_buildSelector()` builds the goal-selector DOM with delegated click listener for preset buttons and custom Apply flow (validates input > 0, calls `goal.setActiveGoal(km)`, re-calls `render()`).
+5. `_buildSelector()` builds the goal-selector DOM with delegated click listener for preset buttons and custom Apply flow (validates input > 0, calls `goal.setActiveGoal(km)`, re-calls `render()`, and invokes the streak-render callback).
 6. Old `#progress-card` and `#goal-selector` elements are removed before inserting the freshly-built ones (idempotent re-render).
 7. On any data error, `reporter.db('❌ Progress load failed')` is called and `computeProgress(null, null)` produces a zero-state card; `render()` never throws.
 
@@ -38,13 +38,14 @@ On page load the app reads today's step/distance record from Dexie and the user'
 - **Entities**:
   - `daily_records` row: `date` (PK, `YYYY-MM-DD` local), `effective_steps`, `effective_distance_km`
   - `settings` row: `key = 'active_goal'`, `target_distance_km`, `target_steps`, `effective_from`
+  - `goal_history` rows: `effective_from`, `target_distance_km`, `target_steps`
 - **Tables**: `daily_records` (Dexie, read-only in this flow); `settings` (Dexie, read + lazy-write default)
 
 ## Integrations
 - **Type**: None — pure client-side DOM render from local Dexie data; no outbound API calls.
 
 ## Scope
-- `src/goal.js` — Goal Commitment engine (`createGoal`, `getActiveGoal`, `setActiveGoal`, constants)
+- `src/goal.js` — Goal Commitment engine (`createGoal`, `getActiveGoal`, `setActiveGoal`, constants), including goal-history persistence
 - `src/progress.js` — Pure computation (`getTodayRecord`, `computeProgress`)
 - `src/progress-ui.js` — Render layer (`createProgressUI`, `render`, `_buildCard`, `_buildSelector`)
 - `src/main.js` — Composition-root wiring (instantiation, load-time render, post-sync re-render)

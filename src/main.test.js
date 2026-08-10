@@ -16,6 +16,17 @@ vi.mock('./progress-ui.js', () => ({
   createProgressUI: vi.fn(() => mockProgressUIInstance)
 }))
 
+// Task 10: mock streak.js and streak-ui.js
+const mockStreakInstance = {}
+vi.mock('./streak.js', () => ({
+  createStreak: vi.fn(() => mockStreakInstance)
+}))
+
+const mockStreakUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./streak-ui.js', () => ({
+  createStreakUI: vi.fn(() => mockStreakUIInstance)
+}))
+
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
@@ -26,7 +37,7 @@ vi.mock('./db.js', () => ({
   createDb: vi.fn(() => mockDb),
   initDB: vi.fn(() => Promise.resolve()),
   DB_NAME: 'StepTrackerDB',
-  DB_VERSION: 1
+  DB_VERSION: 2
 }))
 
 vi.mock('./storage.js', () => ({
@@ -61,6 +72,8 @@ import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { initTabs } from './tabs.js'
 import { createStepSync } from './steps.js'
+import { createStreak } from './streak.js'
+import { createStreakUI } from './streak-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -256,6 +269,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     initDB.mockResolvedValue(undefined)
     requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
   })
 
@@ -269,10 +283,10 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     expect(createGoal).toHaveBeenCalledWith(mockDb)
   })
 
-  it('createProgressUI is invoked once with (document, goalInstance, mockDb, mockReporter)', async () => {
+  it('createProgressUI is invoked once with (document, goalInstance, mockDb, mockReporter, onGoalApplied)', async () => {
     await boot()
     expect(createProgressUI).toHaveBeenCalledTimes(1)
-    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter)
+    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter, expect.any(Function))
   })
 
   it('progressUI.render() called exactly once on bootstrap', async () => {
@@ -321,5 +335,113 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     btn.click()
     await new Promise(res => setTimeout(res, 30))
     expect(renderCalledAfterSync).toBe(true)
+  })
+})
+
+describe('main.js — Task 10: streak engine wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createStreak is invoked exactly once with mockDb', async () => {
+    await boot()
+    expect(createStreak).toHaveBeenCalledTimes(1)
+    expect(createStreak).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createStreakUI is invoked exactly once with (document, streakInstance, mockDb, mockReporter)', async () => {
+    await boot()
+    expect(createStreakUI).toHaveBeenCalledTimes(1)
+    expect(createStreakUI).toHaveBeenCalledWith(document, mockStreakInstance, mockDb, mockReporter)
+  })
+
+  it('createProgressUI receives a function as its 5th argument', async () => {
+    await boot()
+    const fifthArg = createProgressUI.mock.calls[0][4]
+    expect(typeof fifthArg).toBe('function')
+  })
+
+  it('calling the 5th arg of createProgressUI invokes streakUI.render()', async () => {
+    await boot()
+    // capture before clearAllMocks wipes call history
+    const fifthArg = createProgressUI.mock.calls[0][4]
+    vi.clearAllMocks()
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    await fifthArg()
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('streakUI.render() is called exactly once on load (bootstrap load-time render)', async () => {
+    await boot()
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('streakUI.render() is called after progressUI.render() on load', async () => {
+    await boot()
+    const progressRenderOrder = mockProgressUIInstance.render.mock.invocationCallOrder[0]
+    const streakRenderOrder = mockStreakUIInstance.render.mock.invocationCallOrder[0]
+    expect(streakRenderOrder).toBeGreaterThan(progressRenderOrder)
+  })
+
+  it('sync click calls sync() then progressUI.render() then streakUI.render()', async () => {
+    await boot()
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    const btn = document.getElementById('sync-btn')
+    btn.click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStepSyncInstance.sync.mock.invocationCallOrder[0]).toBeLessThan(mockProgressUIInstance.render.mock.invocationCallOrder[0])
+    expect(mockProgressUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockStreakUIInstance.render.mock.invocationCallOrder[0])
+  })
+
+  it('streakUI.render() is called after progressUI.render() in sync handler (ordering)', async () => {
+    await boot()
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockImplementation(() => {
+      return Promise.resolve()
+    })
+    let streakRenderCalledAfterProgress = false
+    mockStreakUIInstance.render.mockImplementation(() => {
+      streakRenderCalledAfterProgress = mockProgressUIInstance.render.mock.invocationCallOrder[0] < mockStreakUIInstance.render.mock.invocationCallOrder[0]
+      return Promise.resolve()
+    })
+    const btn = document.getElementById('sync-btn')
+    btn.click()
+    await new Promise(res => setTimeout(res, 30))
+    expect(streakRenderCalledAfterProgress).toBe(true)
+  })
+
+  it('sync-time streak render rejection is fail-open', async () => {
+    await boot()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockRejectedValueOnce(new Error('sync streak render fail'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    document.getElementById('sync-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] streakUI.render failed after sync, continuing',
+      expect.any(Error),
+    )
+  })
+
+  it('bootstrap resolves even if streakUI.render() rejects on load (fail-open)', async () => {
+    mockStreakUIInstance.render.mockRejectedValue(new Error('streak render fail'))
+    await expect(boot()).resolves.toBeUndefined()
   })
 })

@@ -184,3 +184,225 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
     expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
   });
 });
+
+// ─── Task 8: ST-004 streak card, chips, lock badge, lifetime banner ────────
+
+describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner (Task 8)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  // ── ST-004 Selectors present ──────────────────────────────────────────────
+
+  it('should contain all eight ST-004 selectors', () => {
+    const st004Selectors = [
+      '.streak-card',
+      '.streak-number',
+      '.lock-badge',
+      '.tier-badges',
+      '.tier-chip',
+      '.tier-chip--active',
+      '.streak-goal',
+      '#lifetime-banner',
+    ];
+    for (const selector of st004Selectors) {
+      expect(cssContent).toContain(selector);
+    }
+  });
+
+  // ── .streak-card anatomy ──────────────────────────────────────────────────
+
+  it('.streak-card should use --bg-card background', () => {
+    expect(/\.streak-card\s*{[^}]*background:\s*var\(--bg-card\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-card should use --bg-card-border', () => {
+    expect(/\.streak-card\s*{[^}]*border:[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-card should have 12px border-radius', () => {
+    expect(/\.streak-card\s*{[^}]*border-radius:\s*12px/.test(cssContent)).toBe(true);
+  });
+
+  // ── .streak-number mockup values ──────────────────────────────────────────
+
+  it('.streak-number should have color: var(--accent-emerald)', () => {
+    expect(/\.streak-number\s*{[^}]*color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-number should have 2.8rem font size', () => {
+    expect(/\.streak-number\s*{[^}]*font-size:\s*2\.8rem/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-number should have font-weight: 900', () => {
+    expect(/\.streak-number\s*{[^}]*font-weight:\s*900/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-number should have line-height: 1', () => {
+    expect(/\.streak-number\s*{[^}]*line-height:\s*1/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-number should have font-variant-numeric: tabular-nums', () => {
+    expect(/\.streak-number\s*{[^}]*font-variant-numeric:\s*tabular-nums/.test(cssContent)).toBe(true);
+  });
+
+  // ── .streak-unit ─────────────────────────────────────────────────────────
+
+  it('.streak-unit should have 1rem font size', () => {
+    expect(/\.streak-unit\s*{[^}]*font-size:\s*1rem/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-unit should have font-weight: 500', () => {
+    expect(/\.streak-unit\s*{[^}]*font-weight:\s*500/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-unit should use var(--text-muted) color', () => {
+    expect(/\.streak-unit\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── .lock-badge ──────────────────────────────────────────────────────────
+
+  it('.lock-badge should have color: var(--accent-amber)', () => {
+    expect(/\.lock-badge\s*{[^}]*color:\s*var\(--accent-amber\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.lock-badge should use var(--font-mono)', () => {
+    expect(/\.lock-badge\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── .tier-badges ─────────────────────────────────────────────────────────
+
+  it('.tier-badges should have display: flex', () => {
+    expect(/\.tier-badges\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-badges should have gap: 8px', () => {
+    expect(/\.tier-badges\s*{[^}]*gap:\s*8px/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-badges should have flex-wrap: wrap', () => {
+    expect(/\.tier-badges\s*{[^}]*flex-wrap:\s*wrap/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-badges should have margin-top: 16px', () => {
+    expect(/\.tier-badges\s*{[^}]*margin-top:\s*16px/.test(cssContent)).toBe(true);
+  });
+
+  // ── .tier-chip base anatomy ──────────────────────────────────────────────
+
+  it('.tier-chip should use var(--font-mono)', () => {
+    expect(/\.tier-chip\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should have 0.75rem font size', () => {
+    expect(/\.tier-chip\s*{[^}]*font-size:\s*0\.75rem/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should have rgba(255,255,255,0.04) background', () => {
+    expect(/\.tier-chip\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.04\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should have 1px border with var(--bg-card-border)', () => {
+    expect(/\.tier-chip\s*{[^}]*border:[^}]*1px[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should use var(--text-muted) color', () => {
+    expect(/\.tier-chip\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should have padding: 4px 8px', () => {
+    expect(/\.tier-chip\s*{[^}]*padding:\s*4px\s+8px/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip should have 6px border-radius', () => {
+    expect(/\.tier-chip\s*{[^}]*border-radius:\s*6px/.test(cssContent)).toBe(true);
+  });
+
+  // ── .tier-chip--active modifier ───────────────────────────────────────────
+
+  it('.tier-chip--active should use var(--accent-emerald) color', () => {
+    expect(/\.tier-chip--active\s*{[^}]*color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.tier-chip--active should have border-color: var(--accent-emerald)', () => {
+    expect(/\.tier-chip--active\s*{[^}]*border-color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── .streak-goal ─────────────────────────────────────────────────────────
+
+  it('.streak-goal should use var(--text-muted) color', () => {
+    expect(/\.streak-goal\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-goal should use var(--font-mono)', () => {
+    expect(/\.streak-goal\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── #lifetime-banner ─────────────────────────────────────────────────────
+
+  it('#lifetime-banner should use var(--bg-card) background', () => {
+    expect(/#lifetime-banner\s*{[^}]*background:\s*var\(--bg-card\)/.test(cssContent)).toBe(true);
+  });
+
+  it('#lifetime-banner should have var(--bg-card-border) border', () => {
+    expect(/#lifetime-banner\s*{[^}]*border:[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
+  });
+
+  it('#lifetime-banner should have 12px border-radius', () => {
+    expect(/#lifetime-banner\s*{[^}]*border-radius:\s*12px/.test(cssContent)).toBe(true);
+  });
+
+  it('#lifetime-banner should use var(--font-mono)', () => {
+    expect(/#lifetime-banner\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  });
+
+  it('#lifetime-banner should use var(--text-muted) for text color', () => {
+    expect(/#lifetime-banner\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── Verify --accent-emerald in .tier-chip--active (no per-tier colors) ─────
+
+  it('.tier-chip--active should contain --accent-emerald (no cyan/amber accents)', () => {
+    // Extract the .tier-chip--active rule
+    const tierChipActiveMatch = cssContent.match(/\.tier-chip--active\s*{[^}]+}/);
+    if (tierChipActiveMatch) {
+      expect(tierChipActiveMatch[0]).toContain('--accent-emerald');
+      // Verify no per-tier cyan or amber overrides
+      expect(tierChipActiveMatch[0]).not.toContain('--accent-cyan');
+      expect(tierChipActiveMatch[0]).not.toContain('--accent-amber');
+    }
+    expect(tierChipActiveMatch).toBeTruthy();
+  });
+
+  // ── ST-003 Restyle-boundary locks ─────────────────────────────────────────
+
+  it('ST-003 restyle-boundary lock: .container still contains #1e1e1e', () => {
+    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  });
+
+  it('ST-003 restyle-boundary lock: global button rule still contains #ff4757', () => {
+    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  });
+
+  // ── No new CSS variables introduced ──────────────────────────────────────
+
+  it('should not introduce new CSS variables beyond ST-003 tokens', () => {
+    // Extract the ST-004 section
+    const st004Match = cssContent.match(/\/\* ─── ST-004[^]*$/);
+    if (st004Match) {
+      const st004Section = st004Match[0];
+      // Match all var(...) calls to get actual variable usage
+      const varMatches = st004Section.match(/var\((--[\w-]+)\)/g) || [];
+      const usedVars = [...new Set(varMatches.map(m => m.match(/--[\w-]+/)[0]))];
+      
+      // All used variables must be defined in :root before ST-004
+      const rootSection = cssContent.substring(0, cssContent.indexOf('/* ─── ST-004'));
+      for (const variable of usedVars) {
+        expect(rootSection).toContain(variable);
+      }
+    }
+  });
+});

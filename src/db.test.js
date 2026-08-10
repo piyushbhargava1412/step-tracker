@@ -5,7 +5,8 @@ import { DB_NAME, DB_VERSION, createDb, initDB } from './db.js';
 // The mock factory must export a class-like constructor.
 vi.mock('dexie', async () => {
   const storesFn = vi.fn().mockReturnThis();
-  const versionFn = vi.fn().mockReturnValue({ stores: storesFn });
+  const upgradeFn = vi.fn();
+  const versionFn = vi.fn().mockReturnValue({ stores: storesFn, upgrade: upgradeFn });
 
   class MockDexie {
     constructor(name) {
@@ -40,8 +41,8 @@ describe('DB constants', () => {
   it('DB_NAME equals StepTrackerDB', () => {
     expect(DB_NAME).toBe('StepTrackerDB');
   });
-  it('DB_VERSION equals 1', () => {
-    expect(DB_VERSION).toBe(1);
+  it('DB_VERSION equals 2', () => {
+    expect(DB_VERSION).toBe(2);
   });
 });
 
@@ -52,9 +53,9 @@ describe('createDb()', () => {
     expect(db._name).toBe('StepTrackerDB');
   });
 
-  it('calls version(1)', async () => {
+  it('calls version(2)', async () => {
     const db = createDb();
-    expect(db.version).toHaveBeenCalledWith(1);
+    expect(db.version).toHaveBeenCalledWith(2);
   });
 
   it('calls stores with correct daily_records index string', async () => {
@@ -67,12 +68,119 @@ describe('createDb()', () => {
     );
   });
 
-  it('calls stores with settings: key', async () => {
+  it('calls stores with goal_history index string', async () => {
     const db = createDb();
     const storesSpy = db.version.mock.results[0].value.stores;
     expect(storesSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ settings: 'key' })
+      expect.objectContaining({
+        goal_history: 'effective_from,target_distance_km,target_steps',
+      })
     );
+  });
+});
+
+describe('createDb() — upgrade handler', () => {
+  function getHandler(db) {
+    const upgradeSpy = db.version.mock.results.at(-1).value.upgrade;
+    return upgradeSpy.mock.calls.at(-1)[0];
+  }
+
+  it('registers upgrade as a function', () => {
+    const db = createDb();
+    const upgradeSpy = db.version.mock.results.at(-1).value.upgrade;
+    expect(upgradeSpy).toHaveBeenCalled();
+    expect(typeof upgradeSpy.mock.calls.at(-1)[0]).toBe('function');
+  });
+
+  it('seeds goal_history.put with the three fields from a valid active_goal', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const putFn = vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      table: (name) =>
+        name === 'settings'
+          ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', target_distance_km: 5.0, target_steps: 6500 }) }
+          : { put: putFn },
+    };
+    await handler(tx);
+    expect(putFn).toHaveBeenCalledTimes(1);
+    expect(putFn).toHaveBeenCalledWith({ effective_from: '2024-01-01', target_distance_km: 5.0, target_steps: 6500 });
+  });
+
+  it('seeds nothing when settings.active_goal is absent (undefined)', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const putFn = vi.fn();
+    const tx = {
+      table: (name) =>
+        name === 'settings'
+          ? { get: vi.fn().mockResolvedValue(undefined) }
+          : { put: putFn },
+    };
+    await handler(tx);
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it('seeds nothing when active_goal has non-finite target_distance_km', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const putFn = vi.fn();
+    const tx = {
+      table: (name) =>
+        name === 'settings'
+          ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', target_distance_km: NaN, target_steps: 6500 }) }
+          : { put: putFn },
+    };
+    await handler(tx);
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { target_distance_km: 5, target_steps: 0 },
+    { target_distance_km: 5, target_steps: NaN },
+    { target_distance_km: 0, target_steps: 6500 },
+  ])('seeds nothing for invalid goal values', async (row) => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const putFn = vi.fn();
+    const tx = {
+      table: (name) => name === 'settings'
+        ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', ...row }) }
+        : { put: putFn },
+    };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it('resolves and logs when goal_history.put rejects', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const error = new Error('history write failed');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = {
+      table: (name) => name === 'settings'
+        ? { get: vi.fn().mockResolvedValue({ effective_from: '2024-01-01', target_distance_km: 5, target_steps: 6500 }) }
+        : { put: vi.fn().mockRejectedValue(error) },
+    };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('resolves without throwing when settings.get() rejects (fail-open)', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = { table: () => ({ get: vi.fn().mockRejectedValue(new Error('read failed')) }) };
+    await expect(handler(tx)).resolves.toBeUndefined();
+  });
+
+  it('logs [db] to console.error when the upgrade throws', async () => {
+    const db = createDb();
+    const handler = getHandler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = { table: () => ({ get: vi.fn().mockRejectedValue(new Error('read failed')) }) };
+    await handler(tx);
+    expect(spy.mock.calls[0][0]).toBe('[db]');
   });
 });
 

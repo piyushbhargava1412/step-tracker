@@ -227,3 +227,73 @@ button:hover {
     background: #059669;
     color: #ffffff;
 }
+
+/* ─── ST-004 Streak Card & Lifetime Banner ────────────────────────────────── */
+
+.streak-card {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.streak-number {
+    color: var(--accent-emerald);
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.streak-unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.lock-badge {
+    color: var(--accent-amber);
+    font-family: var(--font-mono);
+}
+
+.tier-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.tier-chip {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.tier-chip--active {
+    color: var(--accent-emerald);
+    border-color: var(--accent-emerald);
+}
+
+.streak-goal {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+#lifetime-banner {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.lifetime-count {
+    color: var(--accent-emerald);
+}

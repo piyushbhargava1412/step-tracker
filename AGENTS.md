@@ -87,8 +87,5 @@ These are **authoritative decisions** confirmed by the repository owner during S
 - Event delegation via `data-*` attributes; no inline `onclick` attributes.
 
 ### Model Dispatch (ARCUS agents)
-- Always resolve complexity tier via `arcus:model-strategy` **before** dispatching any subagent.
-- `heavy` stages (spec-finalizer, implementation-planner, code-reviewer) → `claude-opus-4.8`.
-- `medium` stages (context-pack-builder, test-spec-compiler, reviewers) → `claude-sonnet-4.6`.
-- `light` stages (pull-request-builder) → `claude-haiku-4.5`.
-- Omitting the `model` parameter is a protocol violation — it silently falls back to the session model.
+- Resolve complexity tier via `arcus:model-strategy` **before** dispatching any subagent.
+- For opencode host, if model resolution fails, fall back to the session model immediately
