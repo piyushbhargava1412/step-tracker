@@ -4,6 +4,7 @@
 node_modules/
 .env.local
 dist/
+coverage/
 
 # --- ARCUS generated artifacts (managed by arcus-opencode) ---
 .opencode/

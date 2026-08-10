@@ -88,3 +88,64 @@ The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST
 
 **Override preservation:**
 - Chunks are persisted transactionally, merging with existing rows. Rows marked `is_overridden: true` keep their user-authored `effective_*` values and `override` metadata — only `original_*` is refreshed — so a resync never clobbers a manual correction.
+
+## Goal Commitment & Today's Progress
+
+The Dashboard shows a **Today's Progress** card that measures your daily step count against a configurable distance goal. Goal configuration and progress computation are handled client-side with no backend.
+
+### Active Goal — Dexie `settings` row
+
+The current goal is persisted as a single row in the Dexie `settings` store (primary key `'key'`):
+
+```json
+{
+  "key": "active_goal",
+  "target_distance_km": 3.0,
+  "target_steps": 3937,
+  "effective_from": "2026-08-10"
+}
+```
+
+On the **first Dashboard load**, if no `active_goal` row exists, the app lazily writes the **3.0 km default** (3937 steps) and uses it immediately — no manual setup required.
+
+### Preset Values
+
+Four one-click distance presets are available: **1 km**, **3 km**, **5 km**, and **10 km**. Selecting a preset takes effect immediately and persists the new goal for all future loads.
+
+### Conversion Formula
+
+`target_steps` is derived from the distance using the normative constant:
+
+```
+KM_TO_STEPS = 1312.33
+target_steps = Math.round(distance_km × 1312.33)
+```
+
+Authoritative rounded values for the four presets:
+
+| Distance | `target_steps` |
+|----------|---------------|
+| 1 km     | 1312          |
+| 3 km     | 3937          |
+| 5 km     | 6562          |
+| 10 km    | 13123         |
+
+The formula is the authoritative source; the rounded values in the table are derived from it.
+
+### Custom Distance Input
+
+Any **positive distance** (integers or decimals, e.g. `4.5` km) may be entered in the custom input field. The new goal **takes effect immediately** — the progress card re-renders against the new target as soon as the goal is applied. Inputs of `0`, negative values, non-numeric strings, `NaN`, and `Infinity` are rejected with an inline validation message and produce no database write.
+
+### Card States
+
+The Today's Progress card renders in one of two exclusive states based on the percentage `Math.min(100, Math.round(effective_steps / target_steps × 100))`:
+
+**In-Progress** (`< 100%`):
+- Displays the current percentage, step count, and remaining distance.
+- A live progress bar fills to the current percentage (`width: <pct>%`, `role="progressbar"`).
+- A remaining counter shows steps and approximate distance left: e.g. `⏱️ 1,800 steps remaining to fulfill daily target (~1.37 km)`. Distance follows the SF-5 rule: remaining steps ÷ 1312.33; values under 1 km display in meters (e.g. `152 meters`), 1 km and over display with two decimal places (e.g. `1.37 km`).
+
+**Goal Met** (`≥ 100%`):
+- Displays `100%` and a `✅ Daily Commitment Met` badge.
+- The progress bar fills to 100% via the `.progress-fill--full` CSS class (no inline width).
+- The remaining counter is hidden.

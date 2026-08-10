@@ -96,3 +96,91 @@ describe('styles.css — structural layout (Task 10)', () => {
     expect(panelHideRule).toBe(true);
   });
 });
+
+// ─── Task 5: ST-003 dark-theme tokens + card/selector anatomy ───────────────
+
+describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 5)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  // ── :root tokens ──────────────────────────────────────────────────────────
+
+  it('should contain all 10 :root CSS custom properties', () => {
+    const tokens = [
+      '--bg-dark',
+      '--bg-card',
+      '--bg-card-border',
+      '--text-primary',
+      '--text-muted',
+      '--accent-emerald',
+      '--accent-emerald-glow',
+      '--accent-cyan',
+      '--accent-amber',
+      '--font-mono',
+    ];
+    for (const token of tokens) {
+      expect(cssContent).toContain(token);
+    }
+  });
+
+  it('--accent-emerald-glow value is rgba(16, 185, 129, 0.25)', () => {
+    expect(cssContent).toContain('rgba(16, 185, 129, 0.25)');
+  });
+
+  it('body rule contains var(--bg-dark) for background-color', () => {
+    expect(/body\s*{[^}]*background-color:\s*var\(--bg-dark\)/.test(cssContent)).toBe(true);
+  });
+
+  // ── Card anatomy classes ──────────────────────────────────────────────────
+
+  it('should contain all 12 card anatomy class selectors', () => {
+    const cardClasses = [
+      '.card',
+      '.card-title',
+      '.metric-row',
+      '.metric-value',
+      '.metric-sub',
+      '.metric-unit',
+      '.progress-pct',
+      '.progress-track',
+      '.progress-fill',
+      '.progress-fill--full',
+      '.remaining-hint',
+      '.goal-met-badge',
+    ];
+    for (const cls of cardClasses) {
+      expect(cssContent).toContain(cls);
+    }
+  });
+
+  // ── Goal selector classes ─────────────────────────────────────────────────
+
+  it('should contain all 4 goal-selector class selectors', () => {
+    const selectorClasses = ['.goal-selector', '.goal-preset', '.goal-input', '.goal-apply'];
+    for (const cls of selectorClasses) {
+      expect(cssContent).toContain(cls);
+    }
+  });
+
+  it('.goal-preset has a :hover override (prevents global button:hover bleed)', () => {
+    expect(cssContent).toContain('.goal-preset:hover');
+  });
+
+  it('.goal-apply has a :hover override', () => {
+    expect(cssContent).toContain('.goal-apply:hover');
+  });
+
+  // ── Restyle-boundary locks ────────────────────────────────────────────────
+
+  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
+    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  });
+
+  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
+    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  });
+});

@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 8eac5589e7fe87b00de879dba314b4bf7691a8e0
-generated-at: 2026-08-10T06:36:28Z
+verification-commit: aca2d4d0ae7839cc32e14469e9c559ab32142398
+generated-at: 2026-08-10T10:00:00Z
 confidence: high
 -->
 
@@ -22,7 +22,7 @@ confidence: high
 Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `src/db.test.js`,
 `src/storage.test.js`, `src/tabs.test.js`, `src/ui-status.test.js`, `src/main.test.js`,
 `src/steps.test.js`, `src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`,
-`src/docs.test.js`.
+`src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`.
 
 ---
 
@@ -54,7 +54,10 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createStatusReporter`         | `#db-status` / `#auth-status` DOM mutation                      |
 | ✅ DONE  | `bootstrap()` (`src/main.js`)  | Composition root integration — module wiring                    |
 | ✅ DONE  | Step sync (`createStepSync`, `src/steps.js`) | Sync orchestrator — guards, window resolution, chunking, normalisation, retry/error contract, transactional upsert, backfill latch (`src/steps.test.js`, 158 tests) |
-| 🔴 HIGH  | `parseAndCalculateStreak()`    | Not yet re-implemented; add once streak module lands in `src/`  |
+| ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveGoal` (valid row, absent, corrupt, DB error), `setActiveGoal` (valid km, invalid km throws, DB write error graceful), `_localDate` helper |
+| ✅ DONE  | `computeProgress` / `getTodayRecord` (`src/progress.js`) | Pure computation: zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard |
+| ✅ DONE  | `createProgressUI` (`src/progress-ui.js`)    | Render with data, render zero-state, idempotent re-render, goal preset click, custom apply click, validation error, DB error path |
+| 🔴 HIGH  | `parseAndCalculateStreak()`                   | Not yet re-implemented; add once streak module lands in `src/`  |
 
 ---
 
@@ -212,6 +215,9 @@ value per line of test code written.
 | Unit       | `src/tabs.test.js`      | DOM delegation + AbortController cleanup testing               |
 | Unit       | `src/main.test.js`      | Composition-root integration test using imported factories      |
 | Unit       | `src/steps.test.js`     | Sync engine contract — chunked fetch, retry/401/network/Dexie error paths, backfill latch |
+| Unit       | `src/goal.test.js`      | Goal engine — read-or-init, lazy default write, corrupt guard, DI Dexie mock |
+| Unit       | `src/progress.test.js`  | Pure computation — guard clauses, zero state, goal-met boundary |
+| Unit       | `src/progress-ui.test.js` | Render layer — DOM card output, idempotent re-render, delegated goal-selector events |
 | Functional | `tests/e2e/app.spec.js` | Playwright smoke test for full render flow (future)            |
 
 ---
@@ -225,8 +231,7 @@ value per line of test code written.
 2. **`src/config.js` throws at import time if `VITE_CLIENT_ID` is missing** — tests that import
    config must stub `import.meta.env` before the module loads, or use `vi.mock('./config.js', ...)`.
 
-3. **`DAILY_STEP_GOAL = 3900` was hardcoded** — when streak calculation is re-introduced in `src/`,
-   extract it as an injectable parameter so tests can pass a known goal without matching the magic number.
+3. **`DAILY_STEP_GOAL` is now managed by `src/goal.js`** — `createGoal(db)` reads/writes the `active_goal` row in the Dexie `settings` store. Tests for `src/goal.js`, `src/progress.js`, and `src/progress-ui.js` inject a Dexie mock via DI (`createGoal(mockDb)`, `getTodayRecord(mockDb)`, `createProgressUI(doc, mockGoal, mockDb, reporter)`) — no module-level magic-number dependency.
 
 4. **Browser-only runtime** — avoid Node-only APIs (`fs`, `path`) in tests. `vite.config.js` sets
    `test.environment = 'jsdom'` as the baseline.
