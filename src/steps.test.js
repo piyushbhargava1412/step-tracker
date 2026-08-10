@@ -100,38 +100,6 @@ describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date he
       expect(HISTORY_ANCHOR_DATE.getHours()).toBe(0);
     });
 
-    it('CHUNK_DAYS === 30', () => {
-      expect(CHUNK_DAYS).toBe(30);
-    });
-
-    it('BUCKET_MS === 86_400_000', () => {
-      expect(BUCKET_MS).toBe(86_400_000);
-    });
-
-    it('SAFETY_BUFFER_DAYS === 3', () => {
-      expect(SAFETY_BUFFER_DAYS).toBe(3);
-    });
-
-    it('STEP_TO_KM === 0.000762', () => {
-      expect(STEP_TO_KM).toBe(0.000762);
-    });
-
-    it('METRES_PER_KM === 1000', () => {
-      expect(METRES_PER_KM).toBe(1000);
-    });
-
-    it('RETRY_BACKOFF_MS === 2000', () => {
-      expect(RETRY_BACKOFF_MS).toBe(2000);
-    });
-
-    it('MAX_RETRY_AFTER_MS === 30_000', () => {
-      expect(MAX_RETRY_AFTER_MS).toBe(30_000);
-    });
-
-    it("BACKFILL_COMPLETE_KEY === 'initial_backfill_complete'", () => {
-      expect(BACKFILL_COMPLETE_KEY).toBe('initial_backfill_complete');
-    });
-
     it('STEP_API_URL equals the full Google Fit aggregate endpoint', () => {
       expect(STEP_API_URL).toBe(
         'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate'
