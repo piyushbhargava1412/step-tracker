@@ -10,6 +10,8 @@ import { createStepSync } from './steps.js'
 import { initTabs } from './tabs.js'
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
+import { createStreak } from './streak.js'
+import { createStreakUI } from './streak-ui.js'
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -40,9 +42,11 @@ export async function bootstrap(doc = document) {
   // 6. Step sync engine
   const stepSync = createStepSync(auth, db, reporter, doc)
 
-  // 6a. Goal + progress UI (wired after db is ready)
+  // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
-  const progressUI = createProgressUI(doc, goal, db, reporter)
+  const streak = createStreak(db)
+  const streakUI = createStreakUI(doc, streak, db, reporter)
+  const progressUI = createProgressUI(doc, goal, db, reporter, () => streakUI.render())
 
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
@@ -56,6 +60,7 @@ export async function bootstrap(doc = document) {
     syncBtn.addEventListener('click', async () => {
       await stepSync.sync()
       progressUI.render()
+      streakUI.render()
     })
   }
 
@@ -70,6 +75,13 @@ export async function bootstrap(doc = document) {
     await progressUI.render()
   } catch (err) {
     console.error('[main] progressUI.render failed, continuing', err)
+  }
+
+  // 11. Render streak card on page load (SF-10, fail-open)
+  try {
+    await streakUI.render()
+  } catch (err) {
+    console.error('[main] streakUI.render failed, continuing', err)
   }
 }
 
