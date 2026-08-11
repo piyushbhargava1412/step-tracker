@@ -252,3 +252,172 @@ describe('createSearchLab', () => {
     });
   });
 });
+
+  describe('computeDayOfWeekSlump', () => {
+    // 2026-08-10 = Monday (index 0), 2026-08-11 = Tuesday (1), ..., 2026-08-16 = Sunday (6)
+    function makeMockDb({ earliest, records, goalHistory }) {
+      return {
+        daily_records: {
+          orderBy: () => ({
+            first: () => Promise.resolve(earliest ?? undefined),
+          }),
+          where: () => ({
+            between: () => ({
+              toArray: () => Promise.resolve(records ?? []),
+            }),
+          }),
+        },
+        goal_history: {
+          toArray: () => Promise.resolve(goalHistory ?? []),
+        },
+      };
+    }
+
+    it('returns an array of exactly 7 elements', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const db = makeMockDb({ earliest: undefined });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result).toHaveLength(7);
+    });
+
+    it('all 7 buckets empty when DB is empty', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const db = makeMockDb({ earliest: undefined });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result).toHaveLength(7);
+      for (const bucket of result) {
+        expect(bucket).toEqual({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+      }
+    });
+
+    it('empty bucket shape: { hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 }', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Only Monday record — all other buckets should be empty
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday, MET
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      // Tuesday through Sunday should be empty
+      for (let i = 1; i <= 6; i++) {
+        expect(result[i]).toEqual({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+      }
+    });
+
+    it('a record on a known Monday (2026-08-10) lands in result[0]', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result[0].count).toBe(1);
+    });
+
+    it('per-bucket hitRate matches hand-computed fixture', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Monday 2026-08-10: MET (10.0 >= 10), Monday 2026-08-17: MISSED (5.0 < 10)
+      // hitRate = 1/2 = 50
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday, MET
+        { date: '2026-08-17', effective_distance_km: 5.0,  steps: 6000 },  // Monday, MISSED
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result[0].hitRate).toBe(50);
+    });
+
+    it('per-bucket averageSteps = Math.round(sumSteps / count)', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 11000 }, // Monday
+        { date: '2026-08-17', effective_distance_km: 5.0,  steps: 7000 },  // Monday
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      // (11000+7000)/2 = 9000
+      expect(result[0].averageSteps).toBe(9000);
+    });
+
+    it('per-bucket totalDistanceKm = sum of distances', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday
+        { date: '2026-08-17', effective_distance_km: 7.5,  steps: 8000 },  // Monday
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result[0].totalDistanceKm).toBeCloseTo(17.5, 5);
+    });
+
+    it('non-finite effective_distance_km contributes 0 to bucket total', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const records = [
+        { date: '2026-08-10', effective_distance_km: NaN,      steps: 0 },  // Monday, non-finite
+        { date: '2026-08-17', effective_distance_km: Infinity,  steps: 0 },  // Monday, non-finite
+        { date: '2026-08-24', effective_distance_km: 8.0,       steps: 9000 }, // Monday, finite
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      // totalDistanceKm should only count the finite value: 8.0
+      expect(result[0].totalDistanceKm).toBeCloseTo(8.0, 5);
+      expect(result[0].count).toBe(3);
+    });
+
+    it('Saturday (index 5) and Sunday (index 6) buckets correctly populated', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // 2026-08-15 = Saturday, 2026-08-16 = Sunday
+      const records = [
+        { date: '2026-08-15', effective_distance_km: 10.0, steps: 12000 }, // Saturday
+        { date: '2026-08-16', effective_distance_km: 8.0,  steps: 9000 },  // Sunday
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-15' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result[5].count).toBe(1); // Saturday
+      expect(result[6].count).toBe(1); // Sunday
+    });
+
+    it('hitRate respects per-date targets (goal change mid-range)', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Two Mondays: first uses target=10 (MET: 10.0), second uses target=5 (MISSED: 4.0)
+      // hitRate = 1/2 = 50
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday, target=10, MET
+        { date: '2026-08-17', effective_distance_km: 4.0,  steps: 5000 },  // Monday, target=5, MISSED
+      ];
+      const goalHistory = [
+        { effective_from: '2026-01-01', target_distance_km: 10 },
+        { effective_from: '2026-08-17', target_distance_km: 5 },
+      ];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-08-17', target_distance_km: 5 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result[0].hitRate).toBe(50);
+    });
+  });

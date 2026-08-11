@@ -104,9 +104,50 @@ export function createSearchLab(db, goal) {
     return nearMisses;
   }
 
-  function computeDayOfWeekSlump() {
-    // Placeholder — implemented in Task 4
-    throw new Error('Not implemented yet');
+  async function computeDayOfWeekSlump() {
+    const EMPTY_BUCKET = () => ({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+    const buckets = Array.from({ length: 7 }, EMPTY_BUCKET);
+
+    const earliest = await db.daily_records.orderBy('date').first();
+    if (!earliest) return buckets;
+
+    const today = _localDate();
+    const { endExclusive } = dateBounds(earliest.date, today);
+
+    const [records, goalHistoryRows, activeGoal] = await Promise.all([
+      db.daily_records.where('date').between(earliest.date, endExclusive, true, false).toArray(),
+      db.goal_history.toArray(),
+      goal.getActiveGoal(),
+    ]);
+
+    const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
+    const prepared = _prepareGoalHistory(effectiveHistory);
+
+    // Accumulators per bucket
+    const sums = Array.from({ length: 7 }, () => ({ sumSteps: 0, sumDistanceKm: 0, metCount: 0, count: 0 }));
+
+    for (const record of records) {
+      const idx = dayOfWeekIndex(record.date);
+      const target = _resolvePreparedGoalForDate(prepared, record.date);
+      const distanceKm = Number.isFinite(record.effective_distance_km) ? record.effective_distance_km : 0;
+      const steps = Number.isFinite(record.steps) ? record.steps : 0;
+      const met = Number.isFinite(record.effective_distance_km) && record.effective_distance_km >= target ? 1 : 0;
+
+      sums[idx].sumDistanceKm += distanceKm;
+      sums[idx].sumSteps += steps;
+      sums[idx].metCount += met;
+      sums[idx].count += 1;
+    }
+
+    return sums.map(({ sumSteps, sumDistanceKm, metCount, count }) => {
+      if (count === 0) return EMPTY_BUCKET();
+      return {
+        hitRate: Math.round((metCount / count) * 100),
+        averageSteps: Math.round(sumSteps / count),
+        totalDistanceKm: sumDistanceKm,
+        count,
+      };
+    });
   }
 
   function comparePeriods() {
