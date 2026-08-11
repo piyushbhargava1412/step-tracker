@@ -77,6 +77,7 @@ export function createRecords(db) {
       await db.daily_records.put(updated);
     } catch (err) {
       console.error('[records]', err);
+      throw err;
     }
   }
 
@@ -96,6 +97,7 @@ export function createRecords(db) {
       await db.daily_records.put(reverted);
     } catch (err) {
       console.error('[records]', err);
+      throw err;
     }
   }
 

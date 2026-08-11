@@ -257,7 +257,7 @@ describe('createRecords', () => {
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
 
-    it('catches db.get rejection and logs [records] without rethrowing', async () => {
+    it('rejects and logs [records] when db.get rejects', async () => {
       const db = {
         daily_records: {
           get: vi.fn().mockRejectedValue(new Error('DB error')),
@@ -269,12 +269,12 @@ describe('createRecords', () => {
 
       await expect(
         records.overrideRecord('2024-01-15', { effective_steps: 8000, note: 'Test' })
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('DB error');
 
       expect(consoleSpy).toHaveBeenCalledWith('[records]', expect.any(Error));
     });
 
-    it('catches db.put rejection and logs [records] without rethrowing', async () => {
+    it('rejects and logs [records] when db.put rejects', async () => {
       const db = {
         daily_records: {
           get: vi.fn().mockResolvedValue({ ...BASE_ROW }),
@@ -286,7 +286,7 @@ describe('createRecords', () => {
 
       await expect(
         records.overrideRecord('2024-01-15', { effective_steps: 8000, note: 'Test' })
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('DB put error');
 
       expect(consoleSpy).toHaveBeenCalledWith('[records]', expect.any(Error));
     });
@@ -316,7 +316,7 @@ describe('createRecords', () => {
   });
 
   describe('revertRecord — error paths', () => {
-    it('catches db.put rejection and logs [records] without rethrowing', async () => {
+    it('rejects and logs [records] when db.put rejects during revert', async () => {
       const db = {
         daily_records: {
           get: vi.fn().mockResolvedValue({ ...BASE_ROW, is_overridden: true }),
@@ -326,7 +326,7 @@ describe('createRecords', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const records = createRecords(db);
 
-      await expect(records.revertRecord('2024-01-15')).resolves.toBeUndefined();
+      await expect(records.revertRecord('2024-01-15')).rejects.toThrow('Revert DB error');
       expect(consoleSpy).toHaveBeenCalledWith('[records]', expect.any(Error));
     });
   });
