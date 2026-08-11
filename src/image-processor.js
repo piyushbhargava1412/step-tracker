@@ -9,7 +9,10 @@
 export const MAX_PROOF_IMAGE_PX = 1024;
 export const PROOF_IMAGE_QUALITY = 0.8;
 
-/** Explicit allowlist matching the file input's accept attribute. */
+/** Maximum file size in bytes before rejecting (20 MB). */
+export const MAX_PROOF_FILE_BYTES = 20 * 1024 * 1024;
+
+/** Maximum file size in bytes before rejecting (20 MB). */
 export const ALLOWED_IMAGE_TYPES = Object.freeze(new Set(['image/png', 'image/jpeg', 'image/webp']));
 
 /**
@@ -36,6 +39,9 @@ export function createImageProcessor({
     }
     if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
       return Promise.reject(new TypeError(`Invalid file type: ${file.type}`));
+    }
+    if (file.size > MAX_PROOF_FILE_BYTES) {
+      return Promise.reject(new TypeError('File too large'));
     }
 
     return new Promise((resolve, reject) => {
