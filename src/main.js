@@ -16,7 +16,10 @@ import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
 import { createMonthOverview } from './month-overview.js'
 import { createRecords } from './records.js'
-import { processImage } from './image-processor.js'  
+import { processImage } from './image-processor.js'
+import { createSearch } from './search.js'
+import { createSearchUI } from './search-ui.js'
+import { createExporter } from './exporter.js'  
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -54,6 +57,9 @@ export async function bootstrap(doc = document) {
   const calendar = createCalendar(db, goal)
   const records = createRecords(db)
   const monthOverview = createMonthOverview(doc, calendar, reporter)
+  const search = createSearch(db, goal)
+  const exporter = createExporter(doc)
+  const searchUI = createSearchUI(doc, search, exporter, goal, reporter)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
   const progressUI = createProgressUI(doc, goal, db, reporter, () => {
     streakUI.render()
@@ -146,6 +152,13 @@ export async function bootstrap(doc = document) {
     await monthOverview.render()
   } catch (err) {
     console.error('[main] monthOverview.render failed, continuing', err)
+  }
+
+  // 14. Render search UI on page load (fail-open)
+  try {
+    await searchUI.render()
+  } catch (err) {
+    console.error('[main] searchUI.render failed, continuing', err)
   }
 }
 
