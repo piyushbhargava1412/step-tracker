@@ -45,7 +45,7 @@ export async function bootstrap(doc = document) {
   // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
   const streak = createStreak(db)
-  const streakUI = createStreakUI(doc, streak, db, reporter)
+  const streakUI = createStreakUI(doc, streak, reporter)
   const progressUI = createProgressUI(doc, goal, db, reporter, () => streakUI.render())
 
   // 7. Bind auth button

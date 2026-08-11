@@ -120,13 +120,12 @@ function _buildCard(doc, result) {
 /**
  * Factory: Streak render layer.
  *
- * @param {Document} doc                  - injected DOM document
+ * @param {Document} doc          - injected DOM document
  * @param {{ compute: Function }} streak  - streak engine instance
- * @param {object} db                     - Dexie db handle (carried for contract compatibility; not used for reads here)
  * @param {{ db: Function }} reporter     - status reporter
  * @returns {{ render: Function }}
  */
-export function createStreakUI(doc, streak, db, reporter) {
+export function createStreakUI(doc, streak, reporter) {
   /**
    * Render (or re-render) #lifetime-banner and #streak-card into #tab-dashboard.
    * Never throws or rejects — fail-open.

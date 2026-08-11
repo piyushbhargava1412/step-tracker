@@ -200,43 +200,43 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     container.addEventListener('click', async (e) => {
       const preset = e.target.dataset.goalPreset;
       if (preset != null) {
-        try {
-          await goal.setActiveGoal(Number(preset));
-          await render();
-          try {
-            onGoalApplied();
-          } catch (err) {
-            console.error('[progress]', err);
-          }
-        } catch (_err) {
-          const errEl = doc.getElementById('goal-error');
-          if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-        }
+        await _applyPreset(Number(preset));
         return;
       }
       if ('goalApply' in e.target.dataset) {
-        const inputEl = doc.getElementById('goal-input');
-        const v = Number(inputEl ? inputEl.value : '');
+        const v = Number(input.value);
         const errEl = doc.getElementById('goal-error');
         if (!Number.isFinite(v) || v <= 0) {
           if (errEl) errEl.textContent = ERROR_MSG;
           return;
         }
         if (errEl) errEl.textContent = '';
-        try {
-          await goal.setActiveGoal(v);
-          await render();
-          try {
-            onGoalApplied();
-          } catch (err) {
-            console.error('[progress]', err);
-          }
-        } catch (_err) {
-          const errEl2 = doc.getElementById('goal-error');
-          if (errEl2) errEl2.textContent = GOAL_SAVE_ERROR;
-        }
+        await _applyCustom(v);
       }
     });
+
+    // Shared goal-apply logic for both preset and custom paths.
+    async function _applyPreset(km) {
+      try {
+        await goal.setActiveGoal(km);
+        await render();
+        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
+      } catch (_err) {
+        const errEl = doc.getElementById('goal-error');
+        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
+      }
+    }
+
+    async function _applyCustom(km) {
+      try {
+        await goal.setActiveGoal(km);
+        await render();
+        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
+      } catch (_err) {
+        const errEl = doc.getElementById('goal-error');
+        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
+      }
+    }
 
     return container;
   }

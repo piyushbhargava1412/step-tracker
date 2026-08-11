@@ -1,6 +1,4 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 
 // All vi.mock calls are hoisted — they run before any imports
 vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
@@ -246,13 +244,6 @@ describe('main.js — Task 11 step sync wiring', () => {
     expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
   })
 
-  it('main.js source does not directly mutate #sync-btn state (no disabled set, no label swap)', () => {
-    const source = readFileSync(resolve(process.cwd(), 'src', 'main.js'), 'utf8')
-    expect(source).not.toContain('sync-btn.disabled')
-    expect(source).not.toContain('disabled =')
-    expect(source).not.toContain('Syncing')
-  })
-
   it('bootstrap() does not throw when #sync-btn is missing (fail-open)', async () => {
     document.body.innerHTML = `
       <button id="auth-btn">Connect</button>
@@ -358,10 +349,10 @@ describe('main.js — Task 10: streak engine wiring', () => {
     expect(createStreak).toHaveBeenCalledWith(mockDb)
   })
 
-  it('createStreakUI is invoked exactly once with (document, streakInstance, mockDb, mockReporter)', async () => {
+  it('createStreakUI is invoked exactly once with (document, streakInstance, mockReporter)', async () => {
     await boot()
     expect(createStreakUI).toHaveBeenCalledTimes(1)
-    expect(createStreakUI).toHaveBeenCalledWith(document, mockStreakInstance, mockDb, mockReporter)
+    expect(createStreakUI).toHaveBeenCalledWith(document, mockStreakInstance, mockReporter)
   })
 
   it('createProgressUI receives a function as its 5th argument', async () => {

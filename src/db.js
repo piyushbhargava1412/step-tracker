@@ -1,19 +1,8 @@
 import Dexie from 'dexie';
+import { _localDate } from './goal.js';
 
 export const DB_NAME = 'StepTrackerDB';
 export const DB_VERSION = 2;
-
-/**
- * Local-time YYYY-MM-DD formatter (mirrors the _localDate convention in goal.js).
- * Uses getFullYear/getMonth/getDate — never toISOString() — so dates are timezone-safe.
- */
-function _localDate(ms = Date.now()) {
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${MM}-${dd}`;
-}
 
 export function createDb() {
   const db = new Dexie(DB_NAME);

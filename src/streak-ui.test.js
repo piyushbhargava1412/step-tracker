@@ -98,13 +98,12 @@ describe('createStreakUI', () => {
   // Factory / signature
   // -------------------------------------------------------------------------
   describe('factory signature', () => {
-    it('accepts (doc, streak, db, reporter) and returns { render }', () => {
+    it('accepts (doc, streak, reporter) and returns { render }', () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
-      const db = {};
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, db, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       expect(typeof ui.render).toBe('function');
     });
 
@@ -113,7 +112,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       const result = ui.render();
       expect(result).toBeInstanceOf(Promise);
       return result; // settle the promise
@@ -130,7 +129,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await expect(ui.render()).resolves.toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith('[streak]', expect.any(String));
     });
@@ -141,7 +140,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
       expect(doc.getElementById('lifetime-banner')).toBeNull();
       expect(doc.getElementById('streak-card')).toBeNull();
@@ -157,7 +156,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const dashboard = doc.getElementById('tab-dashboard');
@@ -171,7 +170,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const existing = doc.getElementById('existing-content');
@@ -183,7 +182,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const dashboard = doc.getElementById('tab-dashboard');
@@ -200,7 +199,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(SCENARIO_4_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const banner = doc.getElementById('lifetime-banner');
@@ -213,7 +212,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const banner = doc.getElementById('lifetime-banner');
@@ -230,7 +229,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(result);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const banner = doc.getElementById('lifetime-banner');
@@ -248,7 +247,7 @@ describe('createStreakUI', () => {
       doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
-      ui = createStreakUI(doc, streak, {}, reporter);
+      ui = createStreakUI(doc, streak, reporter);
       await ui.render();
     });
 
@@ -309,7 +308,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak({ ...ZERO_RESULT, activeGoalKm: goalKm });
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const goalEl = doc.querySelector('.streak-goal');
@@ -331,7 +330,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak({ ...ZERO_RESULT, activeGoalKm: goalKm });
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const activeChips = doc.querySelectorAll('.tier-chip--active');
@@ -344,7 +343,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(GOAL_4_5_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const activeChips = doc.querySelectorAll('.tier-chip--active');
@@ -361,7 +360,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(CHIP_TEXT_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const chips = Array.from(doc.querySelectorAll('.tier-chip'));
@@ -379,7 +378,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
       await ui.render();
 
@@ -391,7 +390,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
       await ui.render();
 
@@ -403,7 +402,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
       await ui.render();
 
@@ -423,7 +422,7 @@ describe('createStreakUI', () => {
       doc = buildDoc();
       streak = makeStreakReject(new Error('DB error'));
       reporter = { db: vi.fn() };
-      ui = createStreakUI(doc, streak, {}, reporter);
+      ui = createStreakUI(doc, streak, reporter);
     });
 
     it('compute() rejecting → reporter.db called with string containing "❌"', async () => {
@@ -476,7 +475,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const card = doc.getElementById('streak-card');
@@ -488,7 +487,7 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       const banner = doc.getElementById('lifetime-banner');
@@ -505,29 +504,10 @@ describe('createStreakUI', () => {
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
-      const ui = createStreakUI(doc, streak, {}, reporter);
+      const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
       expect(streak.compute).toHaveBeenCalledTimes(1);
-    });
-
-    it('db object is accepted but not dereferenced for DB reads', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-      // Pass a db that would throw on any property access
-      const strictDb = new Proxy(
-        {},
-        {
-          get() {
-            throw new Error('db should not be accessed in streak-ui render');
-          },
-        },
-      );
-
-      const ui = createStreakUI(doc, streak, strictDb, reporter);
-      // Should not throw — db is carried but never accessed
-      await expect(ui.render()).resolves.toBeUndefined();
     });
   });
 });

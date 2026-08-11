@@ -150,6 +150,8 @@ export function _addDays(date, n) {
   return d;
 }
 
+import { _localDate } from './goal.js';
+
 /**
  * Format a millisecond timestamp as a local YYYY-MM-DD string using
  * getFullYear / getMonth / getDate — never toISOString(), which returns
@@ -159,11 +161,7 @@ export function _addDays(date, n) {
  * @returns {string}
  */
 export function _formatLocalDate(ms) {
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${MM}-${dd}`;
+  return _localDate(ms);
 }
 
 /**
@@ -811,9 +809,9 @@ export function createStepSync(auth, db, reporter, doc = document) {
       // Chunk coordinates come from the error, then the last loop position,
       // then a single implied chunk (window resolution failed).
       const i = error.index ?? lastChunk?.index ?? 1;
-      const total = error.total ?? lastChunk?.total ?? 1;
+      const errorTotal = error.total ?? lastChunk?.total ?? 1;
 
-      reporter.sync(await _renderSyncErrorMessage({ error, i, total, persistedDays, db }));
+      reporter.sync(await _renderSyncErrorMessage({ error, i, total: errorTotal, persistedDays, db }));
     } finally {
       // 9. finally invariants: restore the button, clear the guard, and leave
       //    #sync-status exactly as the last reporter.sync() wrote it.

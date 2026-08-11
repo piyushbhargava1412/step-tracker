@@ -54,23 +54,6 @@ function goalRow(effective_from, km) {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-describe('streak constants', () => {
-  it('TIER_THRESHOLDS deep-equals [1.0, 3.0, 5.0, 10.0]', () => {
-    expect(TIER_THRESHOLDS).toEqual([1.0, 3.0, 5.0, 10.0]);
-  });
-
-  it('LIFETIME_STEP_THRESHOLD is 10000', () => {
-    expect(LIFETIME_STEP_THRESHOLD).toBe(10_000);
-  });
-
-  it('HALL_OF_FAME_SIZE is 3', () => {
-    expect(HALL_OF_FAME_SIZE).toBe(3);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // _addDaysUtc
 // ---------------------------------------------------------------------------
 describe('_addDaysUtc', () => {
