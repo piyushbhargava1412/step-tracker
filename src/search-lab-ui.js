@@ -8,7 +8,6 @@
  * textContent.
  */
 
-let controller = null;
 
 /**
  * @param {Document} doc
@@ -17,6 +16,7 @@ let controller = null;
  * @returns {{ render: Function }}
  */
 export function createSearchLabUI(doc, engine, reporter) {
+  let controller = null;
   async function render() {
     // Abort prior listeners and create a fresh controller
     if (controller) {

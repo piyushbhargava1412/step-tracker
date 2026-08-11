@@ -781,3 +781,44 @@ describe('createSearchLabUI — CSS class application (Task 17)', () => {
     });
   });
 });
+
+// ── Task 18: controller isolation ───────────────────────────────────────────
+describe('controller isolation across instances', () => {
+  it('re-rendering instance 1 does not abort instance 2 near-miss listeners', async () => {
+    // Two separate documents / instances
+    const doc1 = document.implementation.createHTMLDocument('doc1');
+    const ts1 = doc1.createElement('div');
+    ts1.id = 'tab-search';
+    doc1.body.appendChild(ts1);
+
+    const doc2 = document.implementation.createHTMLDocument('doc2');
+    const ts2 = doc2.createElement('div');
+    ts2.id = 'tab-search';
+    doc2.body.appendChild(ts2);
+
+    const day = { date: '2026-07-10', effectiveDistanceKm: 9.2, target: 10 };
+    const engine1 = { findNearMisses: vi.fn().mockResolvedValue([day]), computeDayOfWeekSlump: vi.fn().mockResolvedValue([]), comparePeriods: vi.fn() };
+    const engine2 = { findNearMisses: vi.fn().mockResolvedValue([day]), computeDayOfWeekSlump: vi.fn().mockResolvedValue([]), comparePeriods: vi.fn() };
+    const rep = { db: vi.fn(), auth: vi.fn() };
+
+    const ui1 = createSearchLabUI(doc1, engine1, rep);
+    const ui2 = createSearchLabUI(doc2, engine2, rep);
+
+    // Render both instances
+    await ui1.render();
+    await ui2.render();
+
+    // Track clicks dispatched from instance 2's listener
+    const fired2 = [];
+    doc2.addEventListener('ui:open-day-drawer', e => fired2.push(e.detail.date));
+
+    // Re-render instance 1 — this should only abort instance 1's controller
+    await ui1.render();
+
+    // Click near-miss button in instance 2 — listener should still be active
+    const btn2 = doc2.getElementById('search-nearmiss-card').querySelector('[data-action="open-day-drawer"]');
+    btn2.click();
+
+    expect(fired2).toEqual(['2026-07-10']);
+  });
+});
