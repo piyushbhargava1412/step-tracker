@@ -64,6 +64,8 @@ export function computeComparisonDelta(a, b) {
 import { buildEffectiveGoalHistory, _prepareGoalHistory, _resolvePreparedGoalForDate } from './goal-history.js';
 import { _localDate } from './goal.js';
 
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 /**
  * DI factory: createSearchLab(db, goal)
  * Returns the Search Lab analytics engine (no DOM, no direct Dexie).
@@ -105,8 +107,8 @@ export function createSearchLab(db, goal) {
   }
 
   async function computeDayOfWeekSlump() {
-    const EMPTY_BUCKET = () => ({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
-    const buckets = Array.from({ length: 7 }, EMPTY_BUCKET);
+    const EMPTY_BUCKET = (i) => ({ day: DAY_NAMES[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+    const buckets = Array.from({ length: 7 }, (_, i) => EMPTY_BUCKET(i));
 
     const earliest = await db.daily_records.orderBy('date').first();
     if (!earliest) return buckets;
@@ -139,9 +141,10 @@ export function createSearchLab(db, goal) {
       sums[idx].count += 1;
     }
 
-    return sums.map(({ sumSteps, sumDistanceKm, metCount, count }) => {
-      if (count === 0) return EMPTY_BUCKET();
+    return sums.map(({ sumSteps, sumDistanceKm, metCount, count }, i) => {
+      if (count === 0) return EMPTY_BUCKET(i);
       return {
+        day: DAY_NAMES[i],
         hitRate: Math.round((metCount / count) * 100),
         avgSteps: Math.round(sumSteps / count),
         totalDistanceKm: sumDistanceKm,

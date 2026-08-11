@@ -289,8 +289,9 @@ describe('createSearchLab', () => {
       const lab = createSearchLab(db, goal);
       const result = await lab.computeDayOfWeekSlump();
       expect(result).toHaveLength(7);
-      for (const bucket of result) {
-        expect(bucket).toEqual({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+      const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      for (let i = 0; i < result.length; i++) {
+        expect(result[i]).toEqual({ day: DOW[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
       }
     });
 
@@ -306,8 +307,9 @@ describe('createSearchLab', () => {
       const lab = createSearchLab(db, goal);
       const result = await lab.computeDayOfWeekSlump();
       // Tuesday through Sunday should be empty
+      const DOW2 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       for (let i = 1; i <= 6; i++) {
-        expect(result[i]).toEqual({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+        expect(result[i]).toEqual({ day: DOW2[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
       }
     });
 
@@ -593,3 +595,40 @@ describe('createSearchLab', () => {
       expect(betweenSpy).toHaveBeenCalledTimes(2);
     });
   });
+
+// Task 13: day label assertions
+describe('computeDayOfWeekSlump – day labels (Task 13)', () => {
+  function makeMockDb({ earliest, records, goalHistory }) {
+    return {
+      daily_records: {
+        orderBy: () => ({ first: () => Promise.resolve(earliest ?? undefined) }),
+        where: () => ({ between: () => ({ toArray: () => Promise.resolve(records ?? []) }) }),
+      },
+      goal_history: { toArray: () => Promise.resolve(goalHistory ?? []) },
+    };
+  }
+
+  it('each bucket has a day property with correct Mon..Sun label', async () => {
+    const { createSearchLab } = await import('./search-lab.js?t=task13');
+    const db = makeMockDb({ earliest: undefined });
+    const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+    const lab = createSearchLab(db, goal);
+    const result = await lab.computeDayOfWeekSlump();
+    const expected = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    expect(result.map(b => b.day)).toEqual(expected);
+  });
+
+  it('non-empty bucket also carries its day label', async () => {
+    const { createSearchLab } = await import('./search-lab.js?t=task13b');
+    const records = [
+      { date: '2026-08-10', effective_distance_km: 10.0, steps: 12000 }, // Monday
+    ];
+    const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+    const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+    const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+    const lab = createSearchLab(db, goal);
+    const result = await lab.computeDayOfWeekSlump();
+    expect(result[0].day).toBe('Mon'); // bucket index 0 is Monday
+    expect(result[6].day).toBe('Sun'); // bucket index 6 is Sunday
+  });
+});
