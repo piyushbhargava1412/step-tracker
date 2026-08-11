@@ -413,6 +413,11 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
     closeBtn.addEventListener('click', () => _closeDrawer(tile || previousFocus), { once: true });
     drawer.insertBefore(closeBtn, drawer.firstChild.nextSibling);
 
+    // Overlay click and Escape key dismissal — use module-level controller signal so
+    // both listeners are automatically removed when render() aborts the controller on re-render.
+    overlay.addEventListener('click', () => _closeDrawer(tile), { signal: controller.signal });
+    doc.addEventListener('keydown', (e) => { if (e.key === 'Escape') _closeDrawer(tile); }, { signal: controller.signal });
+
     // Show drawer
     drawer.classList.add('drawer--open');
     drawer.removeAttribute('hidden');

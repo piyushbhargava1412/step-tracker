@@ -566,6 +566,52 @@ describe('render() — drawer', async () => {
     const drawer = doc.getElementById('day-drawer');
     expect(drawer.hasAttribute('hidden')).toBe(true);
   });
+
+  it('overlay click closes drawer and restores focus to tile', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const { render } = createCalendarUI(doc, null, engine, reporter);
+    await render();
+
+    const tile = doc.querySelector('[data-date="2026-08-08"]');
+    const focusSpy = vi.spyOn(tile, 'focus');
+    tile.click();
+
+    const overlay = doc.querySelector('.drawer-overlay');
+    overlay.click();
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.classList.contains('drawer--open')).toBe(false);
+    expect(drawer.hasAttribute('hidden')).toBe(true);
+    expect(overlay.hasAttribute('hidden')).toBe(true);
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
+  it('Escape key closes drawer and restores focus to tile', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const { render } = createCalendarUI(doc, null, engine, reporter);
+    await render();
+
+    const tile = doc.querySelector('[data-date="2026-08-08"]');
+    const focusSpy = vi.spyOn(tile, 'focus');
+    tile.click();
+
+    const overlay = doc.querySelector('.drawer-overlay');
+    const drawer = doc.getElementById('day-drawer');
+
+    const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    doc.dispatchEvent(escapeEvent);
+
+    expect(drawer.classList.contains('drawer--open')).toBe(false);
+    expect(drawer.hasAttribute('hidden')).toBe(true);
+    expect(overlay.hasAttribute('hidden')).toBe(true);
+    expect(focusSpy).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
