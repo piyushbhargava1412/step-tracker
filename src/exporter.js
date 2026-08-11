@@ -1,3 +1,5 @@
+import { _localDate } from './goal.js';
+
 export const CSV_HEADERS =
   'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note';
 
@@ -67,19 +69,55 @@ export function _toJson(records) {
 }
 
 /**
- * Factory — returns exportCsv and exportJson methods.
- * The download seam (Task 2) will be added in the next task.
+ * Builds the export filename: step-tracker-export-YYYY-MM-DD.<ext>
+ * Uses _localDate() (timezone-safe) — never the UTC-biased Date#toISOString (Decision 10).
+ *
+ * @param {string} ext - file extension without leading dot
+ * @returns {string}
+ */
+function _filename(ext) {
+  return EXPORT_FILENAME_PREFIX + _localDate() + '.' + ext;
+}
+
+/**
+ * Factory — returns exportCsv and exportJson bound to the injected document.
+ * All browser APIs (Blob, URL.createObjectURL/revokeObjectURL, anchor click)
+ * are confined to _triggerDownload so tests can stub them via vi.stubGlobal
+ * and an injected doc spy (Decision 3).
  *
  * @param {Document} doc - injected document for browser-API isolation
  * @returns {{ exportCsv: Function, exportJson: Function }}
  */
 export function createExporter(doc) {
+  /**
+   * Creates a temporary object URL, triggers a download via an anchor click,
+   * then revokes the URL in a finally block (no memory leak).
+   * Any error is caught and logged; never rethrows.
+   *
+   * @param {string} filename
+   * @param {string} mimeType
+   * @param {string} text
+   */
+  function _triggerDownload(filename, mimeType, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+    try {
+      const a = doc.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+    } catch (err) {
+      console.error('[exporter]', err);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   function exportCsv(records) {
-    // Task 2: download seam to be added
+    _triggerDownload(_filename('csv'), 'text/csv', _toCsv(records));
   }
 
   function exportJson(records) {
-    // Task 2: download seam to be added
+    _triggerDownload(_filename('json'), 'application/json', _toJson(records));
   }
 
   return { exportCsv, exportJson };
