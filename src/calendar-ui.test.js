@@ -1052,3 +1052,178 @@ describe('Task 4 — Revert button', () => {
     expect(events.length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 15 — Client-side form validation before overrideRecord
+// ---------------------------------------------------------------------------
+
+describe('Task 15 — Form validation before overrideRecord', () => {
+  async function openFormForDay(doc, records, processImage) {
+    const payload = makeSamplePayloadWithRecord();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    await render();
+
+    doc.querySelector('[data-date="2026-08-05"]').click();
+    doc.querySelector('[data-action="edit-day"]').click();
+
+    const drawer = doc.getElementById('day-drawer');
+    return {
+      drawer,
+      reporter,
+      stepsInput: drawer.querySelector('input[data-field="effective-steps"]'),
+      noteTextarea: drawer.querySelector('textarea[data-field="note"]'),
+      fileInput: drawer.querySelector('input[type="file"]'),
+      form: drawer.querySelector('form[data-form="override"]'),
+    };
+  }
+
+  it('empty steps (NaN) → overrideRecord NOT called; no data:records:mutated event', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    stepsInput.value = '';       // parseInt('') → NaN
+    noteTextarea.value = 'Valid note';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('non-integer steps (float text) → overrideRecord NOT called', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    stepsInput.value = '3.5';    // parseInt gives 3, but Number.isInteger(parseFloat('3.5')) is false
+    noteTextarea.value = 'Valid note';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('negative steps → overrideRecord NOT called', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    stepsInput.value = '-1';
+    noteTextarea.value = 'Valid note';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('empty note (whitespace-only) → overrideRecord NOT called; no data:records:mutated event', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    stepsInput.value = '7000';
+    noteTextarea.value = '   ';  // whitespace only
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('empty note + empty steps → overrideRecord NOT called; no data:records:mutated event', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    stepsInput.value = '';
+    noteTextarea.value = '';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('invalid steps → processImage NOT called even when file is attached', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea, fileInput } = await openFormForDay(doc, records, processImage);
+
+    stepsInput.value = '';
+    noteTextarea.value = 'Valid note';
+    const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(processImage).not.toHaveBeenCalled();
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+  });
+
+  it('invalid input → does NOT call reporter.db (no system-level error message)', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const payload = makeSamplePayloadWithRecord();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    await render();
+
+    doc.querySelector('[data-date="2026-08-05"]').click();
+    doc.querySelector('[data-action="edit-day"]').click();
+
+    const drawer = doc.getElementById('day-drawer');
+    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
+    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
+    const form = drawer.querySelector('form[data-form="override"]');
+
+    stepsInput.value = '';
+    noteTextarea.value = '';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(reporter.db).not.toHaveBeenCalled();
+  });
+
+  it('valid input (steps=0, non-empty note) → overrideRecord IS called', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+
+    stepsInput.value = '0';
+    noteTextarea.value = 'Rest day';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());
+    expect(records.overrideRecord.mock.calls[0][1].effective_steps).toBe(0);
+  });
+});

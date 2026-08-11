@@ -526,10 +526,28 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const stepsVal = parseInt(stepsInput.value, 10);
+      const stepsRaw = stepsInput.value.trim();
+      const stepsNum = stepsRaw !== '' ? Number(stepsRaw) : NaN;
+      const stepsVal = stepsNum;
       const distVal = distInput.value.trim() !== '' ? parseFloat(distInput.value) : undefined;
       const noteVal = noteTextarea.value;
       const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+      // Guard-clause: validate inputs before calling overrideRecord
+      // steps: required, must be a finite integer >= 0 (empty string, floats, negatives all rejected)
+      if (stepsRaw === '' || !Number.isFinite(stepsNum) || !Number.isInteger(stepsNum) || stepsNum < 0) {
+        stepsInput.setCustomValidity('Steps must be a whole number ≥ 0');
+        stepsInput.reportValidity();
+        return;
+      }
+      stepsInput.setCustomValidity('');
+
+      if (noteVal.trim() === '') {
+        noteTextarea.setCustomValidity('Justification note is required');
+        noteTextarea.reportValidity();
+        return;
+      }
+      noteTextarea.setCustomValidity('');
 
       let proofBase64 = null;
       try {
