@@ -6,33 +6,14 @@
  * judged against the goal that was in force on D, never against today's goal.
  */
 
-import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
+import { DEFAULT_GOAL_KM } from './goal.js';
+import { _localDate, _addDaysUtc } from './date-utils.js';
 export { resolveGoalForDate } from './goal-history.js';
 
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
 export const HALL_OF_FAME_SIZE = 3; // podium entries
 const ZERO_TIER_STREAKS = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
-
-const MS_PER_DAY = 86_400_000; // ms
-
-/**
- * Calendar arithmetic on a YYYY-MM-DD string.
- * Parses components and rebuilds via Date.UTC so the result never depends on
- * the local timezone or DST — the same invariant `_localDate` protects.
- *
- * @param {string} dateStr - YYYY-MM-DD
- * @param {number} delta - days to add (may be negative)
- * @returns {string} YYYY-MM-DD
- */
-export function _addDaysUtc(dateStr, delta) {
-  const [y, m, d] = String(dateStr).split('-').map(Number);
-  const shifted = new Date(Date.UTC(y, m - 1, d) + delta * MS_PER_DAY);
-  const yy = shifted.getUTCFullYear();
-  const MM = String(shifted.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(shifted.getUTCDate()).padStart(2, '0');
-  return `${yy}-${MM}-${dd}`;
-}
 
 /**
  * Builds a stable ascending comparator over a string key. Stability keeps

@@ -4,7 +4,9 @@
  * All collaborators are injected.
  */
 
-import { KM_TO_STEPS, DEFAULT_GOAL_KM, DEFAULT_GOAL_STEPS, _localDate } from './goal.js';
+import { KM_TO_STEPS } from './units.js';
+import { DEFAULT_GOAL_KM, DEFAULT_GOAL_STEPS } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 /**
  * Thin data-access passthrough: fetch today's daily_records row.

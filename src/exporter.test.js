@@ -12,7 +12,7 @@ import {
   _toJson,
   createExporter,
 } from './exporter.js';
-import { _localDate } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 afterEach(() => {
   vi.restoreAllMocks();

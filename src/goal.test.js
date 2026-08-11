@@ -6,29 +6,8 @@ import {
   DEFAULT_GOAL_STEPS,
   KM_TO_STEPS,
   ACTIVE_GOAL_KEY,
-  _localDate,
 } from './goal.js';
-
-describe('_localDate', () => {
-  it('returns a YYYY-MM-DD string using local getters (not UTC)', () => {
-    // Use a fixed timestamp: 2026-01-15T01:00:00Z
-    // In UTC+5 this is 2026-01-15T06:00:00 local; in UTC-5 it is 2026-01-14T20:00:00
-    const ts = new Date('2026-01-15T01:00:00Z').getTime();
-    const result = _localDate(ts);
-    const d = new Date(ts);
-    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    expect(result).toBe(expected);
-    // Must NOT equal UTC-shifted string in non-UTC timezone (we assert local getters are used)
-    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  it('zero-pads month and day correctly', () => {
-    // 2026-03-05: month=3 (padded to 03), day=5 (padded to 05)
-    const d = new Date(2026, 2, 5, 12, 0, 0); // month is 0-indexed
-    const result = _localDate(d.getTime());
-    expect(result).toBe('2026-03-05');
-  });
-});
+import { _localDate } from './date-utils.js';
 
 describe('constants', () => {
   it('GOAL_PRESETS_KM = [1, 3, 5, 10]', () => {

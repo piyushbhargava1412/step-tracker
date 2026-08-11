@@ -4,27 +4,13 @@
  * No Dexie import — `db` is injected by the composition root.
  */
 
+import { _localDate } from './date-utils.js';
+
 export const GOAL_PRESETS_KM = [1, 3, 5, 10];
 export const DEFAULT_GOAL_KM = 3.0;
 export const KM_TO_STEPS = 1312.33;
 export const DEFAULT_GOAL_STEPS = Math.round(DEFAULT_GOAL_KM * KM_TO_STEPS); // 3937
 export const ACTIVE_GOAL_KEY = 'active_goal';
-
-/**
- * Local-time YYYY-MM-DD formatter.
- * Uses getFullYear/getMonth/getDate — never toISOString() — so dates are
- * timezone-safe (mirrors the _formatLocalDate convention in steps.js:161-167).
- *
- * @param {number} [ms=Date.now()] - timestamp in milliseconds
- * @returns {string} YYYY-MM-DD
- */
-export function _localDate(ms = Date.now()) {
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const MM = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${MM}-${dd}`;
-}
 
 /**
  * Returns true if a stored goal row is valid (not corrupt).

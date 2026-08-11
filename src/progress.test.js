@@ -5,7 +5,7 @@
  */
 
 import { computeProgress, getTodayRecord } from './progress.js';
-import { _localDate as _formatLocalDate } from './goal.js';
+import { _localDate as _formatLocalDate } from './date-utils.js';
 
 afterEach(() => vi.restoreAllMocks());
 

@@ -150,7 +150,7 @@ export function _addDays(date, n) {
   return d;
 }
 
-import { _localDate } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 /**
  * Format a millisecond timestamp as a local YYYY-MM-DD string using

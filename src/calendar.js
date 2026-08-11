@@ -6,7 +6,8 @@
  * `month` is 0-based throughout (matches Date's getMonth()).
  */
 
-import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
+import { DEFAULT_GOAL_KM } from './goal.js';
+import { _localDate } from './date-utils.js';
 import { resolveGoalForDate, buildEffectiveGoalHistory, _prepareGoalHistory, _resolvePreparedGoalForDate } from './goal-history.js';
 
 // Classification constants (SF-2 precedence ladder)

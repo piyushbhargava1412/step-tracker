@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { _localDate } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 export const DB_NAME = 'StepTrackerDB';
 export const DB_VERSION = 3;

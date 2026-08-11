@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRecords } from './records.js';
-import { KM_TO_STEPS } from './goal.js';
+import { KM_TO_STEPS } from './units.js';
 
 function makeMockDb(row = null) {
   const mockTable = {

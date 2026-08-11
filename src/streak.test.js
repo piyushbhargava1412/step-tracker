@@ -7,7 +7,6 @@ import {
   TIER_THRESHOLDS,
   LIFETIME_STEP_THRESHOLD,
   HALL_OF_FAME_SIZE,
-  _addDaysUtc,
   _sortByDate,
   resolveGoalForDate,
   computeUnifiedStreak,
@@ -52,50 +51,6 @@ function goalRow(effective_from, km) {
     target_steps: Math.round(km * 1312.33),
   };
 }
-
-// ---------------------------------------------------------------------------
-// _addDaysUtc
-// ---------------------------------------------------------------------------
-describe('_addDaysUtc', () => {
-  it('crosses a leap-year month boundary backwards (2024-03-01 − 1 → 2024-02-29)', () => {
-    expect(_addDaysUtc('2024-03-01', -1)).toBe('2024-02-29');
-  });
-
-  it('crosses a non-leap-year month boundary backwards (2023-03-01 − 1 → 2023-02-28)', () => {
-    expect(_addDaysUtc('2023-03-01', -1)).toBe('2023-02-28');
-  });
-
-  it('crosses a year boundary backwards (2024-01-01 − 1 → 2023-12-31)', () => {
-    expect(_addDaysUtc('2024-01-01', -1)).toBe('2023-12-31');
-  });
-
-  it('crosses a year boundary forwards (2023-12-31 + 1 → 2024-01-01)', () => {
-    expect(_addDaysUtc('2023-12-31', 1)).toBe('2024-01-01');
-  });
-
-  it('zero-pads single-digit month and day', () => {
-    expect(_addDaysUtc('2024-02-10', -1)).toBe('2024-02-09');
-    expect(_addDaysUtc('2024-01-10', 0)).toBe('2024-01-10');
-    expect(_addDaysUtc('2024-01-10', -1)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  it('is timezone-safe across DST transitions (component parsing + Date.UTC)', () => {
-    // US DST start (2024-03-10) and end (2024-11-03): a local-time based
-    // implementation would skip or repeat a day here.
-    expect(_addDaysUtc('2024-03-10', -1)).toBe('2024-03-09');
-    expect(_addDaysUtc('2024-03-10', 1)).toBe('2024-03-11');
-    expect(_addDaysUtc('2024-11-03', -1)).toBe('2024-11-02');
-    expect(_addDaysUtc('2024-11-03', 1)).toBe('2024-11-04');
-  });
-
-  it('matches an independent Date.UTC computation for a long backwards walk', () => {
-    let d = '2024-03-05';
-    for (let i = 1; i <= 400; i += 1) {
-      d = _addDaysUtc(d, -1);
-      expect(d).toBe(shiftDate('2024-03-05', -i));
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // _sortByDate

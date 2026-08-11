@@ -5,7 +5,7 @@
  * Never mutates original_steps / original_distance_km / synced_at.
  * All Dexie I/O wrapped in try/catch per repo convention.
  */
-import { KM_TO_STEPS } from './goal.js';
+import { KM_TO_STEPS } from './units.js';
 
 /**
  * @param {object} db — Dexie db instance (injected by composition root)
