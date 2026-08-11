@@ -421,3 +421,175 @@ describe('createSearchLab', () => {
       expect(result[0].hitRate).toBe(50);
     });
   });
+
+  describe('comparePeriods', () => {
+    // Mock DB that routes between() calls by range start date
+    function makeMockDb({ goalHistory, rangeRecords }) {
+      // rangeRecords: Map from startDate string to array of records
+      return {
+        daily_records: {
+          orderBy: () => ({
+            first: () => Promise.resolve(undefined),
+          }),
+          where: () => ({
+            between: (start) => ({
+              toArray: () => Promise.resolve((rangeRecords && rangeRecords[start]) ?? []),
+            }),
+          }),
+        },
+        goal_history: {
+          toArray: () => Promise.resolve(goalHistory ?? []),
+        },
+      };
+    }
+
+    it('returns correct periodA and periodB aggregates for two non-overlapping ranges', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Period A: 2026-01-01 to 2026-01-03 — 3 records, target=10
+      // Period B: 2026-02-01 to 2026-02-02 — 2 records, target=10
+      const rangeRecords = {
+        '2026-01-01': [
+          { date: '2026-01-01', effective_distance_km: 10.0, steps: 10000 }, // MET
+          { date: '2026-01-02', effective_distance_km: 8.0,  steps: 8000  }, // MISSED
+          { date: '2026-01-03', effective_distance_km: 11.0, steps: 11000 }, // MET
+        ],
+        '2026-02-01': [
+          { date: '2026-02-01', effective_distance_km: 10.0, steps: 10000 }, // MET
+          { date: '2026-02-02', effective_distance_km: 10.5, steps: 10500 }, // MET
+        ],
+      };
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ goalHistory, rangeRecords });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-03' },
+        { startDate: '2026-02-01', endDate: '2026-02-02' },
+      );
+      // Period A: totalSteps=29000, totalDistanceKm=29.0, hitRate=Math.round(2/3*100)=67
+      expect(result.periodA.totalSteps).toBe(29000);
+      expect(result.periodA.totalDistanceKm).toBeCloseTo(29.0, 5);
+      expect(result.periodA.hitRate).toBe(67);
+      // Period B: totalSteps=20500, totalDistanceKm=20.5, hitRate=100
+      expect(result.periodB.totalSteps).toBe(20500);
+      expect(result.periodB.totalDistanceKm).toBeCloseTo(20.5, 5);
+      expect(result.periodB.hitRate).toBe(100);
+    });
+
+    it('computes deltas via computeComparisonDelta for all three metrics', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const rangeRecords = {
+        '2026-01-01': [
+          { date: '2026-01-01', effective_distance_km: 10.0, steps: 10000 }, // MET
+        ],
+        '2026-02-01': [
+          { date: '2026-02-01', effective_distance_km: 11.0, steps: 11000 }, // MET
+        ],
+      };
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ goalHistory, rangeRecords });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-01' },
+        { startDate: '2026-02-01', endDate: '2026-02-01' },
+      );
+      // totalSteps: 10000→11000 = 10%
+      expect(result.deltas.totalSteps).toBe(10);
+      // hitRate: 100→100 = 0%
+      expect(result.deltas.hitRate).toBe(0);
+      // totalDistanceKm: 10→11 = 10%
+      expect(result.deltas.totalDistanceKm).toBe(10);
+    });
+
+    it('delta is null when period A total steps is 0', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const rangeRecords = {
+        '2026-01-01': [
+          { date: '2026-01-01', effective_distance_km: 5.0, steps: 0 }, // 0 steps
+        ],
+        '2026-02-01': [
+          { date: '2026-02-01', effective_distance_km: 10.0, steps: 5000 },
+        ],
+      };
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ goalHistory, rangeRecords });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-01' },
+        { startDate: '2026-02-01', endDate: '2026-02-01' },
+      );
+      expect(result.deltas.totalSteps).toBeNull();
+    });
+
+    it('reversed range yields empty aggregate with null metrics without throwing', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const db = makeMockDb({ goalHistory: [], rangeRecords: {} });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-31', endDate: '2026-01-01' }, // reversed
+        { startDate: '2026-02-01', endDate: '2026-02-28' },
+      );
+      expect(result.periodA.totalSteps).toBe(0);
+      expect(result.periodA.hitRate).toBeNull();
+      expect(result.periodA.totalDistanceKm).toBeNull();
+    });
+
+    it('empty range (no records in window) yields null metrics and null deltas', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const rangeRecords = { '2026-01-01': [], '2026-02-01': [] };
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ goalHistory, rangeRecords });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-31' },
+        { startDate: '2026-02-01', endDate: '2026-02-28' },
+      );
+      expect(result.periodA.hitRate).toBeNull();
+      expect(result.periodA.totalSteps).toBe(0);
+      expect(result.deltas.totalSteps).toBeNull();
+      expect(result.deltas.hitRate).toBeNull();
+    });
+
+    it('return shape has { periodA, periodB, deltas: { totalSteps, totalDistanceKm, hitRate } }', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const rangeRecords = { '2026-01-01': [], '2026-02-01': [] };
+      const db = makeMockDb({ goalHistory: [], rangeRecords });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-31' },
+        { startDate: '2026-02-01', endDate: '2026-02-28' },
+      );
+      expect(result).toHaveProperty('periodA');
+      expect(result).toHaveProperty('periodB');
+      expect(result).toHaveProperty('deltas');
+      expect(result.deltas).toHaveProperty('totalSteps');
+      expect(result.deltas).toHaveProperty('totalDistanceKm');
+      expect(result.deltas).toHaveProperty('hitRate');
+    });
+
+    it('only .between() queries used — orderBy not called for comparePeriods', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const orderBySpy = vi.fn().mockReturnValue({ first: vi.fn().mockResolvedValue(undefined) });
+      const betweenSpy = vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) });
+      const db = {
+        daily_records: {
+          orderBy: orderBySpy,
+          where: () => ({ between: betweenSpy }),
+        },
+        goal_history: { toArray: vi.fn().mockResolvedValue([]) },
+      };
+      const goal = { getActiveGoal: vi.fn().mockResolvedValue({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      await lab.comparePeriods(
+        { startDate: '2026-01-01', endDate: '2026-01-31' },
+        { startDate: '2026-02-01', endDate: '2026-02-28' },
+      );
+      expect(orderBySpy).not.toHaveBeenCalled();
+      expect(betweenSpy).toHaveBeenCalledTimes(2);
+    });
+  });

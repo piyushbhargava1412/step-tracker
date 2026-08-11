@@ -150,9 +150,59 @@ export function createSearchLab(db, goal) {
     });
   }
 
-  function comparePeriods() {
-    // Placeholder — implemented in Task 5
-    throw new Error('Not implemented yet');
+  async function comparePeriods(rangeA, rangeB) {
+    const EMPTY_PERIOD = () => ({ totalSteps: 0, totalDistanceKm: null, hitRate: null });
+
+    function isValidRange(range) {
+      return range && range.startDate && range.endDate && range.startDate <= range.endDate;
+    }
+
+    async function aggregatePeriod(range) {
+      if (!isValidRange(range)) return EMPTY_PERIOD();
+      const { start, endExclusive } = dateBounds(range.startDate, range.endDate);
+      const [records, goalHistoryRows, activeGoal] = await Promise.all([
+        db.daily_records.where('date').between(start, endExclusive, true, false).toArray(),
+        db.goal_history.toArray(),
+        goal.getActiveGoal(),
+      ]);
+
+      if (records.length === 0) return EMPTY_PERIOD();
+
+      const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
+      const prepared = _prepareGoalHistory(effectiveHistory);
+
+      let totalSteps = 0;
+      let totalDistanceKm = 0;
+      let metCount = 0;
+
+      for (const record of records) {
+        const target = _resolvePreparedGoalForDate(prepared, record.date);
+        const steps = Number.isFinite(record.steps) ? record.steps : 0;
+        const distKm = Number.isFinite(record.effective_distance_km) ? record.effective_distance_km : 0;
+        const met = Number.isFinite(record.effective_distance_km) && record.effective_distance_km >= target ? 1 : 0;
+        totalSteps += steps;
+        totalDistanceKm += distKm;
+        metCount += met;
+      }
+
+      const hitRate = Math.round((metCount / records.length) * 100);
+      return { totalSteps, totalDistanceKm, hitRate };
+    }
+
+    const [periodA, periodB] = await Promise.all([
+      aggregatePeriod(rangeA),
+      aggregatePeriod(rangeB),
+    ]);
+
+    return {
+      periodA,
+      periodB,
+      deltas: {
+        totalSteps: computeComparisonDelta(periodA.totalSteps, periodB.totalSteps),
+        totalDistanceKm: computeComparisonDelta(periodA.totalDistanceKm, periodB.totalDistanceKm),
+        hitRate: computeComparisonDelta(periodA.hitRate, periodB.hitRate),
+      },
+    };
   }
 
   return { findNearMisses, computeDayOfWeekSlump, comparePeriods };
