@@ -4,9 +4,9 @@ import {
   GOAL_PRESETS_KM,
   DEFAULT_GOAL_KM,
   DEFAULT_GOAL_STEPS,
-  KM_TO_STEPS,
   ACTIVE_GOAL_KEY,
 } from './goal.js';
+import { KM_TO_STEPS } from './units.js';
 import { _localDate } from './date-utils.js';
 
 describe('constants', () => {
