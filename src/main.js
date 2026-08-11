@@ -52,7 +52,7 @@ export async function bootstrap(doc = document) {
 
   // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
-  const streak = createStreak(db)
+  const streak = createStreak(db, goal)
   const streakUI = createStreakUI(doc, streak, reporter)
   const calendar = createCalendar(db, goal)
   const records = createRecords(db)

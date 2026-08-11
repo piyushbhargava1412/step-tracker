@@ -2,18 +2,18 @@
  * Streak engine — pure computation.
  * No DOM writes, no Dexie import. All data arrives as plain arrays.
  *
- * The unified streak follows the Effective Date Lock rule: every day D is
- * judged against the goal that was in force on D, never against today's goal.
+ * SF-3: there is exactly one evaluation lens — the live `active_step_goal`
+ * scalar. It carries no effective-from/date-scoping semantics: the *current*
+ * value is applied uniformly to *every* historical day, for the tolerance
+ * streaks, the Hall of Fame, and the lifetime compliance metric alike.
  */
 
-import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
+import { DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
 import { _localDate, _addDaysUtc } from './date-utils.js';
-export { resolveGoalForDate } from './goal-history.js';
 
 // SF-4b: the tier ladder is the step-goal enum itself — verbatim, no
 // conversion. This keeps the goal enum and the tier ladder from drifting.
 export const TIER_STEP_THRESHOLDS = STEP_GOAL_OPTIONS;
-export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
 export const HALL_OF_FAME_SIZE = 3; // podium entries
 
 // Parameterized Tolerance Streak Engine — one allowed miss per N calendar days.
@@ -23,8 +23,7 @@ const ZERO_TIER_STREAKS = TIER_STEP_THRESHOLDS.map((threshold) => ({ threshold, 
 
 /**
  * Builds a stable ascending comparator over a string key. Stability keeps
- * insertion order for equal keys, which is what makes a same-day goal
- * overwrite resolve to the later row.
+ * insertion order for equal keys, so same-date rows keep their arrival order.
  *
  * @param {string} key - property name to compare
  * @returns {(a: object, b: object) => number}
@@ -44,13 +43,9 @@ export function _sortByDate(records) {
   return [...records].sort(_ascBy('date'));
 }
 
-// Internal aliases for streak.js's own use of goal-history helpers.
-import { _prepareGoalHistory, _resolvePreparedGoalForDate, _sortByEffectiveFrom, _isValidGoalRow, buildEffectiveGoalHistory } from './goal-history.js';
-
 /**
  * Returns true if a daily_records row can be keyed by date.
- * Module-local so the step-based engine below owns its own record guard and
- * does not depend on the distance-era goal-history module.
+ * Module-local so this engine owns its own record guard outright.
  *
  * @param {*} row
  * @returns {boolean}
@@ -60,63 +55,25 @@ export function _isValidRecord(row) {
 }
 
 /**
- * Unified Active Streak — Effective Date Lock traversal.
+ * Steps credited to a calendar day. A missing day, a corrupt row, or a
+ * non-finite `effective_steps` all read as 0 — i.e. a miss (SF-5).
  *
- * Walks backwards from `today` to the earliest record in a single in-memory
- * pass (SF-14):
- *   1. Missing record on a past day terminates the streak (SF-2, fail-closed).
- *   2. Missing record today is an in-progress skip — evaluate from yesterday.
- *   3. `distance >= G(D)` increments (SF-8, `>=` not `>`).
- *   4. `distance < G(D)` today is a skip; on a past day it terminates.
- *   5. Non-finite `effective_distance_km` counts as 0 (SF-13).
- *
- * @param {Array<{ date: string, effective_distance_km: number }>} records
- * @param {Array<{ effective_from: string, target_distance_km: number }>} goalHistory
- * @param {string} today - YYYY-MM-DD
- * @returns {number} consecutive qualifying days
+ * @param {{ effective_steps?: number }|undefined} record
+ * @returns {number}
  */
-export function computeUnifiedStreak(records, goalHistory, today) {
-  if (!Array.isArray(records) || records.length === 0) return 0;
-  if (typeof today !== 'string' || today === '') return 0;
-
-  const usable = _sortByDate(records.filter(_isValidRecord));
-  return _computeUnifiedStreakPrepared(usable, _prepareGoalHistory(goalHistory), today);
+function _stepsFor(record) {
+  return record && Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
 }
 
-function _computeUnifiedStreakPrepared(usable, preparedGoals, today) {
-  if (usable.length === 0) return 0;
-
-  const byDate = new Map(usable.map((r) => [r.date, r]));
-  const earliest = usable[0].date;
-
-  let streak = 0;
-  let day = today;
-
-  while (day >= earliest) {
-    const isToday = day === today;
-    const record = byDate.get(day);
-
-    if (!record) {
-      if (!isToday) break; // past gap terminates (SF-2)
-      day = _addDaysUtc(day, -1); // today in progress — skip it
-      continue;
-    }
-
-    const distanceKm = Number.isFinite(record.effective_distance_km)
-      ? record.effective_distance_km
-      : 0; // SF-13: corrupt value fails the day
-    const goalKm = _resolvePreparedGoalForDate(preparedGoals, day);
-
-    if (distanceKm >= goalKm) {
-      streak += 1;
-    } else if (!isToday) {
-      break; // past shortfall terminates
-    }
-
-    day = _addDaysUtc(day, -1);
-  }
-
-  return streak;
+/**
+ * Normalises a caller-supplied step goal. Fail-open: a non-finite or
+ * non-positive value falls back to `DEFAULT_STEP_GOAL` (SF-4c/SF-4d).
+ *
+ * @param {*} stepGoal
+ * @returns {number}
+ */
+function _resolveStepGoal(stepGoal) {
+  return Number.isFinite(stepGoal) && stepGoal > 0 ? stepGoal : DEFAULT_STEP_GOAL;
 }
 
 /**
@@ -207,26 +164,31 @@ function _computeTierStreaksPrepared(usable, today) {
 }
 
 /**
- * Hall of Fame — top-N longest unified streak periods.
+ * Hall of Fame — top-N longest strict (100%) step-goal periods (SF-4c).
  *
  * Single ascending pass (SF-14): walks sorted records, evaluates each day
- * against G(D), and splits the current period at any failing or missing day.
+ * against the single active step goal, and splits the current period at any
+ * failing day or non-calendar-consecutive date (a missing day is a gap, SF-5).
  * No in-progress concept — today passes or fails on its own record (SF-7).
  * Periods are ranked by `days` desc, then `startDate` desc (recency
  * tie-break, SF-7). Returns up to `HALL_OF_FAME_SIZE` entries.
  *
- * @param {Array<{ date: string, effective_distance_km: number }>} records
- * @param {Array<{ effective_from: string, target_distance_km: number }>} goalHistory
+ * Strict only: the Hall of Fame reports best *runs*, so there are no 95%/90%
+ * podium variants. Fail-open: a non-finite or non-positive `stepGoal` falls
+ * back to `DEFAULT_STEP_GOAL`.
+ *
+ * @param {Array<{ date: string, effective_steps: number }>} records
+ * @param {number} stepGoal - daily step target applied to every historical day
  * @returns {Array<{ startDate: string, endDate: string, days: number }>}
  */
-export function computeHallOfFame(records, goalHistory) {
+export function computeHallOfFame(records, stepGoal) {
   if (!Array.isArray(records) || records.length === 0) return [];
 
   const usable = _sortByDate(records.filter(_isValidRecord));
-  return _computeHallOfFamePrepared(usable, _prepareGoalHistory(goalHistory));
+  return _computeHallOfFamePrepared(usable, _resolveStepGoal(stepGoal));
 }
 
-function _computeHallOfFamePrepared(usable, preparedGoals) {
+function _computeHallOfFamePrepared(usable, target) {
   if (usable.length === 0) return [];
 
   const periods = [];
@@ -237,11 +199,8 @@ function _computeHallOfFamePrepared(usable, preparedGoals) {
 
   for (const record of usable) {
     const date = record.date;
-    const distance = Number.isFinite(record.effective_distance_km)
-      ? record.effective_distance_km
-      : 0; // SF-13: non-finite fails the day
-    const goalKm = _resolvePreparedGoalForDate(preparedGoals, date);
-    const passes = distance >= goalKm;
+    // SF-13: a non-finite step count reads as 0 and fails the day.
+    const passes = _stepsFor(record) >= target;
 
     // A passing day extends the period only when it is calendar-consecutive.
     const isConsecutive = prevDate !== null && date === _addDaysUtc(prevDate, 1);
@@ -289,31 +248,29 @@ function _computeHallOfFamePrepared(usable, preparedGoals) {
 }
 
 /**
- * Lifetime 10k-step metrics (AC Scenario 4).
+ * Lifetime compliance against the single active step goal (SF-4d).
  *
- * `totalDays` is the full record count; `total10k` counts records whose
- * `effective_steps` is finite and `>= LIFETIME_STEP_THRESHOLD` (SF-13:
- * non-finite steps contribute 0). Division-by-zero guard: `pct = 0` when
- * there are no records.
+ * `totalDays` is the full record count; `metDays` counts records whose
+ * `effective_steps` is finite and `>= stepGoal` (SF-13: non-finite steps read
+ * as 0 and never count as met). Division-by-zero guard: `pct = 0` when there
+ * are no records. Fail-open on a non-finite or non-positive `stepGoal`.
  *
  * @param {Array<{ effective_steps: number }>} records
- * @returns {{ total10k: number, totalDays: number, pct: number }}
+ * @param {number} stepGoal - daily step target applied to every historical day
+ * @returns {{ metDays: number, totalDays: number, pct: number }}
  */
-export function computeLifetime10k(records) {
+export function computeLifetimeCompliance(records, stepGoal) {
   if (!Array.isArray(records) || records.length === 0) {
-    return { total10k: 0, totalDays: 0, pct: 0 };
+    return { metDays: 0, totalDays: 0, pct: 0 };
   }
-  return _computeLifetime10kPrepared(records);
+  return _computeLifetimeCompliancePrepared(records, _resolveStepGoal(stepGoal));
 }
 
-function _computeLifetime10kPrepared(records) {
-  if (records.length === 0) return { total10k: 0, totalDays: 0, pct: 0 };
+function _computeLifetimeCompliancePrepared(records, target) {
+  if (records.length === 0) return { metDays: 0, totalDays: 0, pct: 0 };
   const totalDays = records.length;
-  const total10k = records.filter(
-    (record) => record && Number.isFinite(record.effective_steps)
-      && record.effective_steps >= LIFETIME_STEP_THRESHOLD,
-  ).length;
-  return { total10k, totalDays, pct: (total10k / totalDays) * 100 };
+  const metDays = records.filter((record) => _stepsFor(record) >= target).length;
+  return { metDays, totalDays, pct: (metDays / totalDays) * 100 };
 }
 
 // ── Parameterized Tolerance Streak Engine ──────────────────────────────────
@@ -325,17 +282,6 @@ function _computeLifetime10kPrepared(records) {
  */
 function _zeroToleranceStreaks() {
   return { actual: 0, allowance95: 0, allowance90: 0 };
-}
-
-/**
- * Steps credited to a calendar day. A missing day, a corrupt row, or a
- * non-finite `effective_steps` all read as 0 — i.e. a miss (SF-5).
- *
- * @param {{ effective_steps?: number }|undefined} record
- * @returns {number}
- */
-function _stepsFor(record) {
-  return record && Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
 }
 
 /**
@@ -435,45 +381,35 @@ export function computeToleranceStreaks(records, stepGoal, today) {
 // ── createStreak helper ────────────────────────────────────────────────────
 
 /**
- * Streak data factory — orchestrates Dexie reads and delegates computation to
- * the pure functions above.  Zero DOM writes; error handling delegated to the
- * render layer (streak-ui.js) — `compute()` intentionally rejects on any DB
+ * Streak data factory — orchestrates the Dexie read and delegates computation
+ * to the pure functions above.  Zero DOM writes; error handling delegated to
+ * the render layer (streak-ui.js) — `compute()` intentionally rejects on any DB
  * failure (mirrors `getTodayRecord`'s contract in src/progress.js:16-18).
  *
- * @param {{ daily_records: { toArray: Function }, goal_history: { toArray: Function }, settings: { get: Function } }} db
+ * The goal collaborator is injected, matching `createCalendar(db, goal)`.
+ * SF-3: there is no `goal_history` read and no `settings.get('active_goal')`
+ * read — the live `active_step_goal` scalar is the only evaluation lens.
+ *
+ * @param {{ daily_records: { toArray: Function } }} db
+ * @param {{ getActiveStepGoal: Function }} goal
  * @returns {{ compute: Function }}
  */
-export function createStreak(db) {
+export function createStreak(db, goal) {
   /**
-   * Reads all three stores in parallel, applies the SF-1 synthetic-history
-   * fallback, filters future-dated records, and returns the full compute result.
+   * Reads the records and the active step goal in parallel, filters
+   * future-dated records, and returns the full compute result.
    *
    * May reject — the render layer owns the try/catch and reports the error.
    *
-   * @returns {Promise<{ unified: number, tiers: Array, hallOfFame: Array, lifetime: object, activeGoalKm: number }>}
+   * @returns {Promise<{ tolerance: object, tiers: Array, hallOfFame: Array, lifetime: object, activeStepGoal: number }>}
    */
   async function compute() {
-    const historyPromise = db.goal_history.toArray().catch((err) => {
-      // History is an optional audit aid; current active_goal remains usable.
-      console.error('[streak]', err);
-      return [];
-    });
-    const [records, activeGoal, history] = await Promise.all([
+    const [records, activeStepGoal] = await Promise.all([
       db.daily_records.toArray(),
-      db.settings.get('active_goal'),
-      historyPromise,
+      goal.getActiveStepGoal(),
     ]);
 
     const today = _localDate();
-
-    // ── SF-1 goalHistory fallback ─────────────────────────────────────────
-    let goalHistory = buildEffectiveGoalHistory(history, activeGoal);
-
-    // ── SF-3/SF-6 activeGoalKm ────────────────────────────────────────────
-    // Drives the goal label and active tier chip in streak-ui.  Falls back to
-    // DEFAULT_GOAL_KM for absent, corrupt, or non-positive values.
-    const rawKm = activeGoal?.target_distance_km;
-    const activeGoalKm = Number.isFinite(rawKm) && rawKm > 0 ? rawKm : DEFAULT_GOAL_KM;
 
     // ── Filter future-dated records ───────────────────────────────────────
     // Sync can deposit rows with a future date (clock skew, ahead-of-midnight
@@ -482,14 +418,17 @@ export function createStreak(db) {
       (r) => r && typeof r.date === 'string' && r.date <= today,
     );
     const preparedRecords = _sortByDate(filteredRecords.filter(_isValidRecord));
-    const preparedGoals = _prepareGoalHistory(goalHistory);
+
+    // Fail-open once, here — every metric below and the reported label then
+    // share one lens, so the card can never show a goal it did not evaluate.
+    const target = _resolveStepGoal(activeStepGoal);
 
     return {
-      unified:     _computeUnifiedStreakPrepared(preparedRecords, preparedGoals, today),
-      tiers:       _computeTierStreaksPrepared(preparedRecords, today),
-      hallOfFame:  _computeHallOfFamePrepared(preparedRecords, preparedGoals),
-      lifetime:    _computeLifetime10kPrepared(preparedRecords),
-      activeGoalKm,
+      tolerance:      computeToleranceStreaks(preparedRecords, target, today),
+      tiers:          _computeTierStreaksPrepared(preparedRecords, today),
+      hallOfFame:     _computeHallOfFamePrepared(preparedRecords, target),
+      lifetime:       _computeLifetimeCompliancePrepared(preparedRecords, target),
+      activeStepGoal: target,
     };
   }
 

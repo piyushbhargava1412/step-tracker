@@ -7,20 +7,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   TIER_STEP_THRESHOLDS,
-  LIFETIME_STEP_THRESHOLD,
   HALL_OF_FAME_SIZE,
   ALLOWANCE_WINDOW_95,
   ALLOWANCE_WINDOW_90,
   _sortByDate,
   _isValidRecord,
-  resolveGoalForDate,
-  computeUnifiedStreak,
   computeTierStreaks,
   computeHallOfFame,
-  computeLifetime10k,
+  computeLifetimeCompliance,
   computeToleranceStreaks,
+  createStreak,
 } from './streak.js';
-import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
+import * as streakModule from './streak.js';
+import { DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
 
 const streakSource = fs.readFileSync(path.resolve(__dirname, 'streak.js'), 'utf8');
 const streakUiSource = fs.readFileSync(path.resolve(__dirname, 'streak-ui.js'), 'utf8');
@@ -39,28 +38,13 @@ function shiftDate(dateStr, delta) {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
 
-/** Builds `count` consecutive daily_records ending `endOffset` days before `today`. */
-function buildRecords(today, count, km, endOffset = 1) {
-  const records = [];
-  for (let i = 0; i < count; i += 1) {
-    records.push({
-      date: shiftDate(today, -(endOffset + i)),
-      effective_steps: Math.round(km * 1312.33),
-      effective_distance_km: km,
-    });
-  }
-  return records;
+/** Builds `days` consecutive daily_records starting at `startDate`, each at `steps`. */
+function buildPeriod(startDate, days, steps) {
+  return Array.from({ length: days }, (_, i) => ({
+    date: shiftDate(startDate, i),
+    effective_steps: steps,
+  }));
 }
-
-/** Builds a goal_history row. */
-function goalRow(effective_from, km) {
-  return {
-    effective_from,
-    target_distance_km: km,
-    target_steps: Math.round(km * 1312.33),
-  };
-}
-
 // ---------------------------------------------------------------------------
 // _sortByDate
 // ---------------------------------------------------------------------------
@@ -91,266 +75,6 @@ describe('_sortByDate', () => {
     const snapshot = input.map((r) => r.date);
     _sortByDate(input);
     expect(input.map((r) => r.date)).toEqual(snapshot);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resolveGoalForDate
-// ---------------------------------------------------------------------------
-describe('resolveGoalForDate', () => {
-  it('returns the latest entry with effective_from <= date', () => {
-    const history = [goalRow('2026-01-01', 3.0), goalRow('2026-02-01', 5.0)];
-    expect(resolveGoalForDate(history, '2026-01-15')).toBe(3.0);
-    expect(resolveGoalForDate(history, '2026-02-01')).toBe(5.0);
-    expect(resolveGoalForDate(history, '2026-03-10')).toBe(5.0);
-  });
-
-  it('sorts unsorted goalHistory internally', () => {
-    const history = [goalRow('2026-03-01', 10.0), goalRow('2026-01-01', 3.0), goalRow('2026-02-01', 5.0)];
-    expect(resolveGoalForDate(history, '2026-02-15')).toBe(5.0);
-    expect(resolveGoalForDate(history, '2026-12-31')).toBe(10.0);
-  });
-
-  it('dates before the earliest entry resolve to the earliest entry (seed baseline, SF-1)', () => {
-    const history = [goalRow('2026-05-01', 5.0), goalRow('2026-06-01', 10.0)];
-    expect(resolveGoalForDate(history, '2026-01-01')).toBe(5.0);
-  });
-
-  it('same-day overwrite: the later entry for an identical effective_from governs', () => {
-    const history = [goalRow('2026-01-01', 3.0), goalRow('2026-01-01', 7.0)];
-    expect(resolveGoalForDate(history, '2026-01-01')).toBe(7.0);
-    expect(resolveGoalForDate(history, '2026-01-05')).toBe(7.0);
-  });
-
-  it('empty goalHistory → DEFAULT_GOAL_KM (SF-12 guard)', () => {
-    expect(resolveGoalForDate([], '2026-01-01')).toBe(DEFAULT_GOAL_KM);
-    expect(DEFAULT_GOAL_KM).toBe(3.0);
-  });
-
-  it('non-array goalHistory → DEFAULT_GOAL_KM (guard)', () => {
-    expect(resolveGoalForDate(null, '2026-01-01')).toBe(DEFAULT_GOAL_KM);
-    expect(resolveGoalForDate(undefined, '2026-01-01')).toBe(DEFAULT_GOAL_KM);
-  });
-
-  it('ignores corrupt rows and falls back when none are usable (SF-13 guard)', () => {
-    const corrupt = [null, { effective_from: '2026-01-01' }, { target_distance_km: 5 }, { effective_from: '2026-01-01', target_distance_km: NaN }];
-    expect(resolveGoalForDate(corrupt, '2026-06-01')).toBe(DEFAULT_GOAL_KM);
-  });
-
-  it('ignores corrupt rows but still uses the valid ones', () => {
-    const mixed = [{ effective_from: '2026-01-01', target_distance_km: Infinity }, goalRow('2026-01-02', 5.0)];
-    expect(resolveGoalForDate(mixed, '2026-06-01')).toBe(5.0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeUnifiedStreak — AC Scenario 1 (goal change survival)
-// ---------------------------------------------------------------------------
-describe('computeUnifiedStreak — AC Scenario 1 (goal changed mid-history)', () => {
-  const TODAY = '2026-08-10';
-
-  it('a 30-day 3.0 km streak survives a 5.0 km goal change made today', () => {
-    // 30 consecutive past days at 3.5 km: 2026-07-11 .. 2026-08-09
-    const records = buildRecords(TODAY, 30, 3.5);
-    expect(records[records.length - 1].date).toBe('2026-07-11');
-    expect(records[0].date).toBe('2026-08-09');
-
-    const goalHistory = [goalRow('2026-07-11', 3.0), goalRow(TODAY, 5.0)];
-
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(30);
-  });
-
-  it('today at 3.5 km (below the new 5.0 km goal) still yields 30 — today is skipped', () => {
-    const records = [
-      { date: TODAY, effective_steps: 4593, effective_distance_km: 3.5 },
-      ...buildRecords(TODAY, 30, 3.5),
-    ];
-    const goalHistory = [goalRow('2026-07-11', 3.0), goalRow(TODAY, 5.0)];
-
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(30);
-  });
-
-  it('today at 5.2 km (meets the new 5.0 km goal) yields 31', () => {
-    const records = [
-      { date: TODAY, effective_steps: 6824, effective_distance_km: 5.2 },
-      ...buildRecords(TODAY, 30, 3.5),
-    ];
-    const goalHistory = [goalRow('2026-07-11', 3.0), goalRow(TODAY, 5.0)];
-
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(31);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeUnifiedStreak — AC Scenario 2 (in-progress today)
-// ---------------------------------------------------------------------------
-describe('computeUnifiedStreak — AC Scenario 2 (in-progress today)', () => {
-  const TODAY = '2026-08-10';
-  const goalHistory = [goalRow('2026-08-01', 3.0)];
-
-  it('today below goal → skip today, evaluate from yesterday', () => {
-    const records = [
-      { date: TODAY, effective_steps: 500, effective_distance_km: 0.4 },
-      ...buildRecords(TODAY, 5, 3.2),
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(5);
-  });
-
-  it("today's record missing → in-progress skip, evaluate from yesterday", () => {
-    const records = buildRecords(TODAY, 5, 3.2);
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(5);
-  });
-
-  it('today at 0.0 km with no prior passing day → 0', () => {
-    const records = [
-      { date: TODAY, effective_steps: 0, effective_distance_km: 0 },
-      { date: '2026-08-09', effective_steps: 100, effective_distance_km: 0.08 },
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeUnifiedStreak — termination rules
-// ---------------------------------------------------------------------------
-describe('computeUnifiedStreak — termination', () => {
-  const TODAY = '2026-08-10';
-  const goalHistory = [goalRow('2026-07-01', 3.0)];
-
-  it('a past failing day terminates the streak (rule 5)', () => {
-    const records = [
-      ...buildRecords(TODAY, 3, 4.0), // 2026-08-09, -08, -07 pass
-      { date: '2026-08-06', effective_steps: 100, effective_distance_km: 0.5 }, // fails
-      { date: '2026-08-05', effective_steps: 6000, effective_distance_km: 4.6 }, // never reached
-      { date: '2026-08-04', effective_steps: 6000, effective_distance_km: 4.6 },
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(3);
-  });
-
-  it('a missing past record terminates the streak (SF-2, fail-closed)', () => {
-    const records = [
-      ...buildRecords(TODAY, 2, 4.0), // 2026-08-09, 2026-08-08
-      // 2026-08-07 missing
-      { date: '2026-08-06', effective_steps: 6000, effective_distance_km: 4.6 },
-      { date: '2026-08-05', effective_steps: 6000, effective_distance_km: 4.6 },
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(2);
-  });
-
-  it('traversal stops at the earliest record date (no infinite walk)', () => {
-    const records = [{ date: '2026-08-09', effective_steps: 6000, effective_distance_km: 4.6 }];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(1);
-  });
-
-  it('today earlier than every record → 0', () => {
-    const records = buildRecords('2026-08-10', 3, 4.0);
-    expect(computeUnifiedStreak(records, goalHistory, '2026-01-01')).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeUnifiedStreak — guards and boundaries
-// ---------------------------------------------------------------------------
-describe('computeUnifiedStreak — guards and boundaries', () => {
-  const TODAY = '2026-08-10';
-  const goalHistory = [goalRow('2026-07-01', 3.0)];
-
-  it('non-finite effective_distance_km fails that past day (SF-13) without throwing', () => {
-    const records = [
-      ...buildRecords(TODAY, 2, 4.0), // 2026-08-09, 2026-08-08
-      { date: '2026-08-07', effective_steps: 9000, effective_distance_km: NaN },
-      { date: '2026-08-06', effective_steps: 6000, effective_distance_km: 4.6 },
-    ];
-    expect(() => computeUnifiedStreak(records, goalHistory, TODAY)).not.toThrow();
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(2);
-  });
-
-  it('non-finite effective_distance_km today is treated as 0 → today skipped', () => {
-    const records = [
-      { date: TODAY, effective_steps: 9000, effective_distance_km: undefined },
-      ...buildRecords(TODAY, 4, 4.0),
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(4);
-  });
-
-  it('boundary-exact day passes — distance === G(D) uses >= (SF-8)', () => {
-    const records = buildRecords(TODAY, 3, 3.0); // exactly the 3.0 km goal
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(3);
-  });
-
-  it('a hair below the goal fails', () => {
-    const records = [
-      { date: '2026-08-09', effective_steps: 3936, effective_distance_km: 2.999 },
-      { date: '2026-08-08', effective_steps: 6000, effective_distance_km: 4.6 },
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(0);
-  });
-
-  it('dates before the earliest goal_history entry evaluate against the seed baseline (SF-1)', () => {
-    // Seed entry is 5.0 km effective 2026-08-05; 2026-08-01..04 are pre-log dates.
-    const seeded = [goalRow('2026-08-05', 5.0)];
-    const records = [
-      { date: '2026-08-09', effective_steps: 7000, effective_distance_km: 5.4 },
-      { date: '2026-08-08', effective_steps: 7000, effective_distance_km: 5.4 },
-      { date: '2026-08-07', effective_steps: 7000, effective_distance_km: 5.4 },
-      { date: '2026-08-06', effective_steps: 7000, effective_distance_km: 5.4 },
-      { date: '2026-08-05', effective_steps: 7000, effective_distance_km: 5.4 },
-      // pre-log dates — evaluated against the 5.0 km seed, so 3.5 km fails
-      { date: '2026-08-04', effective_steps: 4593, effective_distance_km: 3.5 },
-      { date: '2026-08-03', effective_steps: 7000, effective_distance_km: 5.4 },
-    ];
-    expect(computeUnifiedStreak(records, seeded, TODAY)).toBe(5);
-  });
-
-  it('same-day goal overwrite is reflected in G(D)', () => {
-    const history = [goalRow('2026-08-01', 3.0), goalRow('2026-08-01', 5.0)];
-    const records = buildRecords(TODAY, 3, 3.5); // passes 3.0, fails 5.0
-    expect(computeUnifiedStreak(records, history, TODAY)).toBe(0);
-  });
-
-  it('empty goalHistory → evaluated against DEFAULT_GOAL_KM (SF-12)', () => {
-    const passing = buildRecords(TODAY, 4, 3.0); // exactly 3.0 km
-    expect(computeUnifiedStreak(passing, [], TODAY)).toBe(4);
-
-    const failing = buildRecords(TODAY, 4, 2.9);
-    expect(computeUnifiedStreak(failing, [], TODAY)).toBe(0);
-  });
-
-  it('empty records → 0 (SF-12)', () => {
-    expect(computeUnifiedStreak([], goalHistory, TODAY)).toBe(0);
-  });
-
-  it('non-array records → 0 (guard)', () => {
-    expect(computeUnifiedStreak(null, goalHistory, TODAY)).toBe(0);
-    expect(computeUnifiedStreak(undefined, goalHistory, TODAY)).toBe(0);
-  });
-
-  it('records with corrupt/absent date keys are ignored (guard)', () => {
-    const records = [null, { effective_distance_km: 9 }, { date: 42, effective_distance_km: 9 }];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(0);
-  });
-
-  it('invalid today → 0 (guard)', () => {
-    expect(computeUnifiedStreak(buildRecords(TODAY, 3, 4.0), goalHistory, '')).toBe(0);
-    expect(computeUnifiedStreak(buildRecords(TODAY, 3, 4.0), goalHistory, null)).toBe(0);
-  });
-
-  it('all-pass history → the total number of days', () => {
-    const records = [
-      { date: TODAY, effective_steps: 6000, effective_distance_km: 4.6 },
-      ...buildRecords(TODAY, 9, 4.6),
-    ];
-    expect(records).toHaveLength(10);
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(10);
-  });
-
-  it('accepts unsorted records (sorted internally)', () => {
-    const records = [
-      { date: '2026-08-07', effective_steps: 6000, effective_distance_km: 4.6 },
-      { date: '2026-08-09', effective_steps: 6000, effective_distance_km: 4.6 },
-      { date: '2026-08-08', effective_steps: 6000, effective_distance_km: 4.6 },
-    ];
-    expect(computeUnifiedStreak(records, goalHistory, TODAY)).toBe(3);
   });
 });
 
@@ -685,348 +409,324 @@ describe('computeTierStreaks — zero-state and guards', () => {
   });
 });
 
-/** Builds a range of consecutive records starting at startDate for `days` days at `km`. */
-function buildPeriod(startDate, days, km) {
-  return Array.from({ length: days }, (_, i) => ({
-    date: shiftDate(startDate, i),
-    effective_steps: Math.round(km * 1312.33),
-    effective_distance_km: km,
-  }));
-}
-
 // ---------------------------------------------------------------------------
-// computeHallOfFame — happy-path (30/20/10/5-day history → top-3)
+// computeHallOfFame(records, stepGoal) — re-based on the single active step goal
+// (SF-4c). Strict 100% only; the current goal is applied to every historical day.
 // ---------------------------------------------------------------------------
-describe('computeHallOfFame — 30/20/10/5-day history → top-3', () => {
-  // Periods separated by missing days (gaps):
-  //   Period A: 30 days  2026-01-01 .. 2026-01-30
-  //   gap:                2026-01-31 (missing)
-  //   Period B: 20 days  2026-02-01 .. 2026-02-20
-  //   gap:                2026-02-21 (missing)
-  //   Period C: 10 days  2026-02-22 .. 2026-03-03
-  //   gap:                2026-03-04 (missing)
-  //   Period D:  5 days  2026-03-05 .. 2026-03-09
-  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
+describe('computeHallOfFame — re-basing on the scalar step goal (SF-3/SF-4c)', () => {
+  // One record set, two lenses:
+  //   2026-01-01 .. 2026-01-05  16000 steps  (passes 5000 and 15000)
+  //   2026-01-06 .. 2026-01-15   8000 steps  (passes 5000, fails 15000)
+  //   2026-01-16 .. 2026-01-20  16000 steps  (passes 5000 and 15000)
   const RECORDS = [
-    ...buildPeriod('2026-01-01', 30, 3.5),
-    ...buildPeriod('2026-02-01', 20, 3.5),
-    ...buildPeriod('2026-02-22', 10, 3.5),
-    ...buildPeriod('2026-03-05',  5, 3.5),
+    ...buildPeriod('2026-01-01', 5, 16000),
+    ...buildPeriod('2026-01-06', 10, 8000),
+    ...buildPeriod('2026-01-16', 5, 16000),
   ];
 
-  it('returns exactly HALL_OF_FAME_SIZE (3) periods', () => {
-    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
+  it('at stepGoal 5000 the whole span is a single 20-day period', () => {
+    expect(computeHallOfFame(RECORDS, 5000)).toEqual([
+      { startDate: '2026-01-01', endDate: '2026-01-20', days: 20 },
+    ]);
+  });
+
+  it('at stepGoal 15000 the same records yield two 5-day periods, most recent first', () => {
+    expect(computeHallOfFame(RECORDS, 15000)).toEqual([
+      { startDate: '2026-01-16', endDate: '2026-01-20', days: 5 },
+      { startDate: '2026-01-01', endDate: '2026-01-05', days: 5 },
+    ]);
+  });
+
+  it('the identical record set produces different podiums per goal', () => {
+    expect(computeHallOfFame(RECORDS, 5000)).not.toEqual(computeHallOfFame(RECORDS, 15000));
+  });
+
+  it('boundary-exact steps pass the day (>= not >)', () => {
+    expect(computeHallOfFame(buildPeriod('2026-01-01', 3, 10000), 10000)).toEqual([
+      { startDate: '2026-01-01', endDate: '2026-01-03', days: 3 },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — period boundaries and ranking
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — period boundaries and ranking', () => {
+  it('a calendar gap closes the open period (SF-5)', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 3, 12000),
+      // 2026-01-04 missing → calendar gap
+      ...buildPeriod('2026-01-05', 2, 12000),
+    ];
+    expect(computeHallOfFame(records, 10000)).toEqual([
+      { startDate: '2026-01-01', endDate: '2026-01-03', days: 3 },
+      { startDate: '2026-01-05', endDate: '2026-01-06', days: 2 },
+    ]);
+  });
+
+  it('a failing day closes the open period', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: 4000 }, // fails
+      { date: '2026-01-03', effective_steps: 12000 },
+    ];
+    expect(computeHallOfFame(records, 10000)).toEqual([
+      { startDate: '2026-01-03', endDate: '2026-01-03', days: 1 },
+      { startDate: '2026-01-01', endDate: '2026-01-01', days: 1 },
+    ]);
+  });
+
+  it('ties on days rank the later startDate first (recency tie-break)', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 10, 12000), // ends 2026-01-10; gap at 2026-01-11
+      ...buildPeriod('2026-01-12', 10, 12000), // ends 2026-01-21 (more recent)
+    ];
+    expect(computeHallOfFame(records, 10000)).toEqual([
+      { startDate: '2026-01-12', endDate: '2026-01-21', days: 10 },
+      { startDate: '2026-01-01', endDate: '2026-01-10', days: 10 },
+    ]);
+  });
+
+  it('three equal-length periods rank purely by recency', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 5, 12000), // gap at 2026-01-06
+      ...buildPeriod('2026-01-07', 5, 12000), // gap at 2026-01-12
+      ...buildPeriod('2026-01-13', 5, 12000),
+    ];
+    expect(computeHallOfFame(records, 10000).map((p) => p.startDate)).toEqual([
+      '2026-01-13',
+      '2026-01-07',
+      '2026-01-01',
+    ]);
+  });
+
+  it('returns at most HALL_OF_FAME_SIZE (3) entries, longest first', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 30, 12000), // gap at 2026-01-31
+      ...buildPeriod('2026-02-01', 20, 12000), // gap at 2026-02-21
+      ...buildPeriod('2026-02-22', 10, 12000), // gap at 2026-03-04
+      ...buildPeriod('2026-03-05', 5, 12000),
+    ];
+    const result = computeHallOfFame(records, 10000);
+    expect(HALL_OF_FAME_SIZE).toBe(3);
     expect(result).toHaveLength(HALL_OF_FAME_SIZE);
-  });
-
-  it('top-3 are ranked by length: 30, 20, 10', () => {
-    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
     expect(result.map((p) => p.days)).toEqual([30, 20, 10]);
-  });
-
-  it('each period has correct { startDate, endDate, days }', () => {
-    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
     expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-30', days: 30 });
-    expect(result[1]).toEqual({ startDate: '2026-02-01', endDate: '2026-02-20', days: 20 });
-    expect(result[2]).toEqual({ startDate: '2026-02-22', endDate: '2026-03-03', days: 10 });
-  });
-
-  it('the 5-day period (rank 4) is excluded', () => {
-    const result = computeHallOfFame(RECORDS, GOAL_HISTORY);
     expect(result.find((p) => p.days === 5)).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeHallOfFame — recency tie-break (SF-7)
-// ---------------------------------------------------------------------------
-describe('computeHallOfFame — equal-length periods → later startDate first (SF-7)', () => {
-  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
-
-  it('two 10-day periods → the more recent one ranks first', () => {
-    const records = [
-      ...buildPeriod('2026-01-01', 10, 3.5), // ends 2026-01-10; gap at 2026-01-11
-      ...buildPeriod('2026-01-12', 10, 3.5), // ends 2026-01-21 (more recent)
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({ startDate: '2026-01-12', endDate: '2026-01-21', days: 10 });
-    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-10', days: 10 });
-  });
-
-  it('three equal-length periods → all ranked by recency (most recent first)', () => {
-    const records = [
-      ...buildPeriod('2026-01-01', 5, 3.5), // gap at 06
-      ...buildPeriod('2026-01-07', 5, 3.5), // gap at 12
-      ...buildPeriod('2026-01-13', 5, 3.5), // most recent
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result.map((p) => p.startDate)).toEqual(['2026-01-13', '2026-01-07', '2026-01-01']);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeHallOfFame — missing/failing day splits
-// ---------------------------------------------------------------------------
-describe('computeHallOfFame — missing/failing day splits periods', () => {
-  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
-
-  it('missing day between two passing records splits the period', () => {
-    const records = [
-      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
-      // 2026-01-02 missing
-      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(2);
-    // Equal days (1 each) → later startDate first
-    expect(result[0]).toEqual({ startDate: '2026-01-03', endDate: '2026-01-03', days: 1 });
-    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
-  });
-
-  it('failing day between two passing records splits the period', () => {
-    const records = [
-      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-01-02', effective_distance_km: 0.5, effective_steps: 656 }, // fails
-      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({ startDate: '2026-01-03', endDate: '2026-01-03', days: 1 });
-    expect(result[1]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
-  });
-
-  it('non-finite effective_distance_km fails and splits without throwing (SF-13)', () => {
-    const records = [
-      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-01-02', effective_distance_km: NaN, effective_steps: 9000 }, // non-finite
-      { date: '2026-01-03', effective_distance_km: 3.5, effective_steps: 4593 },
-    ];
-    expect(() => computeHallOfFame(records, GOAL_HISTORY)).not.toThrow();
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(2);
-    expect(result.every((p) => p.days === 1)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeHallOfFame — no in-progress concept (SF-7)
-// ---------------------------------------------------------------------------
-describe('computeHallOfFame — no in-progress concept for today (SF-7)', () => {
-  const TODAY = '2026-08-10';
-  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
-
-  it('today failing on its own record ends the current period — not skipped', () => {
-    const records = [
-      { date: '2026-08-07', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-08-08', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-08-09', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: TODAY, effective_distance_km: 1.0, effective_steps: 1312 }, // today fails
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ startDate: '2026-08-07', endDate: '2026-08-09', days: 3 });
-  });
-
-  it('today missing → open period closes at the last passing record (no in-progress extension)', () => {
-    const records = [
-      { date: '2026-08-07', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-08-08', effective_distance_km: 3.5, effective_steps: 4593 },
-      { date: '2026-08-09', effective_distance_km: 3.5, effective_steps: 4593 },
-      // 2026-08-10 (today) missing
-    ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ startDate: '2026-08-07', endDate: '2026-08-09', days: 3 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeHallOfFame — edge cases
-// ---------------------------------------------------------------------------
-describe('computeHallOfFame — edge cases', () => {
-  const GOAL_HISTORY = [goalRow('2026-01-01', 3.0)];
-
-  it('single passing day → period of 1 day', () => {
-    const records = [{ date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 }];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-01', days: 1 });
-  });
-
-  it('empty records → [] (SF-12)', () => {
-    expect(computeHallOfFame([], GOAL_HISTORY)).toEqual([]);
-  });
-
-  it('null/undefined records → [] (guard)', () => {
-    expect(computeHallOfFame(null, GOAL_HISTORY)).toEqual([]);
-    expect(computeHallOfFame(undefined, GOAL_HISTORY)).toEqual([]);
-  });
-
-  it('all records failing → []', () => {
-    const records = [
-      { date: '2026-01-01', effective_distance_km: 0.5, effective_steps: 656 },
-      { date: '2026-01-02', effective_distance_km: 0.5, effective_steps: 656 },
-    ];
-    expect(computeHallOfFame(records, GOAL_HISTORY)).toEqual([]);
-  });
-
-  it('HoF applies the G(D) rule — goal change mid-history splits a period', () => {
-    // Days 1-10 pass against 3.0 km goal (3.5 >= 3.0 ✓)
-    // Days 11-20 fail against 5.0 km goal (3.5 < 5.0 ✗)
-    const history = [goalRow('2026-01-01', 3.0), goalRow('2026-01-11', 5.0)];
-    const records = buildPeriod('2026-01-01', 20, 3.5);
-    const result = computeHallOfFame(records, history);
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ startDate: '2026-01-01', endDate: '2026-01-10', days: 10 });
   });
 
   it('fewer than HALL_OF_FAME_SIZE periods → returns all available (no padding)', () => {
     const records = [
-      ...buildPeriod('2026-01-01', 5, 3.5),
+      ...buildPeriod('2026-01-01', 5, 12000),
       // gap at 2026-01-06
-      ...buildPeriod('2026-01-07', 3, 3.5),
+      ...buildPeriod('2026-01-07', 3, 12000),
     ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(2); // < HALL_OF_FAME_SIZE = 3
+    expect(computeHallOfFame(records, 10000)).toHaveLength(2);
   });
 
-  it('corrupt/absent date keys in records are ignored before evaluation (guard)', () => {
+  it('no in-progress exemption — today fails on its own record (SF-4c)', () => {
+    const records = [
+      ...buildPeriod('2026-08-07', 3, 12000),
+      { date: '2026-08-10', effective_steps: 1200 }, // today, fails
+    ];
+    expect(computeHallOfFame(records, 10000)).toEqual([
+      { startDate: '2026-08-07', endDate: '2026-08-09', days: 3 },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeHallOfFame — guards and fail-open
+// ---------------------------------------------------------------------------
+describe('computeHallOfFame — guards and fail-open', () => {
+  it('empty records → []', () => {
+    expect(computeHallOfFame([], 10000)).toEqual([]);
+  });
+
+  it('null/undefined records → [] (guard)', () => {
+    expect(computeHallOfFame(null, 10000)).toEqual([]);
+    expect(computeHallOfFame(undefined, 10000)).toEqual([]);
+  });
+
+  it('no qualifying period (every day below goal) → []', () => {
+    expect(computeHallOfFame(buildPeriod('2026-01-01', 4, 4000), 10000)).toEqual([]);
+  });
+
+  it('records with corrupt/absent date keys are ignored before evaluation', () => {
     const records = [
       null,
-      { effective_distance_km: 3.5 }, // no date key
-      { date: '', effective_distance_km: 3.5 }, // empty date
-      { date: '2026-01-01', effective_distance_km: 3.5, effective_steps: 4593 }, // valid
+      { effective_steps: 12000 }, // no date
+      { date: '', effective_steps: 12000 }, // empty date
+      { date: '2026-01-01', effective_steps: 12000 }, // valid
     ];
-    const result = computeHallOfFame(records, GOAL_HISTORY);
-    expect(result).toHaveLength(1);
-    expect(result[0].days).toBe(1);
+    expect(computeHallOfFame(records, 10000)).toEqual([
+      { startDate: '2026-01-01', endDate: '2026-01-01', days: 1 },
+    ]);
+  });
+
+  it('non-finite effective_steps reads as 0 and fails the day (SF-13)', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: NaN },
+      { date: '2026-01-03', effective_steps: 12000 },
+    ];
+    expect(() => computeHallOfFame(records, 10000)).not.toThrow();
+    expect(computeHallOfFame(records, 10000).every((p) => p.days === 1)).toBe(true);
+  });
+
+  it('non-finite stepGoal falls open to DEFAULT_STEP_GOAL (10000)', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: 8000 },
+      { date: '2026-01-03', effective_steps: 12000 },
+    ];
+    const expected = computeHallOfFame(records, DEFAULT_STEP_GOAL);
+    expect(DEFAULT_STEP_GOAL).toBe(10000);
+    expect(expected).toEqual([
+      { startDate: '2026-01-03', endDate: '2026-01-03', days: 1 },
+      { startDate: '2026-01-01', endDate: '2026-01-01', days: 1 },
+    ]);
+    expect(computeHallOfFame(records, NaN)).toEqual(expected);
+    expect(computeHallOfFame(records, undefined)).toEqual(expected);
+    expect(computeHallOfFame(records, Infinity)).toEqual(expected);
+  });
+
+  it('non-positive stepGoal falls open to DEFAULT_STEP_GOAL', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: 8000 },
+    ];
+    const expected = computeHallOfFame(records, DEFAULT_STEP_GOAL);
+    expect(computeHallOfFame(records, 0)).toEqual(expected);
+    expect(computeHallOfFame(records, -5000)).toEqual(expected);
   });
 });
 
 // ---------------------------------------------------------------------------
-// computeLifetime10k — AC Scenario 4
+// computeLifetimeCompliance(records, stepGoal) — SF-4d
 // ---------------------------------------------------------------------------
-describe('computeLifetime10k — AC Scenario 4 (40 of 100 days)', () => {
-  it('returns { total10k: 40, totalDays: 100, pct: 40.0 }', () => {
+describe('computeLifetimeCompliance — shape and re-basing', () => {
+  it('returns exactly { metDays, totalDays, pct }', () => {
+    const result = computeLifetimeCompliance(
+      [
+        { date: '2026-01-01', effective_steps: 12000 },
+        { date: '2026-01-02', effective_steps: 8000 },
+      ],
+      10000,
+    );
+    expect(Object.keys(result).sort()).toEqual(['metDays', 'pct', 'totalDays']);
+    expect(result).toStrictEqual({ metDays: 1, totalDays: 2, pct: 50 });
+  });
+
+  it('AC Scenario 4 — 40 of 100 days at the active goal', () => {
     const records = [
-      ...Array.from({ length: 40 }, (_, i) => ({
-        date: shiftDate('2026-01-01', i),
-        effective_steps: 10_000, // exactly at threshold
-        effective_distance_km: 8.0,
-      })),
-      ...Array.from({ length: 60 }, (_, i) => ({
-        date: shiftDate('2026-01-01', 40 + i),
-        effective_steps: 5_000, // below threshold
-        effective_distance_km: 4.0,
-      })),
+      ...buildPeriod('2026-01-01', 40, 10000), // exactly at goal
+      ...buildPeriod('2026-02-10', 60, 5000), // below goal
     ];
-    expect(computeLifetime10k(records)).toEqual({ total10k: 40, totalDays: 100, pct: 40.0 });
+    expect(computeLifetimeCompliance(records, 10000)).toStrictEqual({
+      metDays: 40,
+      totalDays: 100,
+      pct: 40,
+    });
+  });
+
+  it('the same record set re-bases on the goal', () => {
+    const records = [
+      ...buildPeriod('2026-01-01', 4, 12000),
+      ...buildPeriod('2026-01-05', 6, 6000),
+    ];
+    expect(computeLifetimeCompliance(records, 10000)).toStrictEqual({
+      metDays: 4,
+      totalDays: 10,
+      pct: 40,
+    });
+    expect(computeLifetimeCompliance(records, 5000)).toStrictEqual({
+      metDays: 10,
+      totalDays: 10,
+      pct: 100,
+    });
+  });
+
+  it('pct is not rounded (1 of 3 days → 33.33…)', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: 5000 },
+      { date: '2026-01-03', effective_steps: 5000 },
+    ];
+    expect(computeLifetimeCompliance(records, 10000).pct).toBeCloseTo(33.333, 2);
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeLifetime10k — threshold boundary and rounding
-// ---------------------------------------------------------------------------
-describe('computeLifetime10k — threshold and rounding', () => {
-  it('exactly at threshold (10_000 steps) counts toward total10k', () => {
-    const records = [
-      { date: '2026-01-01', effective_steps: 10_000, effective_distance_km: 8.0 },
-      { date: '2026-01-02', effective_steps: 9_999, effective_distance_km: 7.6 }, // below
-    ];
-    const result = computeLifetime10k(records);
-    expect(result.total10k).toBe(1);
-    expect(result.totalDays).toBe(2);
-    expect(result.pct).toBe(50.0);
-  });
-
-  it('one step above threshold counts', () => {
-    const records = [{ date: '2026-01-01', effective_steps: 10_001, effective_distance_km: 8.0 }];
-    expect(computeLifetime10k(records).total10k).toBe(1);
-  });
-
-  it('non-integer result computed without rounding (1 of 3 days → 33.33…)', () => {
-    const records = [
-      { date: '2026-01-01', effective_steps: 10_000 },
-      { date: '2026-01-02', effective_steps: 5_000 },
-      { date: '2026-01-03', effective_steps: 5_000 },
-    ];
-    const result = computeLifetime10k(records);
-    expect(result.total10k).toBe(1);
-    expect(result.totalDays).toBe(3);
-    expect(result.pct).toBeCloseTo(33.333, 2);
-  });
-
-  it('all days at threshold → pct is 100.0', () => {
-    const records = Array.from({ length: 10 }, (_, i) => ({
-      date: shiftDate('2026-01-01', i),
-      effective_steps: 10_000,
-    }));
-    const result = computeLifetime10k(records);
-    expect(result).toEqual({ total10k: 10, totalDays: 10, pct: 100.0 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// computeLifetime10k — guards (SF-13, division-by-zero)
-// ---------------------------------------------------------------------------
-describe('computeLifetime10k — guards (SF-13, division-by-zero)', () => {
-  it('non-finite effective_steps contributes 0 to total10k but counts in totalDays (SF-13)', () => {
-    const records = [
-      { date: '2026-01-01', effective_steps: NaN, effective_distance_km: 8.0 },
-      { date: '2026-01-02', effective_steps: Infinity, effective_distance_km: 8.0 },
-      { date: '2026-01-03', effective_steps: undefined, effective_distance_km: 8.0 },
-      { date: '2026-01-04', effective_steps: 10_000, effective_distance_km: 8.0 },
-    ];
-    const result = computeLifetime10k(records);
-    expect(result.total10k).toBe(1);
-    expect(result.totalDays).toBe(4);
-    expect(result.pct).toBe(25.0);
-  });
-
-  it('empty records → { total10k: 0, totalDays: 0, pct: 0 } — no division-by-zero', () => {
-    const result = computeLifetime10k([]);
-    expect(result).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
-    expect(Number.isFinite(result.pct)).toBe(true);
+describe('computeLifetimeCompliance — guards (SF-13, division-by-zero)', () => {
+  it('empty records → pct is 0, never NaN', () => {
+    const result = computeLifetimeCompliance([], 10000);
+    expect(result).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
     expect(Number.isNaN(result.pct)).toBe(false);
+    expect(Number.isFinite(result.pct)).toBe(true);
   });
 
-  it('null/undefined records → { 0, 0, 0 } (guard)', () => {
-    expect(computeLifetime10k(null)).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
-    expect(computeLifetime10k(undefined)).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
+  it('null/undefined records → { metDays: 0, totalDays: 0, pct: 0 } (guard)', () => {
+    expect(computeLifetimeCompliance(null, 10000)).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
+    expect(computeLifetimeCompliance(undefined, 10000)).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
   });
 
-  it('null entries in the array contribute to totalDays but 0 to total10k', () => {
+  it('non-finite effective_steps never counts as met but still counts in totalDays', () => {
     const records = [
-      null,
-      { date: '2026-01-02', effective_steps: 10_000 },
+      { date: '2026-01-01', effective_steps: NaN },
+      { date: '2026-01-02', effective_steps: Infinity },
+      { date: '2026-01-03', effective_steps: undefined },
+      { date: '2026-01-04', effective_steps: 12000 },
     ];
-    const result = computeLifetime10k(records);
-    expect(result.totalDays).toBe(2);
-    expect(result.total10k).toBe(1);
-    expect(result.pct).toBe(50.0);
+    expect(computeLifetimeCompliance(records, 10000)).toStrictEqual({
+      metDays: 1,
+      totalDays: 4,
+      pct: 25,
+    });
+  });
+
+  it('null entries count in totalDays but never as met', () => {
+    const records = [null, { date: '2026-01-02', effective_steps: 12000 }];
+    expect(computeLifetimeCompliance(records, 10000)).toStrictEqual({
+      metDays: 1,
+      totalDays: 2,
+      pct: 50,
+    });
+  });
+
+  it('non-finite or non-positive stepGoal falls open to DEFAULT_STEP_GOAL', () => {
+    const records = [
+      { date: '2026-01-01', effective_steps: 12000 },
+      { date: '2026-01-02', effective_steps: 8000 },
+    ];
+    const expected = computeLifetimeCompliance(records, DEFAULT_STEP_GOAL);
+    expect(expected).toStrictEqual({ metDays: 1, totalDays: 2, pct: 50 });
+    expect(computeLifetimeCompliance(records, NaN)).toStrictEqual(expected);
+    expect(computeLifetimeCompliance(records, 0)).toStrictEqual(expected);
+    expect(computeLifetimeCompliance(records, -1)).toStrictEqual(expected);
   });
 });
 
 // ---------------------------------------------------------------------------
-// createStreak — factory (Task 6)
+// createStreak(db, goal) — data orchestration on the step lens
 // ---------------------------------------------------------------------------
+describe('createStreak(db, goal) — data orchestration', () => {
+  const NOW = '2026-08-10';
 
-import { createStreak } from './streak.js';
-
-describe('createStreak — factory (data orchestration)', () => {
-  const TODAY = '2026-08-10';
-
-  function makeMockDb({ records = [], history = [], activeGoal = null } = {}) {
+  function makeMockDb(records = []) {
     return {
       daily_records: { toArray: vi.fn().mockResolvedValue(records) },
-      goal_history:  { toArray: vi.fn().mockResolvedValue(history) },
-      settings:      { get:     vi.fn().mockResolvedValue(activeGoal) },
+      // Present but must never be touched — the legacy read path is gone (SF-4a).
+      goal_history: { toArray: vi.fn().mockResolvedValue([]) },
+      settings: { get: vi.fn().mockResolvedValue(null) },
     };
   }
 
+  function makeMockGoal(stepGoal = DEFAULT_STEP_GOAL) {
+    return { getActiveStepGoal: vi.fn().mockResolvedValue(stepGoal) };
+  }
+
   beforeEach(() => {
-    // Pin _localDate() to TODAY so filtering and compute are deterministic.
+    // Pin _localDate() to NOW so filtering and compute are deterministic.
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-10T12:00:00'));
   });
@@ -1035,311 +735,172 @@ describe('createStreak — factory (data orchestration)', () => {
     vi.useRealTimers();
   });
 
-  // ── Happy path — store reads ────────────────────────────────────────────
-  it('reads daily_records.toArray(), goal_history.toArray(), and settings.get("active_goal")', async () => {
+  it('reads daily_records.toArray() and goal.getActiveStepGoal() exactly once each', async () => {
     const db = makeMockDb();
-    const { compute } = createStreak(db);
-    await compute();
+    const goal = makeMockGoal();
+    await createStreak(db, goal).compute();
     expect(db.daily_records.toArray).toHaveBeenCalledTimes(1);
-    expect(db.goal_history.toArray).toHaveBeenCalledTimes(1);
-    expect(db.settings.get).toHaveBeenCalledWith('active_goal');
+    expect(goal.getActiveStepGoal).toHaveBeenCalledTimes(1);
   });
 
-  // ── Happy path — result shape ───────────────────────────────────────────
-  it('compute() resolves an object with exactly five keys: unified, tiers, hallOfFame, lifetime, activeGoalKm', async () => {
+  it('never calls db.goal_history.toArray() and never calls db.settings.get("active_goal")', async () => {
+    const db = makeMockDb([{ date: '2026-08-09', effective_steps: 12000 }]);
+    const goal = makeMockGoal(10000);
+    await createStreak(db, goal).compute();
+    expect(db.goal_history.toArray).not.toHaveBeenCalled();
+    expect(db.settings.get).not.toHaveBeenCalled();
+  });
+
+  it('compute() resolves the exact 5-key payload', async () => {
     const db = makeMockDb();
-    const { compute } = createStreak(db);
-    const result = await compute();
+    const goal = makeMockGoal();
+    const result = await createStreak(db, goal).compute();
     expect(Object.keys(result).sort()).toEqual(
-      ['activeGoalKm', 'hallOfFame', 'lifetime', 'tiers', 'unified'].sort(),
+      ['activeStepGoal', 'hallOfFame', 'lifetime', 'tiers', 'tolerance'].sort(),
     );
   });
 
-  // ── Zero-state DB (SF-12) ───────────────────────────────────────────────
-  it('zero-state DB → exact SF-12 result (unified 0, tiers all 0, hallOfFame [], lifetime {0,0,0}, activeGoalKm 3.0)', async () => {
-    const db = makeMockDb({ records: [], history: [], activeGoal: null });
-    const { compute } = createStreak(db);
-    const result = await compute();
+  it('tolerance matches a direct computeToleranceStreaks call on the same fixture', async () => {
+    const records = buildPeriod(shiftDate(NOW, -11), 12, 12000); // NOW-11 .. NOW
+    const db = makeMockDb(records);
+    const goal = makeMockGoal(7500);
+    const result = await createStreak(db, goal).compute();
+    expect(result.tolerance).toStrictEqual(computeToleranceStreaks(records, 7500, NOW));
+    expect(result.tolerance).toStrictEqual({ actual: 12, allowance95: 12, allowance90: 12 });
+  });
 
-    expect(result.unified).toBe(0);
+  it('tiers, hallOfFame and lifetime match direct calls on the same fixture', async () => {
+    const records = buildPeriod(shiftDate(NOW, -5), 6, 12000);
+    const db = makeMockDb(records);
+    const goal = makeMockGoal(10000);
+    const result = await createStreak(db, goal).compute();
+    expect(result.tiers).toStrictEqual(computeTierStreaks(records, NOW));
+    expect(result.hallOfFame).toStrictEqual(computeHallOfFame(records, 10000));
+    expect(result.lifetime).toStrictEqual(computeLifetimeCompliance(records, 10000));
+  });
+
+  it('activeStepGoal echoes the goal collaborator value', async () => {
+    const db = makeMockDb();
+    const result = await createStreak(db, makeMockGoal(15000)).compute();
+    expect(result.activeStepGoal).toBe(15000);
+  });
+
+  it('a corrupt collaborator goal falls open to DEFAULT_STEP_GOAL for both the label and the math', async () => {
+    const db = makeMockDb([{ date: '2026-08-09', effective_steps: 12000 }]);
+    const result = await createStreak(db, makeMockGoal(NaN)).compute();
+    expect(result.activeStepGoal).toBe(DEFAULT_STEP_GOAL);
+    expect(result.lifetime).toStrictEqual(
+      computeLifetimeCompliance([{ date: '2026-08-09', effective_steps: 12000 }], DEFAULT_STEP_GOAL),
+    );
+  });
+
+  it('zero-state DB → zero tolerance, zero tiers, empty hallOfFame, zero lifetime', async () => {
+    const db = makeMockDb([]);
+    const result = await createStreak(db, makeMockGoal()).compute();
+    expect(result.tolerance).toStrictEqual({ actual: 0, allowance95: 0, allowance90: 0 });
     expect(result.hallOfFame).toEqual([]);
-    expect(result.lifetime).toEqual({ total10k: 0, totalDays: 0, pct: 0 });
-    expect(result.activeGoalKm).toBe(3.0);
-
-    expect(result.tiers).toHaveLength(4);
+    expect(result.lifetime).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
+    expect(result.tiers).toHaveLength(STEP_GOAL_OPTIONS.length);
     result.tiers.forEach(({ active, best }) => {
       expect(active).toBe(0);
       expect(best).toBe(0);
     });
   });
 
-  // ── SF-1 fallback: empty goal_history + valid active_goal ──────────────
-  it('SF-1: empty goal_history + valid active_goal at 5.0 km → synthetic history; 3.5 km records fail the 5.0 km goal', async () => {
-    const activeGoal = {
-      key: 'active_goal',
-      effective_from: TODAY,
-      target_distance_km: 5.0,
-      target_steps: 6562,
-    };
-    // Records at 3.5 km (below the synthetic 5.0 km goal)
-    const records = [
-      { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
-      { date: '2026-08-08', effective_steps: 4593, effective_distance_km: 3.5 },
-    ];
-    const db = makeMockDb({ records, history: [], activeGoal });
-    const { compute } = createStreak(db);
-    const result = await compute();
-
-    // Pre-log dates resolve to the seed baseline (5.0 km); 3.5 km fails → unified 0
-    expect(result.unified).toBe(0);
-    expect(result.activeGoalKm).toBe(5.0);
-  });
-
-  it('SF-1: empty goal_history + valid active_goal at 5.0 km → 5.2 km records pass the 5.0 km goal', async () => {
-    const activeGoal = {
-      key: 'active_goal',
-      effective_from: '2026-08-01',
-      target_distance_km: 5.0,
-      target_steps: 6562,
-    };
-    const records = [
-      { date: '2026-08-09', effective_steps: 7000, effective_distance_km: 5.2 },
-      { date: '2026-08-08', effective_steps: 7000, effective_distance_km: 5.2 },
-    ];
-    const db = makeMockDb({ records, history: [], activeGoal });
-    const { compute } = createStreak(db);
-    const result = await compute();
-
-    // Both records at 5.2 km pass the synthetic 5.0 km goal; today (08-10) missing → skip
-    expect(result.unified).toBe(2);
-    expect(result.activeGoalKm).toBe(5.0);
-  });
-
-  // ── Both empty → DEFAULT_GOAL_KM ───────────────────────────────────────
-  it('both goal_history and active_goal absent → goalHistory [], activeGoalKm = DEFAULT_GOAL_KM (3.0)', async () => {
-    const db = makeMockDb({ records: [], history: [], activeGoal: null });
-    const { compute } = createStreak(db);
-    const result = await compute();
-    expect(result.activeGoalKm).toBe(3.0);
-  });
-
-  it('active_goal present but corrupt (non-finite target_distance_km) → goalHistory [], activeGoalKm = 3.0', async () => {
-    const db = makeMockDb({
-      activeGoal: { key: 'active_goal', effective_from: TODAY, target_distance_km: NaN, target_steps: 0 },
-    });
-    const { compute } = createStreak(db);
-    const result = await compute();
-    expect(result.activeGoalKm).toBe(3.0);
-  });
-
-  it('active_goal with target_distance_km <= 0 → activeGoalKm = DEFAULT_GOAL_KM', async () => {
-    const db = makeMockDb({
-      activeGoal: { key: 'active_goal', effective_from: TODAY, target_distance_km: 0, target_steps: 0 },
-    });
-    const { compute } = createStreak(db);
-    const result = await compute();
-    expect(result.activeGoalKm).toBe(3.0);
-  });
-
-  // ── DB read failures propagate (never swallowed) ─────────────────────
-  it('daily_records.toArray() rejecting → compute() rejects (never swallowed)', async () => {
-    const db = {
-      daily_records: { toArray: vi.fn().mockRejectedValue(new Error('DB read failed')) },
-      goal_history:  { toArray: vi.fn().mockResolvedValue([]) },
-      settings:      { get:     vi.fn().mockResolvedValue(null) },
-    };
-    const { compute } = createStreak(db);
-    await expect(compute()).rejects.toThrow('DB read failed');
-  });
-
-  it('goal_history.toArray() rejecting → falls back to the current active goal', async () => {
-    const db = {
-      daily_records: { toArray: vi.fn().mockResolvedValue([
-        { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
-      ]) },
-      goal_history:  { toArray: vi.fn().mockRejectedValue(new Error('History read failed')) },
-      settings:      { get: vi.fn().mockResolvedValue({
-        effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937,
-      }) },
-    };
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { compute } = createStreak(db);
-    await expect(compute()).resolves.toMatchObject({ unified: 1, activeGoalKm: 3.0 });
-  });
-
-  it('initialized default goal remains the baseline before a later goal change', async () => {
-    const db = makeMockDb({
-      records: [{ date: '2026-08-09', effective_steps: 4000, effective_distance_km: 3.5 }],
-      history: [
-        { effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 },
-        { effective_from: TODAY, target_distance_km: 5.0, target_steps: 6562 },
-      ],
-      activeGoal: { effective_from: TODAY, target_distance_km: 5.0, target_steps: 6562 },
-    });
-    const { compute } = createStreak(db);
-    const result = await compute();
-    expect(result.unified).toBe(1);
-  });
-
-  it('goal_history.toArray() rejecting with no active goal still computes with default goal', async () => {
-    const db = {
-      daily_records: { toArray: vi.fn().mockResolvedValue([]) },
-      goal_history:  { toArray: vi.fn().mockRejectedValue(new Error('History read failed')) },
-      settings:      { get:     vi.fn().mockResolvedValue(null) },
-    };
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { compute } = createStreak(db);
-    await expect(compute()).resolves.toMatchObject({ unified: 0, activeGoalKm: 3.0 });
-  });
-
-  it('settings.get() rejecting → compute() rejects', async () => {
-    const db = {
-      daily_records: { toArray: vi.fn().mockResolvedValue([]) },
-      goal_history:  { toArray: vi.fn().mockResolvedValue([]) },
-      settings:      { get:     vi.fn().mockRejectedValue(new Error('Settings read failed')) },
-    };
-    const { compute } = createStreak(db);
-    await expect(compute()).rejects.toThrow('Settings read failed');
-  });
-
-  // ── Future-dated records excluded ────────────────────────────────────
-  it('future-dated records (date > today) are filtered out before compute', async () => {
-    const records = [
-      { date: '2026-08-09', effective_steps: 7000, effective_distance_km: 5.0 },
-      { date: '2026-08-11', effective_steps: 7000, effective_distance_km: 5.0 }, // future
-    ];
-    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
-    const db = makeMockDb({ records, history });
-    const { compute } = createStreak(db);
-    const result = await compute();
-
-    // Today (08-10) is missing → in-progress skip; 08-09 passes → unified 1
-    // 08-11 is future and should NOT inflate lifetime.totalDays
-    expect(result.unified).toBe(1);
-    expect(result.lifetime.totalDays).toBe(1); // only 08-09 survives the filter
-  });
-
-  it('today-dated record (date === today) is kept, not filtered', async () => {
-    const records = [
-      { date: TODAY, effective_steps: 7000, effective_distance_km: 5.0 },
-    ];
-    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
-    const db = makeMockDb({ records, history });
-    const { compute } = createStreak(db);
-    const result = await compute();
-
-    // Today's record passes (5.0 >= 3.0) → unified 1
-    expect(result.unified).toBe(1);
+  it('future-dated records (date > today) are filtered out before compute (clock skew)', async () => {
+    const db = makeMockDb([
+      { date: '2026-08-09', effective_steps: 12000 },
+      { date: '2026-08-11', effective_steps: 12000 }, // future
+    ]);
+    const result = await createStreak(db, makeMockGoal(10000)).compute();
     expect(result.lifetime.totalDays).toBe(1);
   });
 
-  // ── goal_history non-empty path ──────────────────────────────────────
-  it('non-empty goal_history is passed directly to pure functions (not synthesized)', async () => {
-    // history has one row at 3.0 km; active_goal has 5.0 km
-    // If synthesis occurred, the result would use 5.0 km; correct behaviour uses 3.0 km
-    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
-    const activeGoal = {
-      key: 'active_goal',
-      effective_from: TODAY,
-      target_distance_km: 5.0,
-      target_steps: 6562,
-    };
-    const records = [
-      { date: '2026-08-09', effective_steps: 4593, effective_distance_km: 3.5 },
-    ];
-    const db = makeMockDb({ records, history, activeGoal });
-    const { compute } = createStreak(db);
-    const result = await compute();
+  it('today-dated record (date === today) is kept, not filtered', async () => {
+    const db = makeMockDb([{ date: NOW, effective_steps: 12000 }]);
+    const result = await createStreak(db, makeMockGoal(10000)).compute();
+    expect(result.lifetime.totalDays).toBe(1);
+    expect(result.tolerance.actual).toBe(1);
+  });
 
-    // 3.5 km passes 3.0 km goal (from real history); would fail 5.0 km (from active_goal)
-    expect(result.unified).toBe(1);
-    // activeGoalKm still comes from active_goal (for the UI label), not the history
-    expect(result.activeGoalKm).toBe(5.0);
+  it('non-array daily_records payload → zero-state payload (guard)', async () => {
+    const db = makeMockDb(null);
+    const result = await createStreak(db, makeMockGoal()).compute();
+    expect(result.lifetime).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
+    expect(result.hallOfFame).toEqual([]);
+  });
+
+  it('daily_records.toArray() rejecting → compute() rejects (never swallowed)', async () => {
+    const db = makeMockDb();
+    db.daily_records.toArray = vi.fn().mockRejectedValue(new Error('DB read failed'));
+    await expect(createStreak(db, makeMockGoal()).compute()).rejects.toThrow('DB read failed');
+  });
+
+  it('goal.getActiveStepGoal() rejecting → compute() rejects (never swallowed)', async () => {
+    const goal = { getActiveStepGoal: vi.fn().mockRejectedValue(new Error('Goal read failed')) };
+    await expect(createStreak(makeMockDb(), goal).compute()).rejects.toThrow('Goal read failed');
+  });
+
+  // ── effective_* field regression (ST-006 Task 7, step lens) ─────────────
+  it('classifies a day using effective_steps, not original_steps', async () => {
+    const db = makeMockDb([
+      {
+        date: '2026-08-09',
+        original_steps: 1000, // below goal on original
+        effective_steps: 12000, // above goal on effective
+        is_overridden: true,
+      },
+    ]);
+    const result = await createStreak(db, makeMockGoal(10000)).compute();
+    expect(result.tolerance.actual).toBe(1);
+  });
+
+  it('Missed→Met override via effective_steps extends the actual streak', async () => {
+    const db = makeMockDb([
+      { date: '2026-08-08', original_steps: 12000, effective_steps: 12000, is_overridden: false },
+      { date: '2026-08-09', original_steps: 800, effective_steps: 11000, is_overridden: true },
+    ]);
+    const result = await createStreak(db, makeMockGoal(10000)).compute();
+    expect(result.tolerance.actual).toBe(2);
   });
 });
 
 // ---------------------------------------------------------------------------
-// ST-006 Task 7 — Effective-field classification regression
+// Legacy surface removal (SF-4a) — grep- and namespace-verifiable
 // ---------------------------------------------------------------------------
-
-describe('createStreak — effective_* field regression (ST-006 Task 7)', () => {
-  const TODAY = '2026-08-10';
-
-  function makeMockDb({ records = [], history = [], activeGoal = null } = {}) {
-    return {
-      daily_records: { toArray: vi.fn().mockResolvedValue(records) },
-      goal_history:  { toArray: vi.fn().mockResolvedValue(history) },
-      settings:      { get:     vi.fn().mockResolvedValue(activeGoal) },
-    };
-  }
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-08-10T12:00:00'));
+describe('streak.js legacy surface removal (SF-4a/SF-4d)', () => {
+  it('does not export computeUnifiedStreak', () => {
+    expect(Object.keys(streakModule)).not.toContain('computeUnifiedStreak');
+    expect(streakModule.computeUnifiedStreak).toBeUndefined();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('does not re-export resolveGoalForDate', () => {
+    expect(Object.keys(streakModule)).not.toContain('resolveGoalForDate');
+    expect(streakModule.resolveGoalForDate).toBeUndefined();
   });
 
-  // Divergent-field fixture: original_distance_km is below the goal threshold
-  // but effective_distance_km exceeds it (simulates a corrected override).
-  // The streak engine must read effective_*, so the day counts as Met.
-  it('classifies a day as Met using effective_distance_km, not original_distance_km', async () => {
-    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
-    const records = [
-      {
-        date: '2026-08-09',
-        original_steps: 1000,             // below goal on original
-        original_distance_km: 0.76,       // 0.76 km < 3.0 km → Missed on original
-        effective_steps: 5000,            // above goal on effective
-        effective_distance_km: 3.81,      // 3.81 km >= 3.0 km → Met on effective
-        is_overridden: true,
-      },
-    ];
-    const db = makeMockDb({ records, history });
-    const { compute } = createStreak(db);
-    const result = await compute();
-
-    // If the engine reads effective_distance_km (correct), unified streak = 1
-    // If it mistakenly reads original_distance_km, unified streak = 0
-    expect(result.unified).toBe(1);
+  it('does not export computeLifetime10k or LIFETIME_STEP_THRESHOLD', () => {
+    expect(Object.keys(streakModule)).not.toContain('computeLifetime10k');
+    expect(Object.keys(streakModule)).not.toContain('LIFETIME_STEP_THRESHOLD');
   });
 
-  // Missed→Met flip via override: a record that was Missed on original_*
-  // becomes Met via effective_* — the active streak should extend by 1.
-  it('Missed→Met override via effective_* extends the active unified streak', async () => {
-    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+  it('src/streak.js source no longer references the removed identifiers', () => {
+    expect(streakSource).not.toMatch(/\bcomputeUnifiedStreak\b/);
+    expect(streakSource).not.toMatch(/\bresolveGoalForDate\b/);
+    expect(streakSource).not.toMatch(/\bcomputeLifetime10k\b/);
+    expect(streakSource).not.toMatch(/\bLIFETIME_STEP_THRESHOLD\b/);
+  });
 
-    // Two consecutive days; 08-08 is naturally Met, 08-09 was Missed on original but overridden to Met
-    const records = [
-      {
-        date: '2026-08-08',
-        original_steps: 5000,
-        original_distance_km: 3.81,
-        effective_steps: 5000,
-        effective_distance_km: 3.81,
-        is_overridden: false,
-      },
-      {
-        date: '2026-08-09',
-        original_steps: 800,
-        original_distance_km: 0.61,       // Missed on original (< 3.0 km)
-        effective_steps: 4000,
-        effective_distance_km: 3.05,      // Met on effective (>= 3.0 km)
-        is_overridden: true,
-      },
-    ];
-    const db = makeMockDb({ records, history });
-    const { compute } = createStreak(db);
-    const result = await compute();
+  it('src/streak.js no longer imports from goal-history.js (SF-3)', () => {
+    expect(streakSource).not.toMatch(/goal-history\.js/);
+    expect(streakSource).not.toMatch(/\bbuildEffectiveGoalHistory\b/);
+    expect(streakSource).not.toMatch(/\b_prepareGoalHistory\b/);
+  });
 
-    // Both 08-08 and 08-09 pass on effective_* → streak of 2
-    // If engine reads original_*, 08-09 fails → streak of 0 (chain broken)
-    expect(result.unified).toBe(2);
+  it('src/streak.js carries no effective-from / date-scoped goal resolution (SF-3)', () => {
+    expect(streakSource).not.toMatch(/\beffective_from\b/);
   });
 });
-
 // ---------------------------------------------------------------------------
 // computeToleranceStreaks — 3-metric backward tolerance engine (SF-5/6/7)
 // ---------------------------------------------------------------------------

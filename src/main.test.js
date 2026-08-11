@@ -401,10 +401,10 @@ describe('main.js — Task 10: streak engine wiring', () => {
     document.body.innerHTML = ''
   })
 
-  it('createStreak is invoked exactly once with mockDb', async () => {
+  it('createStreak is invoked exactly once with (mockDb, goalInstance)', async () => {
     await boot()
     expect(createStreak).toHaveBeenCalledTimes(1)
-    expect(createStreak).toHaveBeenCalledWith(mockDb)
+    expect(createStreak).toHaveBeenCalledWith(mockDb, mockGoalInstance)
   })
 
   it('createStreakUI is invoked exactly once with (document, streakInstance, mockReporter)', async () => {
