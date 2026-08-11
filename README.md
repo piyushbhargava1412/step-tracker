@@ -248,7 +248,7 @@ Clicking any calendar tile (except future dates or padding) opens a side drawer 
 **For an unsynced day (no record from Google Fit):**
 - The date header appears, but all metrics show `—`.
 - A placeholder message reads `No synced data for this date`.
-- The Edit / Override button is still present and active, allowing you to manually log the day (arriving in ST-006).
+- The Edit / Override button is still present and active, allowing you to manually log the day.
 
 **Dismissal:**
 - Click the close button (`×`) in the top-right of the drawer.
@@ -257,4 +257,49 @@ Clicking any calendar tile (except future dates or padding) opens a side drawer 
 
 Focus returns to the tile you clicked after dismissal. If the calendar re-renders (e.g. month navigation, sync), any open drawer closes automatically.
 
-**Note**: The Edit / Override button is currently disabled and will activate in ST-006, which adds the form for manual logging and override submission.
+Clicking **Edit / Override** opens the override form inline in the drawer.
+
+## Manual Override
+
+The **Manual Override** feature lets you correct any day's step and distance record — for example, when your phone was in a pocket during a workout, or when wearable data is clearly wrong.
+
+### Workflow
+
+**Create or edit an override:**
+1. Open the Calendar tab and click any past day's tile to open the Day Detail Drawer.
+2. Click **Edit / Override** to reveal the override form.
+3. Fill in **Effective Steps** (required; integer ≥ 0).
+4. Optionally fill in **Effective Distance** (km; if left blank it is derived from steps: `effective_steps / 1312.33`).
+5. Enter a **Justification Note** (required, non-empty) — this is the audit trail for the correction.
+6. Optionally attach a **Proof Image** (PNG, JPEG, or WEBP) to support the correction.
+7. Click **Save Override**. The progress card, streaks, and calendar heatmap update immediately without a page refresh.
+
+**Revert to synced data:**
+1. Open the drawer for an overridden day (shown with a `*` badge on the tile).
+2. Click **Revert to Synced**. Confirm the native browser prompt.
+3. The record returns to Google Fit values; the `*` badge disappears and all metrics recalculate.
+
+### Data Lineage: `original_*` vs `effective_*`
+
+Every `daily_records` row carries two parallel field sets:
+
+| Field | Meaning |
+|-------|---------|
+| `original_steps` / `original_distance_km` | The raw value reported by Google Fit. **Never mutated** after initial sync. |
+| `effective_steps` / `effective_distance_km` | The value used by all metrics (streak engine, progress card, calendar heatmap, monthly summary). Equals `original_*` unless the day is overridden. |
+| `is_overridden` | `true` when a user correction is active. |
+| `override.note` | Required audit justification (plain text). |
+| `override.proof_image_base64` | Optional JPEG Base64 proof image, or `null`. |
+| `override.updated_at` | ISO timestamp of the last manual correction. |
+
+**Resync safety**: When Google Fit data is re-fetched, only `original_*` and `synced_at` are refreshed on overridden rows. The `effective_*` values and `override` metadata are preserved — a resync never clobbers a manual correction.
+
+### Proof-Image Storage
+
+Proof images are stored entirely client-side in IndexedDB (Dexie) as Base64-encoded JPEG strings. No image is uploaded to any server.
+
+Before storage the image is normalised:
+- **Maximum dimension**: 1024 px (width or height, whichever is larger; aspect ratio is preserved).
+- **Encoding**: re-encoded to JPEG at quality 0.8, regardless of the input format (PNG, JPEG, WEBP).
+
+This bounds the Base64 string size while retaining sufficient detail for a proof screenshot. Accepted input types: `image/png`, `image/jpeg`, `image/webp`.
