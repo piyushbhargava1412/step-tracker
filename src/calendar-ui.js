@@ -22,7 +22,7 @@ import { computeCommitmentHitRate } from './calendar.js';
 export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview) {
   // Selected month (0-based), defaults to current local month (SF-9)
   let state = { year: new Date().getFullYear(), month: new Date().getMonth() };
-  let controller = null;
+  let controller = new AbortController();
 
   /**
    * Idempotent render: aborts previous listeners, loads month data,
@@ -653,10 +653,6 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     }
     const day = payload.days.find((d) => d.date === date);
     if (!day) return;
-    // Ensure controller is initialized (render may not have been called yet)
-    if (!controller) {
-      controller = new AbortController();
-    }
     _openDrawer(day, null);
   }
 

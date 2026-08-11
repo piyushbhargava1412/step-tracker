@@ -1309,4 +1309,20 @@ describe('openDrawerForDate', () => {
     expect(drawer.hasAttribute('hidden')).toBe(false);
     expect(drawer.classList.contains('drawer--open')).toBe(true);
   });
+
+  it('openDrawerForDate does NOT create a new AbortController (no dead guard side-effect)', async () => {
+    // RED: currently the dead guard `if (!controller) { controller = new AbortController(); }`
+    // instantiates a controller whose signal is never used. After the fix, no new AbortController
+    // should be constructed when openDrawerForDate is called without render().
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+
+    const spy = vi.spyOn(globalThis, 'AbortController');
+    await calendarUI.openDrawerForDate('2026-08-08');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });
