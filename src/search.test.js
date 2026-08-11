@@ -290,6 +290,32 @@ describe('createSearch — executeQuery', () => {
     expect(result[2].date).toBe('2026-01-01');
   });
 
+
+  it('executeQuery rejects when db.daily_records.toArray() throws (all-time path)', async () => {
+    const { createSearch } = await import('./search.js');
+    const dbErr = new Error('IndexedDB read failure');
+    const db = {
+      daily_records: { where: vi.fn(), toArray: vi.fn().mockRejectedValue(dbErr) },
+      goal_history: { toArray: vi.fn().mockResolvedValue([]) },
+    };
+    const goal = makeGoal();
+    const { executeQuery } = createSearch(db, goal);
+    await expect(executeQuery({})).rejects.toThrow('IndexedDB read failure');
+  });
+
+  it('executeQuery rejects when db.daily_records.where().between().toArray() throws (date-range path)', async () => {
+    const { createSearch } = await import('./search.js');
+    const dbErr = new Error('IndexedDB range failure');
+    const collection = { toArray: vi.fn().mockRejectedValue(dbErr) };
+    const db = {
+      daily_records: { where: vi.fn().mockReturnValue({ between: vi.fn().mockReturnValue(collection) }), toArray: vi.fn() },
+      goal_history: { toArray: vi.fn().mockResolvedValue([]) },
+    };
+    const goal = makeGoal();
+    const { executeQuery } = createSearch(db, goal);
+    await expect(executeQuery({ startDate: '2026-01-01', endDate: '2026-01-31' })).rejects.toThrow('IndexedDB range failure');
+  });
+
   it('no DOM API used and no toISOString() call in search.js', () => {
     const source = fs.readFileSync(path.resolve('src/search.js'), 'utf8');
     expect(source).not.toMatch(/toISOString\(\)/);
