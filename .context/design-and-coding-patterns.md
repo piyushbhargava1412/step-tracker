@@ -1,8 +1,8 @@
 # Design & Coding Patterns
 
 <!-- context-meta
-verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
-generated-at: 2026-08-10T15:55:56Z
+verification-commit: 4754aafff08e716cb529f688d20095b5eed11ce8
+generated-at: 2026-08-11T07:37:00Z
 confidence: high
 -->
 
@@ -48,7 +48,17 @@ confidence: high
   (`if (!nav?.storage?.persist) return`); `src/ui-status.js` element-missing guards.
 - **Delegated event listener with AbortController cleanup**: a single listener on a container element
   reads `event.target.closest('[data-tab]')` rather than attaching per-button listeners. Re-calling
-  the init function aborts the old controller to prevent accumulation. *Evidence*: `src/tabs.js:initTabs`.
+  the init function aborts the old controller to prevent accumulation. *Evidence*: `src/tabs.js:initTabs`,
+  `src/calendar-ui.js:render()` (one controller per render cycle, aborted at top of next render).
+- **Pure engine / sole DOM-writer pair**: engine module imports no DOM and no Dexie symbols; a separate
+  `-ui.js` module is the only file that touches the document. Established across all feature areas.
+  *Evidence (≥3)*: `src/streak.js`/`src/streak-ui.js`; `src/progress.js`/`src/progress-ui.js`;
+  `src/calendar.js`/`src/calendar-ui.js`.
+- **Shared pure module extracted to avoid duplication**: when two feature engines share an algorithmic
+  building block, it is extracted into its own module rather than duplicated or placed in a utils grab-bag.
+  The extracted module is pure (no DOM, no Dexie) and exports its primitives at the fine-grained level
+  needed for performance-sensitive callers. *Evidence*: `src/goal-history.js` (shared by `streak.js`
+  and `calendar.js`; exports both the public API and prepared-once sub-steps).
 
 **Superseded (was "Recommended default", now established)**
 
@@ -158,3 +168,4 @@ confidence: high
 | Referencing DOM elements by ad-hoc/duplicated selector strings  | Use established fixed element ids via `getElementById`; use `data-*` for config        | `src/main.js`, `src/ui-status.js`, `src/tabs.js` id-wiring       |
 | Introducing magic numbers with no explanation                   | Name them as `UPPER_SNAKE` constants and/or add an inline unit comment                  | `src/db.js` (DB_NAME, DB_VERSION), `src/auth.js` (SCOPES)        |
 | Silently swallowing errors                                      | Log to `console.error` with `[module]` context AND surface via `reporter` method        | `src/ui-status.js`, `src/db.js`, `src/storage.js` logging pattern |
+| Using `innerHTML` for DOM mutations in render layers            | Use `textContent` for text; `createElement`/`appendChild`/`replaceChildren()` for structure; never `innerHTML` assignment (XSS injection surface, especially for user-authored content like `override.note`) | `src/calendar-ui.js` (no-innerHTML contract, enforced by `src/calendar-ui.test.js` via `fs.readFileSync`) |
