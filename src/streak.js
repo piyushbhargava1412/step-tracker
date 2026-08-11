@@ -58,9 +58,6 @@ export function _sortByDate(records) {
   return [...records].sort(_ascBy('date'));
 }
 
-// Re-export shared helpers so callers that import from streak.js still work.
-export { _isValidRecord, _ascBy } from './goal-history.js';
-
 // Internal aliases for streak.js's own use of goal-history helpers.
 import { _prepareGoalHistory, _resolvePreparedGoalForDate, _sortByEffectiveFrom, _isValidGoalRow, _isValidRecord, buildEffectiveGoalHistory } from './goal-history.js';
 
