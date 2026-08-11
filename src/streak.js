@@ -6,13 +6,17 @@
  * judged against the goal that was in force on D, never against today's goal.
  */
 
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
 import { _localDate, _addDaysUtc } from './date-utils.js';
 export { resolveGoalForDate } from './goal-history.js';
 
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
 export const HALL_OF_FAME_SIZE = 3; // podium entries
+
+// Parameterized Tolerance Streak Engine — one allowed miss per N calendar days.
+export const ALLOWANCE_WINDOW_95 = 20; // 95% tier: floor(d / 20) misses allowed
+export const ALLOWANCE_WINDOW_90 = 10; // 90% tier: floor(d / 10) misses allowed
 const ZERO_TIER_STREAKS = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
 
 /**
@@ -39,7 +43,19 @@ export function _sortByDate(records) {
 }
 
 // Internal aliases for streak.js's own use of goal-history helpers.
-import { _prepareGoalHistory, _resolvePreparedGoalForDate, _sortByEffectiveFrom, _isValidGoalRow, _isValidRecord, buildEffectiveGoalHistory } from './goal-history.js';
+import { _prepareGoalHistory, _resolvePreparedGoalForDate, _sortByEffectiveFrom, _isValidGoalRow, buildEffectiveGoalHistory } from './goal-history.js';
+
+/**
+ * Returns true if a daily_records row can be keyed by date.
+ * Module-local so the step-based engine below owns its own record guard and
+ * does not depend on the distance-era goal-history module.
+ *
+ * @param {*} row
+ * @returns {boolean}
+ */
+export function _isValidRecord(row) {
+  return !!row && typeof row === 'object' && typeof row.date === 'string' && row.date !== '';
+}
 
 /**
  * Unified Active Streak — Effective Date Lock traversal.
@@ -304,6 +320,122 @@ function _computeLifetime10kPrepared(records) {
       && record.effective_steps >= LIFETIME_STEP_THRESHOLD,
   ).length;
   return { total10k, totalDays, pct: (total10k / totalDays) * 100 };
+}
+
+// ── Parameterized Tolerance Streak Engine ──────────────────────────────────
+
+/**
+ * Fresh zero result — never a shared literal, so callers may safely mutate.
+ *
+ * @returns {{ actual: number, allowance95: number, allowance90: number }}
+ */
+function _zeroToleranceStreaks() {
+  return { actual: 0, allowance95: 0, allowance90: 0 };
+}
+
+/**
+ * Steps credited to a calendar day. A missing day, a corrupt row, or a
+ * non-finite `effective_steps` all read as 0 — i.e. a miss (SF-5).
+ *
+ * @param {{ effective_steps?: number }|undefined} record
+ * @returns {number}
+ */
+function _stepsFor(record) {
+  return record && Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
+}
+
+/**
+ * Three-metric backward tolerance engine — 100% / 95% / 90% (SF-5, SF-6, SF-7).
+ *
+ * All three streaks are produced in a **single backward pass** over calendar
+ * days, because they share one anchor and one step target:
+ *
+ * - **Anchor (SF-6)**: start at `today` iff a record for `today` exists and
+ *   `effective_steps >= stepGoal`; otherwise start at yesterday and exclude
+ *   today entirely. Today is never charged as a miss.
+ * - **Traversal (SF-7)**: steps calendar days via `_addDaysUtc(day, -1)`, so
+ *   `d` is calendar depth — not array position. **`d` convention: the anchor
+ *   day is `d = 1`**, and `d` increments by one per calendar day walked back.
+ *   This is load-bearing: `floor(d / N)` means "one miss allowed per N calendar
+ *   days", so the AC arithmetic (a miss at depth 20 is affordable at N = 20 but
+ *   not at depth 19) only holds with a 1-based depth.
+ * - **Miss rule (SF-5)**: a missing past day reads as 0 steps and is a miss.
+ *   The 100% engine terminates on the first miss. Each allowance engine spends
+ *   one unit (`m += 1`) and keeps walking while `m <= floor(d / N)`, recording
+ *   `last_valid_streak = d` at every qualifying depth; once `m > floor(d / N)`
+ *   that engine freezes at its `last_valid_streak`.
+ * - The loop ends when `day < earliestRecordDate` and returns the accumulated
+ *   values — the lower bound is what stops the allowance engines walking into
+ *   pre-history.
+ *
+ * Guards: non-array/empty `records`, or a non-string/empty `today`, return the
+ * zero shape. A non-finite or non-positive `stepGoal` fails open to
+ * `DEFAULT_STEP_GOAL`.
+ *
+ * @param {Array<{ date: string, effective_steps: number }>} records
+ * @param {number} stepGoal - daily step target (S_target)
+ * @param {string} today - YYYY-MM-DD
+ * @returns {{ actual: number, allowance95: number, allowance90: number }}
+ */
+export function computeToleranceStreaks(records, stepGoal, today) {
+  if (!Array.isArray(records) || records.length === 0) return _zeroToleranceStreaks();
+  if (typeof today !== 'string' || today === '') return _zeroToleranceStreaks();
+
+  const target = Number.isFinite(stepGoal) && stepGoal > 0 ? stepGoal : DEFAULT_STEP_GOAL;
+
+  // Drop unusable rows and future-dated rows (clock skew), then index by date.
+  const usable = _sortByDate(
+    records.filter((r) => _isValidRecord(r) && r.date <= today),
+  );
+  if (usable.length === 0) return _zeroToleranceStreaks();
+
+  const byDate = new Map(usable.map((r) => [r.date, r]));
+  const earliestRecordDate = usable[0].date;
+
+  // SF-6: today only anchors the walk when it is present and already met.
+  const todayRecord = byDate.get(today);
+  const anchor = todayRecord && _stepsFor(todayRecord) >= target
+    ? today
+    : _addDaysUtc(today, -1);
+
+  let actual = 0;
+  let actualAlive = true;
+  let misses = 0;
+
+  // One tracker per allowance tier — each spends `misses` against its own
+  // window and freezes at its `last_valid_streak` (`value`) once it can no
+  // longer afford the miss count. Order matches the returned shape.
+  const allowances = [
+    { window: ALLOWANCE_WINDOW_95, value: 0, alive: true },
+    { window: ALLOWANCE_WINDOW_90, value: 0, alive: true },
+  ];
+
+  let day = anchor;
+  let d = 0; // calendar depth; the anchor day is d = 1
+
+  while (day >= earliestRecordDate && (actualAlive || allowances.some((a) => a.alive))) {
+    d += 1;
+    const met = _stepsFor(byDate.get(day)) >= target;
+
+    if (met) {
+      if (actualAlive) actual = d;
+    } else {
+      actualAlive = false;
+      misses += 1;
+    }
+
+    for (const allowance of allowances) {
+      if (!allowance.alive) continue;
+      if (misses <= Math.floor(d / allowance.window)) allowance.value = d;
+      else allowance.alive = false;
+    }
+
+    day = _addDaysUtc(day, -1);
+  }
+
+  const [allowance95, allowance90] = allowances.map((a) => a.value);
+
+  return { actual, allowance95, allowance90 };
 }
 
 // ── createStreak helper ────────────────────────────────────────────────────

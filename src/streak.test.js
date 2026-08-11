@@ -7,14 +7,18 @@ import {
   TIER_THRESHOLDS,
   LIFETIME_STEP_THRESHOLD,
   HALL_OF_FAME_SIZE,
+  ALLOWANCE_WINDOW_95,
+  ALLOWANCE_WINDOW_90,
   _sortByDate,
+  _isValidRecord,
   resolveGoalForDate,
   computeUnifiedStreak,
   computeTierStreaks,
   computeHallOfFame,
   computeLifetime10k,
+  computeToleranceStreaks,
 } from './streak.js';
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -1300,5 +1304,234 @@ describe('createStreak — effective_* field regression (ST-006 Task 7)', () => 
     // Both 08-08 and 08-09 pass on effective_* → streak of 2
     // If engine reads original_*, 08-09 fails → streak of 0 (chain broken)
     expect(result.unified).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeToleranceStreaks — 3-metric backward tolerance engine (SF-5/6/7)
+// ---------------------------------------------------------------------------
+
+const TODAY = '2026-08-12';
+const STEP_GOAL = 10000;
+const ZERO_SHAPE = { actual: 0, allowance95: 0, allowance90: 0 };
+
+/**
+ * Builds `count` consecutive daily_records ending at `today` (inclusive).
+ * Index 0 is `today` (depth d = 1), index i is `today - i` (depth d = i + 1).
+ */
+function makeRecords(today, count, steps) {
+  const records = [];
+  for (let i = 0; i < count; i += 1) {
+    records.push({ date: shiftDate(today, -i), effective_steps: steps });
+  }
+  return records;
+}
+
+/** AC Scenario 2 fixture: 39 dense days, the 20th day back scoring 4,000 steps. */
+function acScenario2() {
+  const records = makeRecords(TODAY, 39, 12000);
+  records[19] = { date: shiftDate(TODAY, -19), effective_steps: 4000 };
+  return records;
+}
+
+describe('computeToleranceStreaks — constants', () => {
+  it('exposes the allowance windows as UPPER_SNAKE_CASE constants', () => {
+    expect(ALLOWANCE_WINDOW_95).toBe(20);
+    expect(ALLOWANCE_WINDOW_90).toBe(10);
+  });
+});
+
+describe('computeToleranceStreaks — AC Scenario 2', () => {
+  it('39 dense days with a single shortfall at depth 20 → 19 / 39 / 39', () => {
+    expect(computeToleranceStreaks(acScenario2(), STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 39,
+      allowance90: 39,
+    });
+  });
+
+  it('never grows past the earliest record date (earliestRecordDate lower bound)', () => {
+    const result = computeToleranceStreaks(acScenario2(), STEP_GOAL, TODAY);
+    // Without the lower bound the allowance engines would keep walking into
+    // pre-history and inflate beyond the 39 days of data that exist.
+    expect(result.allowance95).toBeLessThanOrEqual(39);
+    expect(result.allowance90).toBeLessThanOrEqual(39);
+    expect(result.actual).toBeLessThanOrEqual(39);
+  });
+});
+
+describe('computeToleranceStreaks — SF-6 today anchor', () => {
+  it('counts today when a record exists and meets the goal', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 10,
+      allowance95: 10,
+      allowance90: 10,
+    });
+  });
+
+  it('anchors at yesterday when today has no record, charging no miss for today', () => {
+    // 10 records covering yesterday back through today-10; today absent.
+    const records = makeRecords(shiftDate(TODAY, -1), 10, 12000);
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 10,
+      allowance95: 10,
+      allowance90: 10,
+    });
+  });
+
+  it('anchors at yesterday when today is present but below goal, charging no miss', () => {
+    const records = makeRecords(shiftDate(TODAY, -1), 10, 12000);
+    records.push({ date: TODAY, effective_steps: 5000 }); // in-progress, below goal
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 10,
+      allowance95: 10,
+      allowance90: 10,
+    });
+  });
+});
+
+describe('computeToleranceStreaks — SF-5 missing / corrupt past days', () => {
+  it('a missing past day terminates actual but is absorbed by both allowance engines', () => {
+    const records = makeRecords(TODAY, 39, 12000);
+    records.splice(19, 1); // remove the 20th day back entirely (calendar gap)
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 39,
+      allowance90: 39,
+    });
+  });
+
+  it('a present record with non-finite effective_steps behaves like a missing day', () => {
+    const withNaN = makeRecords(TODAY, 39, 12000);
+    withNaN[19] = { date: shiftDate(TODAY, -19), effective_steps: NaN };
+
+    const missing = makeRecords(TODAY, 39, 12000);
+    missing.splice(19, 1);
+
+    expect(computeToleranceStreaks(withNaN, STEP_GOAL, TODAY)).toStrictEqual(
+      computeToleranceStreaks(missing, STEP_GOAL, TODAY),
+    );
+    expect(computeToleranceStreaks(withNaN, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 39,
+      allowance90: 39,
+    });
+  });
+});
+
+describe('computeToleranceStreaks — SF-7 future-dated records', () => {
+  it('ignores records dated after today', () => {
+    const clean = makeRecords(TODAY, 10, 12000);
+    const polluted = [
+      ...makeRecords(TODAY, 10, 12000),
+      { date: shiftDate(TODAY, 1), effective_steps: 99999 },
+      { date: shiftDate(TODAY, 5), effective_steps: 99999 },
+    ];
+    expect(computeToleranceStreaks(polluted, STEP_GOAL, TODAY)).toStrictEqual(
+      computeToleranceStreaks(clean, STEP_GOAL, TODAY),
+    );
+    expect(computeToleranceStreaks(polluted, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 10,
+      allowance95: 10,
+      allowance90: 10,
+    });
+  });
+
+  it('returns the zero shape when every record is future-dated', () => {
+    const records = [{ date: shiftDate(TODAY, 1), effective_steps: 99999 }];
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual(ZERO_SHAPE);
+  });
+});
+
+describe('computeToleranceStreaks — allowance exhaustion', () => {
+  it('freezes allowance95 at the last qualifying depth while allowance90 continues', () => {
+    // Misses at depth 20 and depth 25 across 39 dense days.
+    const records = makeRecords(TODAY, 39, 12000);
+    records[19] = { date: shiftDate(TODAY, -19), effective_steps: 4000 };
+    records[24] = { date: shiftDate(TODAY, -24), effective_steps: 4000 };
+
+    // 95%: d=20 → m=1 <= floor(20/20)=1 (ok, last_valid=20…24);
+    //      d=25 → m=2 > floor(25/20)=1 → frozen at 24.
+    // 90%: d=25 → m=2 <= floor(25/10)=2 → continues to 39.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 24,
+      allowance90: 39,
+    });
+  });
+
+  it('a miss shallower than the allowance window freezes every allowance engine', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 100 }; // depth 5
+    // floor(5/20) = 0 and floor(5/10) = 0 → no allowance available yet.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 4,
+      allowance95: 4,
+      allowance90: 4,
+    });
+  });
+});
+
+describe('computeToleranceStreaks — guard clauses', () => {
+  it('returns the zero shape for an empty record array', () => {
+    expect(computeToleranceStreaks([], STEP_GOAL, TODAY)).toStrictEqual(ZERO_SHAPE);
+  });
+
+  it('returns the zero shape for null / non-array records', () => {
+    expect(computeToleranceStreaks(null, STEP_GOAL, TODAY)).toStrictEqual(ZERO_SHAPE);
+    expect(computeToleranceStreaks(undefined, STEP_GOAL, TODAY)).toStrictEqual(ZERO_SHAPE);
+    expect(computeToleranceStreaks({}, STEP_GOAL, TODAY)).toStrictEqual(ZERO_SHAPE);
+  });
+
+  it('returns the zero shape for an empty or non-string today', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    expect(computeToleranceStreaks(records, STEP_GOAL, '')).toStrictEqual(ZERO_SHAPE);
+    expect(computeToleranceStreaks(records, STEP_GOAL, undefined)).toStrictEqual(ZERO_SHAPE);
+    expect(computeToleranceStreaks(records, STEP_GOAL, 20260812)).toStrictEqual(ZERO_SHAPE);
+  });
+
+  it('fails open to DEFAULT_STEP_GOAL for a non-positive or non-finite stepGoal', () => {
+    const above = makeRecords(TODAY, 5, DEFAULT_STEP_GOAL + 2000);
+    const below = makeRecords(TODAY, 5, DEFAULT_STEP_GOAL - 2000);
+
+    for (const badGoal of [0, -1, NaN, Infinity, null, undefined, '10000']) {
+      expect(computeToleranceStreaks(above, badGoal, TODAY)).toStrictEqual({
+        actual: 5,
+        allowance95: 5,
+        allowance90: 5,
+      });
+      // Proves DEFAULT_STEP_GOAL was applied — a goal of 0 would pass every day.
+      expect(computeToleranceStreaks(below, badGoal, TODAY)).toStrictEqual(ZERO_SHAPE);
+    }
+  });
+
+  it('skips unusable rows without throwing', () => {
+    const records = [
+      null,
+      { effective_steps: 12000 },
+      { date: '', effective_steps: 12000 },
+      ...makeRecords(TODAY, 3, 12000),
+    ];
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 3,
+      allowance95: 3,
+      allowance90: 3,
+    });
+  });
+});
+
+describe('_isValidRecord', () => {
+  it('accepts a row with a non-empty string date', () => {
+    expect(_isValidRecord({ date: '2026-08-12' })).toBe(true);
+  });
+
+  it('rejects null, non-objects, missing dates and empty dates', () => {
+    expect(_isValidRecord(null)).toBe(false);
+    expect(_isValidRecord(undefined)).toBe(false);
+    expect(_isValidRecord('2026-08-12')).toBe(false);
+    expect(_isValidRecord({})).toBe(false);
+    expect(_isValidRecord({ date: '' })).toBe(false);
+    expect(_isValidRecord({ date: 20260812 })).toBe(false);
   });
 });
