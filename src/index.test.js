@@ -94,4 +94,39 @@ describe('index.html tabbed shell contract', () => {
     expect(syncStatus).not.toBeNull();
     expect(syncStatus.closest('header')).not.toBeNull();
   });
+
+  it('calendar nav, summary, and grid containers are present', () => {
+    expect(document.getElementById('calendar-nav')).not.toBeNull();
+    expect(document.getElementById('calendar-summary')).not.toBeNull();
+    expect(document.getElementById('calendar-grid')).not.toBeNull();
+  });
+
+  it('calendar containers are descendants of #tab-calendar', () => {
+    const tab = document.getElementById('tab-calendar');
+    expect(tab.contains(document.getElementById('calendar-nav'))).toBe(true);
+    expect(tab.contains(document.getElementById('calendar-summary'))).toBe(true);
+    expect(tab.contains(document.getElementById('calendar-grid'))).toBe(true);
+  });
+
+  it('#day-drawer has correct ARIA attributes', () => {
+    const drawer = document.getElementById('day-drawer');
+    expect(drawer).not.toBeNull();
+    expect(drawer.getAttribute('role')).toBe('dialog');
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
+    expect(drawer.getAttribute('aria-labelledby')).toBe('day-drawer-title');
+  });
+
+  it('#day-drawer is a descendant of #tab-calendar', () => {
+    const tab = document.getElementById('tab-calendar');
+    expect(tab.contains(document.getElementById('day-drawer'))).toBe(true);
+  });
+
+  it('.drawer-overlay element exists', () => {
+    expect(document.querySelector('.drawer-overlay')).not.toBeNull();
+  });
+
+  it('#tab-calendar is hidden by default', () => {
+    const calendar = document.getElementById('tab-calendar');
+    expect(calendar.style.display).toBe('none');
+  });
 });

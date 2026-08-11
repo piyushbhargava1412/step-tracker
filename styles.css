@@ -297,3 +297,220 @@ button:hover {
 .lifetime-count {
     color: var(--accent-emerald);
 }
+
+/* ─── ST-005 Calendar Grid ────────────────────────────────────────────────── */
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.calendar-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border: 1px solid var(--bg-card-border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    min-height: 40px;
+    width: 100%;
+}
+
+.calendar-tile:hover:not(:disabled) {
+    border-color: var(--accent-cyan);
+}
+
+.tile--empty {
+    color: var(--text-muted);
+}
+
+.tile--missed {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.tile--met {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: var(--accent-emerald);
+    color: var(--accent-emerald);
+}
+
+.tile--exceeded {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: var(--accent-emerald);
+    color: var(--accent-emerald);
+    box-shadow: 0 0 8px var(--accent-emerald-glow);
+}
+
+.calendar-tile--pad {
+    background: transparent;
+    border-color: transparent;
+    cursor: default;
+}
+
+.tile__override-badge {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 0.65rem;
+    color: var(--accent-amber);
+    font-weight: 700;
+}
+
+.calendar-tile {
+    position: relative;
+}
+
+/* ─── ST-005 Navigation ───────────────────────────────────────────────────── */
+
+#calendar-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#calendar-nav button {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--bg-card-border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+#calendar-nav button:hover:not(:disabled) {
+    border-color: var(--accent-cyan);
+}
+
+#calendar-nav select {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--bg-card-border);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+#calendar-nav button[disabled] {
+    opacity: 0.4;
+    cursor: default;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    border-color: var(--bg-card-border);
+}
+
+/* ─── ST-005 Summary ──────────────────────────────────────────────────────── */
+
+#calendar-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    max-width: 600px;
+    margin: 8px auto;
+}
+
+.summary-cell {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.summary-cell .value {
+    display: block;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+    font-family: var(--font-mono);
+}
+
+/* ─── ST-005 Day Detail Drawer ────────────────────────────────────────────── */
+
+#day-drawer {
+    position: fixed;
+    top: 50%;
+    right: -360px;
+    transform: translateY(-50%);
+    width: 320px;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+    z-index: 1000;
+    transition: right 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.drawer--open #day-drawer {
+    right: 20px;
+}
+
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+#day-drawer h2 {
+    margin: 0 0 16px;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+#day-drawer .metric-row {
+    font-size: 0.85rem;
+}
+
+#day-drawer button[data-action="edit-day"] {
+    background: var(--accent-emerald);
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    width: 100%;
+    margin: 12px 0 0;
+}
+
+#day-drawer button[data-action="edit-day"][disabled] {
+    background: var(--bg-card-border);
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
+#day-drawer .close-btn {
+    background: transparent;
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    float: right;
+    margin: -10px -10px 10px 0;
+    font-size: 1rem;
+}
