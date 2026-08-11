@@ -1,4 +1,4 @@
-export function createSearchUI(doc, search, exporter, goal, reporter) {
+export function createSearchUI(doc, search, exporter, reporter) {
   let controller = null;
   let currentRecords = null;
 

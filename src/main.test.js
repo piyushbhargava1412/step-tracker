@@ -801,10 +801,10 @@ describe('main.js — Task 7: search engine wiring', () => {
     expect(createExporter).toHaveBeenCalledTimes(1)
   })
 
-  it('createSearchUI factory called once with (doc, search, exporter, goal, reporter)', async () => {
+  it('createSearchUI factory called once with (doc, search, exporter, reporter)', async () => {
     await boot()
     expect(createSearchUI).toHaveBeenCalledTimes(1)
-    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockGoalInstance, mockReporter)
+    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockReporter)
   })
 
   it('searchUI.render() invoked exactly once on bootstrap', async () => {

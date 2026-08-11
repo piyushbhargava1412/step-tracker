@@ -59,7 +59,7 @@ export async function bootstrap(doc = document) {
   const monthOverview = createMonthOverview(doc, calendar, reporter)
   const search = createSearch(db, goal)
   const exporter = createExporter(doc)
-  const searchUI = createSearchUI(doc, search, exporter, goal, reporter)
+  const searchUI = createSearchUI(doc, search, exporter, reporter)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
   const progressUI = createProgressUI(doc, goal, db, reporter, () => {
     streakUI.render()

@@ -30,9 +30,6 @@ function makeMockExporter() {
   };
 }
 
-function makeMockGoal() {
-  return { getActiveGoal: vi.fn().mockResolvedValue(null) };
-}
 
 function makeMockReporter() {
   return { db: vi.fn() };
@@ -43,16 +40,15 @@ describe('createSearchUI — render skeleton', () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
     const exporter = makeMockExporter();
-    const goal = makeMockGoal();
     const reporter = makeMockReporter();
-    const { render } = createSearchUI(doc, search, exporter, goal, reporter);
+    const { render } = createSearchUI(doc, search, exporter, reporter);
     render();
     expect(doc.getElementById('tab-search').children.length).toBeGreaterThan(0);
   });
 
   it('all 7 data-field filter controls present with correct names', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const fields = Array.from(doc.querySelectorAll('[data-field]')).map(el => el.dataset.field);
     expect(fields).toContain('start-date');
@@ -67,7 +63,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('data-action="execute" button has .btn.btn-primary', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const btn = doc.querySelector('[data-action="execute"]');
     expect(btn).not.toBeNull();
@@ -77,7 +73,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('data-action="reset" button has .btn.btn-secondary', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const btn = doc.querySelector('[data-action="reset"]');
     expect(btn).not.toBeNull();
@@ -87,7 +83,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('data-action="export-csv" button has .btn.btn-primary', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const btn = doc.querySelector('[data-action="export-csv"]');
     expect(btn).not.toBeNull();
@@ -96,7 +92,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('data-action="export-json" button has .btn.btn-secondary', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const btn = doc.querySelector('[data-action="export-json"]');
     expect(btn).not.toBeNull();
@@ -105,7 +101,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('empty results grid rendered in zero-state (no result rows)', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const grid = doc.querySelector('.search-results-table');
     expect(grid).not.toBeNull();
@@ -114,7 +110,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('summary card rendered with .search-summary and .summary-cell structure', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const summary = doc.querySelector('.search-summary');
     expect(summary).not.toBeNull();
@@ -124,14 +120,14 @@ describe('createSearchUI — render skeleton', () => {
   it('missing #tab-search → console.warn called with [search] prefix; no throw', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const doc = buildDoc('<div></div>');
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     expect(() => render()).not.toThrow();
     expect(warnSpy).toHaveBeenCalledWith('[search]', 'Missing #tab-search — skipping render');
   });
 
   it('re-render is idempotent: second render replaces children, not appends', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const countAfterFirst = doc.getElementById('tab-search').children.length;
     render();
@@ -149,7 +145,7 @@ describe('createSearchUI — render skeleton', () => {
         capturedController = this;
       }
     });
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const firstController = capturedController;
     render();
@@ -163,14 +159,14 @@ describe('createSearchUI — render skeleton', () => {
 
   it('no inline onclick attribute on any rendered element', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     expect(doc.querySelectorAll('[onclick]').length).toBe(0);
   });
 
   it('all panels wrapped in .card; export-controls wrapper present', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     expect(doc.querySelector('.card')).not.toBeNull();
     expect(doc.querySelector('.export-controls')).not.toBeNull();
@@ -178,7 +174,7 @@ describe('createSearchUI — render skeleton', () => {
 
   it('.search-filters class present on filter form container', () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     expect(doc.querySelector('.search-filters')).not.toBeNull();
   });
@@ -206,7 +202,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     doc.querySelector('[data-field="min-steps"]').value = '5000';
     doc.querySelector('[data-field="max-steps"]').value = '10000';
@@ -221,7 +217,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const filters = search.executeQuery.mock.calls[0][0];
@@ -235,7 +231,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 3 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 100, cumulativeDistanceKm: 19.5, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const grid = doc.querySelector('.search-results-table');
@@ -248,7 +244,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
@@ -261,7 +257,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
@@ -273,7 +269,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord(), makeRecord()], totalDays: 5 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 60, cumulativeDistanceKm: 13.5, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const cells = doc.querySelectorAll('.summary-cell .value');
@@ -289,7 +285,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     const cells = doc.querySelectorAll('.summary-cell .value');
@@ -304,7 +300,7 @@ describe('createSearchUI — behaviour', () => {
     search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();
-    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     await clickAction(doc, 'export-csv');
@@ -319,7 +315,7 @@ describe('createSearchUI — behaviour', () => {
     search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();
-    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     await clickAction(doc, 'export-json');
@@ -330,7 +326,7 @@ describe('createSearchUI — behaviour', () => {
   it('Export CSV no-op when no Execute has been run', async () => {
     const doc = buildDoc(makeSearchTab());
     const exporter = makeMockExporter();
-    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockReporter());
     render();
     await clickAction(doc, 'export-csv');
     expect(exporter.exportCsv).not.toHaveBeenCalled();
@@ -339,7 +335,7 @@ describe('createSearchUI — behaviour', () => {
   it('Export JSON no-op when no Execute has been run', async () => {
     const doc = buildDoc(makeSearchTab());
     const exporter = makeMockExporter();
-    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockReporter());
     render();
     await clickAction(doc, 'export-json');
     expect(exporter.exportJson).not.toHaveBeenCalled();
@@ -355,7 +351,7 @@ describe('createSearchUI — behaviour', () => {
       .mockResolvedValueOnce({ records: records2, totalDays: 2 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
     const exporter = makeMockExporter();
-    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     await clickAction(doc, 'execute');
@@ -365,7 +361,7 @@ describe('createSearchUI — behaviour', () => {
 
   it('Reset clears all data-field input values', async () => {
     const doc = buildDoc(makeSearchTab());
-    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     doc.querySelector('[data-field="min-steps"]').value = '5000';
     doc.querySelector('[data-field="max-steps"]').value = '10000';
@@ -379,7 +375,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord()], totalDays: 2 });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     expect(doc.querySelector('.search-results-table').querySelectorAll('[data-row]').length).toBe(2);
@@ -392,7 +388,7 @@ describe('createSearchUI — behaviour', () => {
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
     const reporter = makeMockReporter();
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), reporter);
+    const { render } = createSearchUI(doc, search, makeMockExporter(), reporter);
     render();
     await clickAction(doc, 'execute');
     expect(reporter.db).toHaveBeenCalledWith('❌ Search query failed');
@@ -402,7 +398,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     expect(doc.querySelector('.search-results-table').querySelectorAll('[data-row]').length).toBe(0);
@@ -414,7 +410,7 @@ describe('createSearchUI — behaviour', () => {
     const err = new Error('db fail');
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockRejectedValue(err);
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
     expect(errSpy).toHaveBeenCalledWith('[search]', err);
@@ -424,7 +420,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
     search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await expect(clickAction(doc, 'execute')).resolves.toBeUndefined();
   });
