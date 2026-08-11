@@ -7,6 +7,8 @@
  */
 
 import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
+export { resolveGoalForDate } from './goal-history.js';
+export { buildEffectiveGoalHistory } from './goal-history.js';
 
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
@@ -56,78 +58,11 @@ export function _sortByDate(records) {
   return [...records].sort(_ascBy('date'));
 }
 
-/**
- * Returns true if a goal_history row is usable.
- * @param {*} row
- * @returns {boolean}
- */
-function _isValidGoalRow(row) {
-  if (!row || typeof row !== 'object') return false;
-  if (typeof row.effective_from !== 'string' || row.effective_from === '') return false;
-  return Number.isFinite(row.target_distance_km) && row.target_distance_km > 0;
-}
+// Re-export shared helpers so callers that import from streak.js still work.
+export { _isValidRecord, _ascBy } from './goal-history.js';
 
-/**
- * Returns true if a daily_records row can be keyed by date.
- * @param {*} row
- * @returns {boolean}
- */
-function _isValidRecord(row) {
-  return !!row && typeof row === 'object' && typeof row.date === 'string' && row.date !== '';
-}
-
-/**
- * G(D) — the goal in force on `dateStr` (SF-1).
- *
- * Latest entry whose `effective_from <= dateStr` wins. Dates before the
- * earliest entry use that earliest entry (the seed is the baseline). Equal
- * `effective_from` values are a primary-key overwrite, so the later entry wins.
- * Empty or unusable history fails open to DEFAULT_GOAL_KM (SF-12).
- *
- * @param {Array<{ effective_from: string, target_distance_km: number }>} goalHistory
- * @param {string} dateStr - YYYY-MM-DD
- * @returns {number} target distance in km
- */
-export function resolveGoalForDate(goalHistory, dateStr) {
-  return _resolvePreparedGoalForDate(_prepareGoalHistory(goalHistory), dateStr);
-}
-
-function _prepareGoalHistory(goalHistory) {
-  if (!Array.isArray(goalHistory)) return [];
-  return _sortByEffectiveFrom(goalHistory.filter(_isValidGoalRow));
-}
-
-function _resolvePreparedGoalForDate(valid, dateStr) {
-  if (valid.length === 0) return DEFAULT_GOAL_KM;
-
-  if (dateStr < valid[0].effective_from) return valid[0].target_distance_km;
-
-  let low = 0;
-  let high = valid.length - 1;
-  let resolved = valid[0].target_distance_km;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const row = valid[middle];
-    if (row.effective_from <= dateStr) {
-      resolved = row.target_distance_km;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return resolved;
-}
-
-/**
- * Stable ascending sort by `effective_from` — preserves insertion order for
- * same-day entries so the later `put` governs.
- *
- * @param {Array<{ effective_from: string }>} rows
- * @returns {Array<{ effective_from: string }>}
- */
-function _sortByEffectiveFrom(rows) {
-  return [...rows].sort(_ascBy('effective_from'));
-}
+// Internal aliases for streak.js's own use of goal-history helpers.
+import { _prepareGoalHistory, _resolvePreparedGoalForDate, _sortByEffectiveFrom, _isValidGoalRow, _isValidRecord, buildEffectiveGoalHistory } from './goal-history.js';
 
 /**
  * Unified Active Streak — Effective Date Lock traversal.
@@ -442,25 +377,7 @@ export function createStreak(db) {
     const today = _localDate();
 
     // ── SF-1 goalHistory fallback ─────────────────────────────────────────
-    // If goal_history has rows, use them directly.
-    // Otherwise, synthesize a single-entry history from the current active_goal
-    // so that pre-log records are evaluated against the active goal (fail-open).
-    // If active_goal is also absent/corrupt, pass [] — pure functions already
-    // fall back to DEFAULT_GOAL_KM via resolveGoalForDate (SF-12).
-    let goalHistory;
-    if (Array.isArray(history) && history.length > 0) {
-      goalHistory = history;
-    } else if (_isValidActiveGoalForHistory(activeGoal)) {
-      goalHistory = [
-        {
-          effective_from: activeGoal.effective_from,
-          target_distance_km: activeGoal.target_distance_km,
-          target_steps: activeGoal.target_steps,
-        },
-      ];
-    } else {
-      goalHistory = [];
-    }
+    let goalHistory = buildEffectiveGoalHistory(history, activeGoal);
 
     // ── SF-3/SF-6 activeGoalKm ────────────────────────────────────────────
     // Drives the goal label and active tier chip in streak-ui.  Falls back to
