@@ -8,7 +8,6 @@
 
 import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
 export { resolveGoalForDate } from './goal-history.js';
-export { buildEffectiveGoalHistory } from './goal-history.js';
 
 export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
@@ -327,19 +326,6 @@ function _computeLifetime10kPrepared(records) {
 }
 
 // ── createStreak helper ────────────────────────────────────────────────────
-
-/**
- * Returns true if an active_goal row can produce a valid goalHistory entry.
- * Requires a non-empty `effective_from` string and a finite positive `target_distance_km`.
- *
- * @param {*} row
- * @returns {boolean}
- */
-function _isValidActiveGoalForHistory(row) {
-  if (!row || typeof row !== 'object') return false;
-  if (typeof row.effective_from !== 'string' || row.effective_from === '') return false;
-  return Number.isFinite(row.target_distance_km) && row.target_distance_km > 0;
-}
 
 /**
  * Streak data factory — orchestrates Dexie reads and delegates computation to
