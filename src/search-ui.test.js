@@ -201,7 +201,7 @@ describe('createSearchUI — behaviour', () => {
   it('clicking Execute calls search.executeQuery with filters object from form values', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     doc.querySelector('[data-field="min-steps"]').value = '5000';
@@ -216,7 +216,7 @@ describe('createSearchUI — behaviour', () => {
   it('blank filter inputs omitted from filters object passed to executeQuery', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
@@ -229,7 +229,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const records = [makeRecord(), makeRecord({ date: '2026-01-14' }), makeRecord({ date: '2026-01-13' })];
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 3 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records, preFilterSet: Array.from({ length: 3 }, () => ({})) });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 100, cumulativeDistanceKm: 19.5, avgSteps: 8000 });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -242,7 +242,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const record = makeRecord({ is_overridden: true, override: { note: '<b>hi</b>' } });
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], preFilterSet: [{}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -255,7 +255,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const record = makeRecord({ is_overridden: false });
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], preFilterSet: [{}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -267,7 +267,7 @@ describe('createSearchUI — behaviour', () => {
   it('summary card updated with values from computeResultSummary after Execute', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord(), makeRecord()], totalDays: 5 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord(), makeRecord()], preFilterSet: Array.from({ length: 5 }, () => ({})) });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 60, cumulativeDistanceKm: 13.5, avgSteps: 8000 });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -283,7 +283,7 @@ describe('createSearchUI — behaviour', () => {
   it('null matchPct rendered as — in summary', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -297,7 +297,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const records = [makeRecord()];
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records, preFilterSet: [{}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();
     const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
@@ -312,7 +312,7 @@ describe('createSearchUI — behaviour', () => {
     const doc = buildDoc(makeSearchTab());
     const records = [makeRecord()];
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records, preFilterSet: [{}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();
     const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
@@ -347,8 +347,8 @@ describe('createSearchUI — behaviour', () => {
     const records2 = [makeRecord({ date: '2026-01-10' }), makeRecord({ date: '2026-01-09' })];
     const search = makeMockSearch();
     search.executeQuery = vi.fn()
-      .mockResolvedValueOnce({ records: records1, totalDays: 1 })
-      .mockResolvedValueOnce({ records: records2, totalDays: 2 });
+      .mockResolvedValueOnce({ records: records1, preFilterSet: [{}] })
+      .mockResolvedValueOnce({ records: records2, preFilterSet: [{}, {}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
     const exporter = makeMockExporter();
     const { render } = createSearchUI(doc, search, exporter, makeMockReporter());
@@ -373,7 +373,7 @@ describe('createSearchUI — behaviour', () => {
   it('Reset re-renders zero-state results grid', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord()], totalDays: 2 });
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord()], preFilterSet: [{}, {}] });
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
@@ -449,7 +449,7 @@ describe('createSearchUI — stale data guard after query error', () => {
     const records = [makeRecord()];
     const search = makeMockSearch();
     search.executeQuery = vi.fn()
-      .mockResolvedValueOnce({ records, totalDays: 1 })
+      .mockResolvedValueOnce({ records, preFilterSet: [{}] })
       .mockRejectedValueOnce(new Error('second query failed'));
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();
@@ -467,7 +467,7 @@ describe('createSearchUI — stale data guard after query error', () => {
     const records = [makeRecord()];
     const search = makeMockSearch();
     search.executeQuery = vi.fn()
-      .mockResolvedValueOnce({ records, totalDays: 1 })
+      .mockResolvedValueOnce({ records, preFilterSet: [{}] })
       .mockRejectedValueOnce(new Error('second query failed'));
     search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
     const exporter = makeMockExporter();

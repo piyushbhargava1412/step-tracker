@@ -309,7 +309,8 @@ describe('createSearch — computeResultSummary', () => {
       { effective_distance_km: 7.5, effective_steps: 9000 },
       { effective_distance_km: Infinity, effective_steps: 7000 },
     ];
-    const result = computeResultSummary(records, 5);
+    const preFilterSet = Array.from({ length: 5 }, () => ({}));
+    const result = computeResultSummary(records, preFilterSet);
     expect(result.count).toBe(3);
     expect(result.matchPct).toBe(60);
     expect(result.cumulativeDistanceKm).toBe(13.5);
@@ -323,7 +324,8 @@ describe('createSearch — computeResultSummary', () => {
     const goal = makeGoal();
     const { computeResultSummary } = createSearch(db, goal);
     const records = [{ effective_distance_km: 5.0, effective_steps: 7000 }];
-    const result = computeResultSummary(records, 3);
+    const preFilterSet = Array.from({ length: 3 }, () => ({}));
+    const result = computeResultSummary(records, preFilterSet);
     expect(result.matchPct).toBe(33);
   });
 
@@ -332,7 +334,8 @@ describe('createSearch — computeResultSummary', () => {
     const db = makeDb();
     const goal = makeGoal();
     const { computeResultSummary } = createSearch(db, goal);
-    const result = computeResultSummary([], 5);
+    const preFilterSet = Array.from({ length: 5 }, () => ({}));
+    const result = computeResultSummary([], preFilterSet);
     expect(result.count).toBe(0);
     expect(result.matchPct).toBeNull();
     expect(result.cumulativeDistanceKm).toBe(0);
@@ -344,7 +347,7 @@ describe('createSearch — computeResultSummary', () => {
     const db = makeDb();
     const goal = makeGoal();
     const { computeResultSummary } = createSearch(db, goal);
-    const result = computeResultSummary([], 0);
+    const result = computeResultSummary([], []);
     expect(result.matchPct).toBeNull();
   });
 
@@ -358,7 +361,8 @@ describe('createSearch — computeResultSummary', () => {
       { effective_distance_km: NaN, effective_steps: 8000 },
       { effective_distance_km: 5.0, effective_steps: 8000 },
     ];
-    const result = computeResultSummary(records, 3);
+    const preFilterSet = Array.from({ length: 3 }, () => ({}));
+    const result = computeResultSummary(records, preFilterSet);
     expect(result.cumulativeDistanceKm).toBe(5.0);
   });
 
@@ -371,7 +375,8 @@ describe('createSearch — computeResultSummary', () => {
       effective_distance_km: 6.0,
       effective_steps: 8000,
     }));
-    const result = computeResultSummary(records, 10);
+    const preFilterSet = Array.from({ length: 10 }, () => ({}));
+    const result = computeResultSummary(records, preFilterSet);
     expect(result.matchPct).toBe(40);
     expect(result.totalDays).toBe(10);
   });
@@ -385,7 +390,8 @@ describe('createSearch — computeResultSummary', () => {
       { effective_distance_km: 5.0, effective_steps: 9000, original_steps: 5000 },
       { effective_distance_km: 6.0, effective_steps: 7000, original_steps: 3000 },
     ];
-    const result = computeResultSummary(records, 2);
+    const preFilterSet = Array.from({ length: 2 }, () => ({}));
+    const result = computeResultSummary(records, preFilterSet);
     expect(result.avgSteps).toBe(8000);
   });
 });

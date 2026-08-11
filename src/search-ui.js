@@ -41,7 +41,7 @@ export function createSearchUI(doc, search, exporter, reporter) {
       const result = await search.executeQuery(filters);
       currentRecords = result.records;
       _renderGrid(panel, result.records);
-      const summary = search.computeResultSummary(result.records, result.totalDays);
+      const summary = search.computeResultSummary(result.records, result.preFilterSet);
       _renderSummary(panel, summary);
     } catch (err) {
       currentRecords = null;

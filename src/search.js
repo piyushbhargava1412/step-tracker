@@ -18,8 +18,6 @@ export function createSearch(db, goal) {
         ? await db.daily_records.where('date').between(f.startDate, f.endDate, true, true).toArray()
         : await db.daily_records.toArray();
 
-      const totalDays = raw.length;
-
       const history = await db.goal_history.toArray();
       const activeGoal = await goal.getActiveGoal();
       const effectiveHistory = buildEffectiveGoalHistory(history, activeGoal);
@@ -57,15 +55,16 @@ export function createSearch(db, goal) {
 
       return {
         records: records.sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0)),
-        totalDays,
+        preFilterSet: raw,
       };
     } catch (err) {
       console.error('[search]', err);
-      return { records: [], totalDays: 0 };
+      return { records: [], preFilterSet: [] };
     }
   }
 
-  function computeResultSummary(records, totalDays) {
+  function computeResultSummary(records, preFilterSet) {
+    const totalDays = preFilterSet.length;
     const count = records.length;
     const matchPct = totalDays === 0 ? null : Math.round((count / totalDays) * 100);
     if (count === 0) {
