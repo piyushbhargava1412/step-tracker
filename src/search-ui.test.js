@@ -18,7 +18,7 @@ function makeSearchTab() {
 
 function makeMockSearch() {
   return {
-    executeQuery: vi.fn().mockResolvedValue([]),
+    executeQuery: vi.fn().mockResolvedValue({ records: [], preFilterSet: [] }),
     computeResultSummary: vi.fn().mockReturnValue({ count: 0, matchPct: null, totalDays: 0, cumulativeDistanceKm: 0, avgSteps: null }),
   };
 }
