@@ -291,7 +291,7 @@ describe('createSearchLab', () => {
       expect(result).toHaveLength(7);
       const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       for (let i = 0; i < result.length; i++) {
-        expect(result[i]).toEqual({ day: DOW[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+        expect(result[i]).toEqual({ day: DOW[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0, primarySlump: false });
       }
     });
 
@@ -309,7 +309,7 @@ describe('createSearchLab', () => {
       // Tuesday through Sunday should be empty
       const DOW2 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       for (let i = 1; i <= 6; i++) {
-        expect(result[i]).toEqual({ day: DOW2[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+        expect(result[i]).toEqual({ day: DOW2[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0, primarySlump: false });
       }
     });
 
@@ -421,6 +421,61 @@ describe('createSearchLab', () => {
       const lab = createSearchLab(db, goal);
       const result = await lab.computeDayOfWeekSlump();
       expect(result[0].hitRate).toBe(50);
+    });
+
+    it('primarySlump flag: bucket with lowest hitRate (Sunday 45%) is flagged', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Sun=2026-08-16 (idx 6): 45% hit rate, Mon-Sat each have ≥90%
+      // Sun records: 9 miss, 11 met → hitRate ~55% — let's use simpler: 1 met 1 missed = 50
+      // Mon-Sat: each 2 met = 100%
+      // Actually for Sunday 45%: use 9 records, 4 met 5 missed → 4/9 ≈ 44%
+      // simpler: Sunday: 1 met, 1 missed = 50%; Mon: 2 met = 100%
+      // We need Sun strictly lowest, so Sun=50, others=100
+      const records = [
+        // Monday 2 met
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 10000 },
+        { date: '2026-08-17', effective_distance_km: 10.0, steps: 10000 },
+        // Sunday: 1 met, 1 missed → hitRate=50
+        { date: '2026-08-16', effective_distance_km: 10.0, steps: 9000 }, // Sun met
+        { date: '2026-08-23', effective_distance_km: 5.0,  steps: 5000 }, // Sun missed
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      // Sunday is index 6, Monday is index 0
+      // Monday hitRate = 100 (2/2), Sunday hitRate = 50 (1/2)
+      expect(result[6].primarySlump).toBe(true);
+      expect(result[0].primarySlump).toBe(false);
+    });
+
+    it('primarySlump flag: no bucket flagged when all hitRates are null (empty DB)', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      const db = makeMockDb({ earliest: undefined });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      expect(result.every(b => b.primarySlump !== true)).toBe(true);
+    });
+
+    it('primarySlump tie-break: lower avgSteps wins', async () => {
+      const { createSearchLab } = await import('./search-lab.js');
+      // Mon and Sun both hitRate=50, but Sun has lower avgSteps → Sun flagged
+      const records = [
+        { date: '2026-08-10', effective_distance_km: 10.0, steps: 10000 }, // Mon met
+        { date: '2026-08-17', effective_distance_km: 5.0,  steps: 9000 },  // Mon missed
+        { date: '2026-08-16', effective_distance_km: 10.0, steps: 7000 },  // Sun met
+        { date: '2026-08-23', effective_distance_km: 5.0,  steps: 6000 },  // Sun missed
+      ];
+      const goalHistory = [{ effective_from: '2026-01-01', target_distance_km: 10 }];
+      const db = makeMockDb({ earliest: { date: '2026-08-10' }, records, goalHistory });
+      const goal = { getActiveGoal: () => ({ effective_from: '2026-01-01', target_distance_km: 10 }) };
+      const lab = createSearchLab(db, goal);
+      const result = await lab.computeDayOfWeekSlump();
+      // Mon avgSteps = (10000+9000)/2 = 9500, Sun avgSteps = (7000+6000)/2 = 6500
+      expect(result[6].primarySlump).toBe(true);
+      expect(result[0].primarySlump).toBe(false);
     });
   });
 

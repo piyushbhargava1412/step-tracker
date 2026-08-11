@@ -107,7 +107,7 @@ export function createSearchLab(db, goal) {
   }
 
   async function computeDayOfWeekSlump() {
-    const EMPTY_BUCKET = (i) => ({ day: DAY_NAMES[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
+    const EMPTY_BUCKET = (i) => ({ day: DAY_NAMES[i], hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0, primarySlump: false });
     const buckets = Array.from({ length: 7 }, (_, i) => EMPTY_BUCKET(i));
 
     const earliest = await db.daily_records.orderBy('date').first();
@@ -141,7 +141,7 @@ export function createSearchLab(db, goal) {
       sums[idx].count += 1;
     }
 
-    return sums.map(({ sumSteps, sumDistanceKm, metCount, count }, i) => {
+    const result = sums.map(({ sumSteps, sumDistanceKm, metCount, count }, i) => {
       if (count === 0) return EMPTY_BUCKET(i);
       return {
         day: DAY_NAMES[i],
@@ -151,6 +151,26 @@ export function createSearchLab(db, goal) {
         count,
       };
     });
+
+    // Mark primarySlump: bucket with lowest hitRate (ignoring null), tie-break on avgSteps then index
+    const eligible = result.filter(b => b.hitRate !== null);
+    if (eligible.length > 0) {
+      const minHitRate = Math.min(...eligible.map(b => b.hitRate));
+      const tied = eligible.filter(b => b.hitRate === minHitRate);
+      const minAvgSteps = Math.min(...tied.map(b => b.avgSteps !== null ? b.avgSteps : Infinity));
+      const tiedSteps = tied.filter(b => (b.avgSteps !== null ? b.avgSteps : Infinity) === minAvgSteps);
+      // lowest index wins among remaining ties
+      const primaryDay = tiedSteps[0].day;
+      for (const b of result) {
+        b.primarySlump = (b.day === primaryDay && b.hitRate !== null);
+      }
+    } else {
+      for (const b of result) {
+        b.primarySlump = false;
+      }
+    }
+
+    return result;
   }
 
   async function comparePeriods(rangeA, rangeB) {

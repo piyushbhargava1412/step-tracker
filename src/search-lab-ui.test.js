@@ -337,6 +337,41 @@ describe('createSearchLabUI', () => {
       const rows = card.querySelectorAll('[data-day]');
       expect(rows.length).toBe(0);
     });
+
+    it('primarySlump row gets class search-insight-row--slump and label "Primary Slump Day"', async () => {
+      const SLUMP_DATA_WITH_SLUMP = [
+        { day: 'Mon', hitRate: 75,   avgSteps: 8500, totalDistanceKm: 12.50, primarySlump: false },
+        { day: 'Tue', hitRate: null, avgSteps: null, totalDistanceKm: null,  primarySlump: false },
+        { day: 'Wed', hitRate: 100,  avgSteps: 10200, totalDistanceKm: 20.00, primarySlump: false },
+        { day: 'Thu', hitRate: 50,   avgSteps: 7000,  totalDistanceKm: 9.00,  primarySlump: false },
+        { day: 'Fri', hitRate: 0,    avgSteps: 5000,  totalDistanceKm: 7.00,  primarySlump: false },
+        { day: 'Sat', hitRate: null, avgSteps: 9000,  totalDistanceKm: null,  primarySlump: false },
+        { day: 'Sun', hitRate: 33,   avgSteps: 6000,  totalDistanceKm: 5.50,  primarySlump: true  },
+      ];
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA_WITH_SLUMP);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const sunRow = card.querySelector('[data-day="Sun"]');
+      expect(sunRow.classList.contains('search-insight-row--slump')).toBe(true);
+      expect(sunRow.textContent).toContain('Primary Slump Day');
+    });
+
+    it('non-primarySlump rows do not get slump class or label', async () => {
+      const SLUMP_DATA_WITH_SLUMP = [
+        { day: 'Mon', hitRate: 75,   avgSteps: 8500, totalDistanceKm: 12.50, primarySlump: false },
+        { day: 'Sun', hitRate: 33,   avgSteps: 6000, totalDistanceKm: 5.50,  primarySlump: true  },
+      ];
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA_WITH_SLUMP);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const monRow = card.querySelector('[data-day="Mon"]');
+      expect(monRow.classList.contains('search-insight-row--slump')).toBe(false);
+      expect(monRow.textContent).not.toContain('Primary Slump Day');
+    });
   });
 
   // ── Task 8: Comparison card with native date inputs ──────────────────────────
@@ -605,8 +640,11 @@ describe('createSearchLabUI — slump integration (real engine, DI db mock)', ()
     const monRow = card.querySelector('[data-day="Mon"]');
     expect(monRow).not.toBeNull();
 
-    // 3rd child = avg-steps span (label, hitRate, avgSteps, dist)
-    const avgStepsEl = monRow.children[2];
+    // Find avg-steps span: text is numeric (not %, not 'km', not day label, not 'Primary Slump Day')
+    // Row children: label, [optional badge], hitRate, avgSteps, dist
+    const allSpans = Array.from(monRow.children);
+    const avgStepsEl = allSpans.find(el => /^\d+$/.test(el.textContent.trim()));
+    expect(avgStepsEl).not.toBeUndefined();
     // Should render "7500" (not em-dash) because engine now returns avgSteps key
     expect(avgStepsEl.textContent).toBe('7500');
   });

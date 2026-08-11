@@ -97,9 +97,19 @@ export function createSearchLabUI(doc, engine, reporter) {
       const dayLabel = row.day ?? DOW_LABELS[i] ?? String(i);
       const rowEl = doc.createElement('div');
       rowEl.dataset.day = dayLabel;
+      if (row.primarySlump) {
+        rowEl.classList.add('search-insight-row--slump');
+      }
 
       const label = doc.createElement('span');
       label.textContent = dayLabel;
+
+      if (row.primarySlump) {
+        const slumpBadge = doc.createElement('span');
+        slumpBadge.className = 'search-insight-slump-badge';
+        slumpBadge.textContent = 'Primary Slump Day';
+        rowEl.appendChild(slumpBadge);
+      }
 
       const hitRateEl = doc.createElement('span');
       hitRateEl.textContent = row.hitRate !== null
