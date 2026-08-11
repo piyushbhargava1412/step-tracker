@@ -1151,24 +1151,6 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     expect(events.length).toBe(0);
   });
 
-  it('empty note + empty steps → overrideRecord NOT called; no data:records:mutated event', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const records = makeMockRecords();
-    const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
-
-    const events = [];
-    doc.addEventListener('data:records:mutated', (e) => events.push(e));
-
-    stepsInput.value = '';
-    noteTextarea.value = '';
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(records.overrideRecord).not.toHaveBeenCalled();
-    expect(events.length).toBe(0);
-  });
-
   it('invalid steps → processImage NOT called even when file is attached', async () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();

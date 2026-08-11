@@ -12,7 +12,7 @@ export const PROOF_IMAGE_QUALITY = 0.8;
 /** Maximum file size in bytes before rejecting (20 MB). */
 export const MAX_PROOF_FILE_BYTES = 20 * 1024 * 1024;
 
-/** Maximum file size in bytes before rejecting (20 MB). */
+/** MIME types accepted for proof-image processing. */
 export const ALLOWED_IMAGE_TYPES = Object.freeze(new Set(['image/png', 'image/jpeg', 'image/webp']));
 
 /**

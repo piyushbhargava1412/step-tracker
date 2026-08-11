@@ -383,7 +383,6 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
           try {
             await records.revertRecord(day.date);
             doc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: day.date } }));
-            render();
           } catch (err) {
             reporter.db('\u274C Revert failed');
             console.error('[calendar-ui]', err);
@@ -561,7 +560,6 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
           proof_image_base64: proofBase64,
         });
         doc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: day.date } }));
-        render();
       } catch (err) {
         reporter.db('\u274C Override failed');
         console.error('[calendar-ui]', err);

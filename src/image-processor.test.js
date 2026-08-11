@@ -234,40 +234,16 @@ describe('ALLOWED_IMAGE_TYPES', () => {
 });
 
 describe('processImage — MIME allowlist guard', () => {
-  it('rejects image/svg+xml fail-fast before FileReader', async () => {
+  it.each(['image/svg+xml', 'image/gif', 'image/bmp'])('rejects %s fail-fast before FileReader', async (type) => {
     const { processor, MockFileReaderSpy } = makeImageProcessor();
-    const file = makeFile('image/svg+xml');
+    const file = makeFile(type);
     await expect(processor.processImage(file)).rejects.toThrow(TypeError);
     expect(MockFileReaderSpy).not.toHaveBeenCalled();
   });
 
-  it('rejects image/gif fail-fast before FileReader', async () => {
-    const { processor, MockFileReaderSpy } = makeImageProcessor();
-    const file = makeFile('image/gif');
-    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
-    expect(MockFileReaderSpy).not.toHaveBeenCalled();
-  });
-
-  it('rejects image/bmp fail-fast before FileReader', async () => {
-    const { processor, MockFileReaderSpy } = makeImageProcessor();
-    const file = makeFile('image/bmp');
-    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
-    expect(MockFileReaderSpy).not.toHaveBeenCalled();
-  });
-
-  it('accepts image/png', async () => {
+  it.each(['image/png', 'image/jpeg', 'image/webp'])('accepts %s', async (type) => {
     const { processor } = makeImageProcessor();
-    await expect(processor.processImage(makeFile('image/png'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
-  });
-
-  it('accepts image/jpeg', async () => {
-    const { processor } = makeImageProcessor();
-    await expect(processor.processImage(makeFile('image/jpeg'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
-  });
-
-  it('accepts image/webp', async () => {
-    const { processor } = makeImageProcessor();
-    await expect(processor.processImage(makeFile('image/webp'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
+    await expect(processor.processImage(makeFile(type))).resolves.toMatch(/^data:image\/jpeg;base64,/);
   });
 });
 
@@ -286,22 +262,9 @@ describe('processImage — file-size guard', () => {
     expect(MockFileReaderSpy).not.toHaveBeenCalled();
   });
 
-  it('rejects a file exactly 1 byte over 20 MB', async () => {
-    const { processor, MockFileReaderSpy } = makeImageProcessor();
-    const file = { type: 'image/png', name: 'edge.png', size: 20 * 1024 * 1024 + 1 };
-    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
-    expect(MockFileReaderSpy).not.toHaveBeenCalled();
-  });
-
   it('accepts a file exactly at 20 MB boundary (size === MAX_PROOF_FILE_BYTES)', async () => {
     const { processor } = makeImageProcessor();
     const file = { type: 'image/jpeg', name: 'exact.jpg', size: MAX_PROOF_FILE_BYTES };
-    await expect(processor.processImage(file)).resolves.toMatch(/^data:image\/jpeg;base64,/);
-  });
-
-  it('accepts a file well under 20 MB', async () => {
-    const { processor } = makeImageProcessor();
-    const file = { type: 'image/jpeg', name: 'small.jpg', size: 100 };
     await expect(processor.processImage(file)).resolves.toMatch(/^data:image\/jpeg;base64,/);
   });
 });

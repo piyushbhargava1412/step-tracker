@@ -41,7 +41,7 @@ export function createDb() {
     });
 
   // v3: backfill effective_* / is_overridden / override for legacy daily_records rows
-  db.version(3)
+  db.version(DB_VERSION)
     .stores({
       daily_records: DAILY_RECORDS_STORES,
       settings: SETTINGS_STORES,
