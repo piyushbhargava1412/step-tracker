@@ -160,6 +160,28 @@ describe('createRecords', () => {
     });
   });
 
+
+  describe('overrideRecord — zero-state (no existing row)', () => {
+    it('includes `date` primary key in put payload when db.daily_records.get returns undefined', async () => {
+      const db = makeMockDb(undefined); // no existing row
+      const records = createRecords(db);
+
+      await records.overrideRecord('2024-03-01', {
+        effective_steps: 4200,
+        note: 'Manual log — no synced baseline',
+      });
+
+      expect(db.daily_records.put).toHaveBeenCalledOnce();
+      const putArg = db.daily_records.put.mock.calls[0][0];
+      expect(putArg.date).toBe('2024-03-01');
+      expect(putArg.effective_steps).toBe(4200);
+      expect(putArg.is_overridden).toBe(true);
+      // original_steps/original_distance_km stay undefined — no fake baseline
+      expect(putArg.original_steps).toBeUndefined();
+      expect(putArg.original_distance_km).toBeUndefined();
+    });
+  });
+
   describe('overrideRecord — guard/error paths (100% coverage)', () => {
     it('throws TypeError for negative effective_steps before DB call', async () => {
       const db = makeMockDb({ ...BASE_ROW });

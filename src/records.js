@@ -62,6 +62,7 @@ export function createRecords(db) {
     try {
       const row = await db.daily_records.get(date);
       const updated = {
+        date,
         ...row,
         effective_steps,
         effective_distance_km: resolvedDistance,
