@@ -3,8 +3,10 @@
  * Inline fixture builders only (no factory library), mirroring progress.test.js.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import {
-  TIER_THRESHOLDS,
+  TIER_STEP_THRESHOLDS,
   LIFETIME_STEP_THRESHOLD,
   HALL_OF_FAME_SIZE,
   ALLOWANCE_WINDOW_95,
@@ -18,7 +20,10 @@ import {
   computeLifetime10k,
   computeToleranceStreaks,
 } from './streak.js';
-import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
+
+const streakSource = fs.readFileSync(path.resolve(__dirname, 'streak.js'), 'utf8');
+const streakUiSource = fs.readFileSync(path.resolve(__dirname, 'streak-ui.js'), 'utf8');
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -350,43 +355,72 @@ describe('computeUnifiedStreak — guards and boundaries', () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeTierStreaks — AC Scenario 3 (varying distances per tier)
+// TIER_STEP_THRESHOLDS — single source of truth with STEP_GOAL_OPTIONS
 // ---------------------------------------------------------------------------
-describe('computeTierStreaks — AC Scenario 3 (varying distances per tier)', () => {
+describe('TIER_STEP_THRESHOLDS', () => {
+  it('is structurally equal to STEP_GOAL_OPTIONS (single source of truth)', () => {
+    expect(TIER_STEP_THRESHOLDS).toEqual(STEP_GOAL_OPTIONS);
+    expect(TIER_STEP_THRESHOLDS).toEqual([5000, 7500, 10000, 15000]);
+  });
+
+  it('is the same array reference as STEP_GOAL_OPTIONS (guards against reference drift)', () => {
+    expect(TIER_STEP_THRESHOLDS).toBe(STEP_GOAL_OPTIONS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TIER_THRESHOLDS identifier fully removed (grep-verifiable, SF-4b)
+// ---------------------------------------------------------------------------
+describe('TIER_THRESHOLDS identifier removal', () => {
+  it('src/streak.js no longer exports or references TIER_THRESHOLDS', () => {
+    expect(streakSource).not.toMatch(/\bTIER_THRESHOLDS\b/);
+  });
+
+  it('src/streak-ui.js no longer imports or references TIER_THRESHOLDS', () => {
+    expect(streakUiSource).not.toMatch(/\bTIER_THRESHOLDS\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeTierStreaks — AC Scenario 3 (varying step counts per tier)
+// ---------------------------------------------------------------------------
+describe('computeTierStreaks — AC Scenario 3 (varying step counts per tier)', () => {
   const TODAY = '2026-08-10';
 
   /**
-   * Fixture (distances chosen so active differs per tier):
-   *   2026-08-06: 5.0 km — passes 1, 3, 5  (fails 10)
-   *   2026-08-07: 2.0 km — passes 1         (fails 3, 5, 10)
-   *   2026-08-08: 11.0 km — passes all
-   *   2026-08-09: 6.0 km — passes 1, 3, 5  (fails 10)
-   *   2026-08-10: 4.0 km — passes 1, 3     (fails 5, 10)
+   * Fixture (steps chosen so active differs per tier, mirroring the km-era
+   * fixture's shape one-for-one across the new [5000, 7500, 10000, 15000]
+   * ladder):
+   *   2026-08-06: 11000 steps — passes 5000, 7500, 10000 (fails 15000)
+   *   2026-08-07:  6000 steps — passes 5000                (fails 7500, 10000, 15000)
+   *   2026-08-08: 16000 steps — passes all
+   *   2026-08-09: 12000 steps — passes 5000, 7500, 10000 (fails 15000)
+   *   2026-08-10:  8000 steps — passes 5000, 7500         (fails 10000, 15000)
    *
    * Expected active (backward from today):
-   *   1.0: 4≥1, 6≥1, 11≥1, 2≥1, 5≥1 → 5
-   *   3.0: 4≥3, 6≥3, 11≥3, 2<3→stop → 3
-   *   5.0: 4<5→skip today, 6≥5, 11≥5, 2<5→stop → 2
-   *  10.0: 4<10→skip today, 6<10→stop → 0
+   *    5000: 8000≥5000, 12000≥5000, 16000≥5000, 6000≥5000, 11000≥5000 → 5
+   *    7500: 8000≥7500, 12000≥7500, 16000≥7500, 6000<7500→stop → 3
+   *   10000: 8000<10000→skip today, 12000≥10000, 16000≥10000, 6000<10000→stop → 2
+   *   15000: 8000<15000→skip today, 12000<15000→stop → 0
    *
    * Expected best (full history scan):
-   *   1.0: 5,2,11,6,4 all≥1 consecutively → 5
-   *   3.0: 5≥3(1), 2<3(0), 11≥3(1), 6≥3(2), 4≥3(3) → 3
-   *   5.0: 5≥5(1), 2<5(0), 11≥5(1), 6≥5(2), 4<5(0) → 2
-   *  10.0: 5<10(0), 2<10(0), 11≥10(1), 6<10(0), 4<10(0) → 1
+   *    5000: 11000,6000,16000,12000,8000 all≥5000 consecutively → 5
+   *    7500: 11000≥7500(1), 6000<7500(0), 16000≥7500(1), 12000≥7500(2), 8000≥7500(3) → 3
+   *   10000: 11000≥10000(1), 6000<10000(0), 16000≥10000(1), 12000≥10000(2), 8000<10000(0) → 2
+   *   15000: 11000<15000(0), 6000<15000(0), 16000≥15000(1), 12000<15000(0), 8000<15000(0) → 1
    */
   const RECORDS = [
-    { date: '2026-08-06', effective_distance_km: 5.0, effective_steps: 6562 },
-    { date: '2026-08-07', effective_distance_km: 2.0, effective_steps: 2625 },
-    { date: '2026-08-08', effective_distance_km: 11.0, effective_steps: 14436 },
-    { date: '2026-08-09', effective_distance_km: 6.0, effective_steps: 7874 },
-    { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+    { date: '2026-08-06', effective_steps: 11000 },
+    { date: '2026-08-07', effective_steps: 6000 },
+    { date: '2026-08-08', effective_steps: 16000 },
+    { date: '2026-08-09', effective_steps: 12000 },
+    { date: '2026-08-10', effective_steps: 8000 },
   ];
 
-  it('returns four entries in TIER_THRESHOLDS order each with { threshold, active, best }', () => {
+  it('returns four entries in TIER_STEP_THRESHOLDS order each with { threshold, active, best }', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
     expect(result).toHaveLength(4);
-    expect(result.map((r) => r.threshold)).toEqual([1.0, 3.0, 5.0, 10.0]);
+    expect(result.map((r) => r.threshold)).toEqual([5000, 7500, 10000, 15000]);
     result.forEach((entry) => {
       expect(entry).toHaveProperty('threshold');
       expect(entry).toHaveProperty('active');
@@ -394,24 +428,24 @@ describe('computeTierStreaks — AC Scenario 3 (varying distances per tier)', ()
     });
   });
 
-  it('active streak for 1.0 km threshold = 5 (all five days pass)', () => {
+  it('active streak for 5000-step threshold = 5 (all five days pass)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[0]).toEqual({ threshold: 1.0, active: 5, best: 5 });
+    expect(result[0]).toEqual({ threshold: 5000, active: 5, best: 5 });
   });
 
-  it('active streak for 3.0 km threshold = 3 (past 2.0 km day terminates)', () => {
+  it('active streak for 7500-step threshold = 3 (past 6000-step day terminates)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[1]).toEqual({ threshold: 3.0, active: 3, best: 3 });
+    expect(result[1]).toEqual({ threshold: 7500, active: 3, best: 3 });
   });
 
-  it('active streak for 5.0 km threshold = 2 (today skipped; past 2.0 km day terminates)', () => {
+  it('active streak for 10000-step threshold = 2 (today skipped; past 6000-step day terminates)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[2]).toEqual({ threshold: 5.0, active: 2, best: 2 });
+    expect(result[2]).toEqual({ threshold: 10000, active: 2, best: 2 });
   });
 
-  it('active streak for 10.0 km threshold = 0; best = 1 (only 11 km day qualifies)', () => {
+  it('active streak for 15000-step threshold = 0; best = 1 (only the 16000-step day qualifies)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[3]).toEqual({ threshold: 10.0, active: 0, best: 1 });
+    expect(result[3]).toEqual({ threshold: 15000, active: 0, best: 1 });
   });
 });
 
@@ -420,40 +454,39 @@ describe('computeTierStreaks — AC Scenario 3 (varying distances per tier)', ()
 // ---------------------------------------------------------------------------
 describe('computeTierStreaks — today skip rules (SF-9)', () => {
   const TODAY = '2026-08-10';
-  const GOAL = { threshold: 3.0 };
 
   it('today below threshold → skip today, active count preserved from yesterday', () => {
-    // 08-09 and 08-08 both pass (>= 3.0); 08-10 below
+    // 08-09 and 08-08 both pass (>= 7500); 08-10 below
     const records = [
-      { date: '2026-08-08', effective_distance_km: 4.0, effective_steps: 5249 },
-      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
-      { date: '2026-08-10', effective_distance_km: 1.0, effective_steps: 1312 }, // below 3.0
+      { date: '2026-08-08', effective_steps: 8000 },
+      { date: '2026-08-09', effective_steps: 8000 },
+      { date: '2026-08-10', effective_steps: 3000 }, // below 7500
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier3 = result.find((r) => r.threshold === 3.0);
-    expect(tier3.active).toBe(2); // only 08-09 and 08-08
+    const tier = result.find((r) => r.threshold === 7500);
+    expect(tier.active).toBe(2); // only 08-09 and 08-08
   });
 
   it("today's record missing → skip today, active count preserved from yesterday", () => {
     // 08-09 and 08-08 pass; today (08-10) absent
     const records = [
-      { date: '2026-08-08', effective_distance_km: 4.0, effective_steps: 5249 },
-      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-08', effective_steps: 8000 },
+      { date: '2026-08-09', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier3 = result.find((r) => r.threshold === 3.0);
-    expect(tier3.active).toBe(2);
+    const tier = result.find((r) => r.threshold === 7500);
+    expect(tier.active).toBe(2);
   });
 
   it('today at/above threshold → counted in active streak (SF-8 >=)', () => {
     // today passes exactly at threshold (boundary)
     const records = [
-      { date: '2026-08-09', effective_distance_km: 3.0, effective_steps: 3937 },
-      { date: '2026-08-10', effective_distance_km: 3.0, effective_steps: 3937 }, // exact
+      { date: '2026-08-09', effective_steps: 7500 },
+      { date: '2026-08-10', effective_steps: 7500 }, // exact
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier3 = result.find((r) => r.threshold === 3.0);
-    expect(tier3.active).toBe(2);
+    const tier = result.find((r) => r.threshold === 7500);
+    expect(tier.active).toBe(2);
   });
 });
 
@@ -464,29 +497,29 @@ describe('computeTierStreaks — active streak termination', () => {
   const TODAY = '2026-08-10';
 
   it('past failing day terminates the active streak', () => {
-    // 08-10 & 08-09 pass (>= 3.0); 08-08 fails (1.5 < 3.0); 08-07 passes but unreachable
+    // 08-10 & 08-09 pass (>= 7500); 08-08 fails (3000 < 7500); 08-07 passes but unreachable
     const records = [
-      { date: '2026-08-07', effective_distance_km: 5.0, effective_steps: 6562 },
-      { date: '2026-08-08', effective_distance_km: 1.5, effective_steps: 1968 }, // fails
-      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
-      { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-07', effective_steps: 9000 },
+      { date: '2026-08-08', effective_steps: 3000 }, // fails
+      { date: '2026-08-09', effective_steps: 8000 },
+      { date: '2026-08-10', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier3 = result.find((r) => r.threshold === 3.0);
-    expect(tier3.active).toBe(2); // only 08-10 and 08-09
+    const tier = result.find((r) => r.threshold === 7500);
+    expect(tier.active).toBe(2); // only 08-10 and 08-09
   });
 
   it('past missing day terminates the active streak (SF-2 semantics)', () => {
     // 08-10 & 08-09 pass; 08-08 missing; 08-07 exists but unreachable
     const records = [
-      { date: '2026-08-07', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-07', effective_steps: 8000 },
       // 2026-08-08 missing
-      { date: '2026-08-09', effective_distance_km: 4.0, effective_steps: 5249 },
-      { date: '2026-08-10', effective_distance_km: 4.0, effective_steps: 5249 },
+      { date: '2026-08-09', effective_steps: 8000 },
+      { date: '2026-08-10', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier3 = result.find((r) => r.threshold === 3.0);
-    expect(tier3.active).toBe(2); // only 08-10 and 08-09
+    const tier = result.find((r) => r.threshold === 7500);
+    expect(tier.active).toBe(2); // only 08-10 and 08-09
   });
 });
 
@@ -498,56 +531,56 @@ describe('computeTierStreaks — best-ever', () => {
 
   it('best-ever spans a historical run that ended before today', () => {
     /**
-     * Fixture for threshold 10.0:
-     *   2026-07-01 .. 2026-07-05: 12 km each (5-day run, ends before today)
-     *   2026-07-06: 0.5 km (fails — breaks best run)
+     * Fixture for threshold 15000:
+     *   2026-07-01 .. 2026-07-05: 16000 steps each (5-day run, ends before today)
+     *   2026-07-06: 1000 steps (fails — breaks best run)
      *   gap: 2026-07-07 .. 2026-08-08 missing
-     *   2026-08-09: 12 km (active run of 1 day; today missing)
+     *   2026-08-09: 16000 steps (active run of 1 day; today missing)
      */
     const records = [
-      { date: '2026-07-01', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-07-02', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-07-03', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-07-04', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-07-05', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-07-06', effective_distance_km: 0.5, effective_steps: 656 },
-      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-07-01', effective_steps: 16000 },
+      { date: '2026-07-02', effective_steps: 16000 },
+      { date: '2026-07-03', effective_steps: 16000 },
+      { date: '2026-07-04', effective_steps: 16000 },
+      { date: '2026-07-05', effective_steps: 16000 },
+      { date: '2026-07-06', effective_steps: 1000 },
+      { date: '2026-08-09', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier10 = result.find((r) => r.threshold === 10.0);
-    expect(tier10.active).toBe(1); // only 08-09 (today missing → skipped; 08-08 missing → terminate)
-    expect(tier10.best).toBe(5);  // the historical run in July
+    const tier = result.find((r) => r.threshold === 15000);
+    expect(tier.active).toBe(1); // only 08-09 (today missing → skipped; 08-08 missing → terminate)
+    expect(tier.best).toBe(5);  // the historical run in July
   });
 
   it('single passing day yields best = 1', () => {
     const records = [
-      { date: '2026-08-09', effective_distance_km: 11.0, effective_steps: 14436 },
+      { date: '2026-08-09', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier10 = result.find((r) => r.threshold === 10.0);
-    expect(tier10.best).toBe(1);
+    const tier = result.find((r) => r.threshold === 15000);
+    expect(tier.best).toBe(1);
   });
 
-  it('best run separated by a gap is not merged (calendar-consecutive only)', () => {
-    // Three separate single days for threshold 5.0
+  it('a calendar gap resets the best run (non-consecutive dates only count as separate runs)', () => {
+    // Three separate single days for threshold 10000
     const records = [
-      { date: '2026-08-05', effective_distance_km: 6.0, effective_steps: 7874 },
-      { date: '2026-08-07', effective_distance_km: 6.0, effective_steps: 7874 }, // gap at 08-06
-      { date: '2026-08-09', effective_distance_km: 6.0, effective_steps: 7874 }, // gap at 08-08
+      { date: '2026-08-05', effective_steps: 12000 },
+      { date: '2026-08-07', effective_steps: 12000 }, // gap at 08-06
+      { date: '2026-08-09', effective_steps: 12000 }, // gap at 08-08
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier5 = result.find((r) => r.threshold === 5.0);
-    expect(tier5.best).toBe(1); // non-consecutive — each is its own run of 1
+    const tier = result.find((r) => r.threshold === 10000);
+    expect(tier.best).toBe(1); // non-consecutive — each is its own run of 1
   });
 
   it('all days pass every tier — active and best equal record length', () => {
-    // 5 consecutive days all at 12 km (passes all four thresholds)
+    // 5 consecutive days all at 16000 steps (passes all four thresholds)
     const records = [
-      { date: '2026-08-06', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-08-07', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-08-08', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
-      { date: '2026-08-10', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-06', effective_steps: 16000 },
+      { date: '2026-08-07', effective_steps: 16000 },
+      { date: '2026-08-08', effective_steps: 16000 },
+      { date: '2026-08-09', effective_steps: 16000 },
+      { date: '2026-08-10', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
     result.forEach(({ active, best }) => {
@@ -580,49 +613,49 @@ describe('computeTierStreaks — zero-state and guards', () => {
     });
   });
 
-  it('non-finite effective_distance_km is treated as 0 for every tier — no exception (SF-13)', () => {
+  it('non-finite effective_steps is treated as 0 for every tier — no exception (SF-13)', () => {
     const records = [
-      { date: '2026-08-09', effective_distance_km: NaN, effective_steps: 5000 },
-      { date: '2026-08-10', effective_distance_km: Infinity, effective_steps: 5000 },
+      { date: '2026-08-09', effective_steps: NaN },
+      { date: '2026-08-10', effective_steps: Infinity },
     ];
     expect(() => computeTierStreaks(records, TODAY)).not.toThrow();
     const result = computeTierStreaks(records, TODAY);
-    // All km are non-finite → treated as 0 → fail every tier
+    // All step counts are non-finite → treated as 0 → fail every tier
     result.forEach(({ active, best }) => {
       expect(active).toBe(0);
       expect(best).toBe(0);
     });
   });
 
-  it('boundary-exact day (distance === threshold) passes (SF-8 >=)', () => {
-    // Record exactly at 5.0 km; today is yesterday (not today) so no skip rule
+  it('boundary-exact day (steps === threshold) passes (SF-8 >=)', () => {
+    // Record exactly at 10000 steps; today is yesterday (not today) so no skip rule
     const records = [
-      { date: '2026-08-09', effective_distance_km: 5.0, effective_steps: 6562 },
-      { date: '2026-08-10', effective_distance_km: 5.0, effective_steps: 6562 },
+      { date: '2026-08-09', effective_steps: 10000 },
+      { date: '2026-08-10', effective_steps: 10000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier5 = result.find((r) => r.threshold === 5.0);
-    expect(tier5.active).toBe(2); // both days at exactly 5.0 pass
-    expect(tier5.best).toBe(2);
+    const tier = result.find((r) => r.threshold === 10000);
+    expect(tier.active).toBe(2); // both days at exactly 10000 pass
+    expect(tier.best).toBe(2);
   });
 
   it('records with corrupt/absent date keys are ignored (guard)', () => {
     const records = [
       null,
-      { effective_distance_km: 12.0 }, // no date
-      { date: '', effective_distance_km: 12.0 }, // empty date
-      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+      { effective_steps: 16000 }, // no date
+      { date: '', effective_steps: 16000 }, // empty date
+      { date: '2026-08-09', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
     // Only the valid record counts
-    const tier10 = result.find((r) => r.threshold === 10.0);
-    expect(tier10.active).toBe(1);
-    expect(tier10.best).toBe(1);
+    const tier = result.find((r) => r.threshold === 15000);
+    expect(tier.active).toBe(1);
+    expect(tier.best).toBe(1);
   });
 
   it('invalid today string → all zero (guard)', () => {
     const records = [
-      { date: '2026-08-09', effective_distance_km: 12.0, effective_steps: 15748 },
+      { date: '2026-08-09', effective_steps: 16000 },
     ];
     expect(computeTierStreaks(records, '')).toHaveLength(4);
     computeTierStreaks(records, '').forEach(({ active, best }) => {
@@ -639,9 +672,9 @@ describe('computeTierStreaks — zero-state and guards', () => {
     // Every record fails _isValidRecord → usable.length === 0 → ZERO_STATE returned
     const records = [
       null,
-      { effective_distance_km: 12.0 },       // missing date
-      { date: 42, effective_distance_km: 12.0 }, // numeric date
-      { date: '', effective_distance_km: 12.0 },  // empty date
+      { effective_steps: 16000 },       // missing date
+      { date: 42, effective_steps: 16000 }, // numeric date
+      { date: '', effective_steps: 16000 },  // empty date
     ];
     const result = computeTierStreaks(records, TODAY);
     expect(result).toHaveLength(4);

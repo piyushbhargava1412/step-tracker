@@ -6,18 +6,20 @@
  * judged against the goal that was in force on D, never against today's goal.
  */
 
-import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL, STEP_GOAL_OPTIONS } from './goal.js';
 import { _localDate, _addDaysUtc } from './date-utils.js';
 export { resolveGoalForDate } from './goal-history.js';
 
-export const TIER_THRESHOLDS = [1.0, 3.0, 5.0, 10.0]; // km
+// SF-4b: the tier ladder is the step-goal enum itself — verbatim, no
+// conversion. This keeps the goal enum and the tier ladder from drifting.
+export const TIER_STEP_THRESHOLDS = STEP_GOAL_OPTIONS;
 export const LIFETIME_STEP_THRESHOLD = 10_000; // steps
 export const HALL_OF_FAME_SIZE = 3; // podium entries
 
 // Parameterized Tolerance Streak Engine — one allowed miss per N calendar days.
 export const ALLOWANCE_WINDOW_95 = 20; // 95% tier: floor(d / 20) misses allowed
 export const ALLOWANCE_WINDOW_90 = 10; // 90% tier: floor(d / 10) misses allowed
-const ZERO_TIER_STREAKS = TIER_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
+const ZERO_TIER_STREAKS = TIER_STEP_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
 
 /**
  * Builds a stable ascending comparator over a string key. Stability keeps
@@ -118,9 +120,9 @@ function _computeUnifiedStreakPrepared(usable, preparedGoals, today) {
 }
 
 /**
- * Tier streaks for each threshold in TIER_THRESHOLDS.
+ * Tier streaks for each threshold in TIER_STEP_THRESHOLDS.
  *
- * Returns an array in TIER_THRESHOLDS order. For each threshold:
+ * Returns an array in TIER_STEP_THRESHOLDS order. For each threshold:
  * - `active`: backward walk from today with the in-progress rule (SF-9).
  *   Today's record missing or below threshold → skip today, evaluate from
  *   yesterday. First failing or missing past day terminates (SF-2).
@@ -130,9 +132,9 @@ function _computeUnifiedStreakPrepared(usable, preparedGoals, today) {
  *
  * SF-8: evaluation uses `>=` (not `>`).
  * SF-9: in-progress rule applies only to the active streak, not to best.
- * SF-13: non-finite `effective_distance_km` is treated as 0 (fails the tier).
+ * SF-13: non-finite `effective_steps` is treated as 0 (fails the tier).
  *
- * @param {Array<{ date: string, effective_distance_km: number }>} records
+ * @param {Array<{ date: string, effective_steps: number }>} records
  * @param {string} today - YYYY-MM-DD (in-progress anchor for the active streak)
  * @returns {Array<{ threshold: number, active: number, best: number }>}
  */
@@ -150,7 +152,7 @@ function _computeTierStreaksPrepared(usable, today) {
   const byDate = new Map(usable.map((r) => [r.date, r]));
   const earliest = usable[0].date;
 
-  return TIER_THRESHOLDS.map((threshold) => {
+  return TIER_STEP_THRESHOLDS.map((threshold) => {
     // ── Active streak (in-progress rule, SF-9) ────────────────────────────
     // Walk backward from today; today gets a skip pass if below/missing;
     // any past day that is missing or below threshold terminates the streak.
@@ -167,11 +169,7 @@ function _computeTierStreaksPrepared(usable, today) {
         continue;
       }
 
-      const km = Number.isFinite(record.effective_distance_km)
-        ? record.effective_distance_km
-        : 0; // SF-13: non-finite fails the tier
-
-      if (km >= threshold) {
+      if (_stepsFor(record) >= threshold) {
         active += 1;
       } else if (!isToday) {
         break; // past shortfall terminates
@@ -194,11 +192,7 @@ function _computeTierStreaksPrepared(usable, today) {
         currentRun = 0;
       }
 
-      const km = Number.isFinite(record.effective_distance_km)
-        ? record.effective_distance_km
-        : 0; // SF-13
-
-      if (km >= threshold) {
+      if (_stepsFor(record) >= threshold) {
         currentRun += 1;
         if (currentRun > best) best = currentRun;
       } else {

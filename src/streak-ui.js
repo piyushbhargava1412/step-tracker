@@ -9,17 +9,18 @@
  * constants shared with the computation layer.
  */
 
-import { TIER_THRESHOLDS } from './streak.js';
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { TIER_STEP_THRESHOLDS } from './streak.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
 
 /** Zero-state result used when streak.compute() rejects. */
 function _zeroState() {
   return {
     unified: 0,
-    tiers: TIER_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 })),
+    tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 })),
     hallOfFame: [],
     lifetime: { total10k: 0, totalDays: 0, pct: 0 },
     activeGoalKm: DEFAULT_GOAL_KM,
+    activeStepGoal: DEFAULT_STEP_GOAL,
   };
 }
 
@@ -54,7 +55,7 @@ function _buildBanner(doc, lifetime) {
  * @returns {HTMLElement}
  */
 function _buildCard(doc, result) {
-  const { unified, tiers, activeGoalKm } = result;
+  const { unified, tiers, activeGoalKm, activeStepGoal } = result;
 
   const card = doc.createElement('div');
   card.className = 'streak-card';
@@ -102,13 +103,13 @@ function _buildCard(doc, result) {
     const chip = doc.createElement('span');
     chip.className = 'tier-chip';
 
-    // SF-3: exact match on threshold → add .tier-chip--active
-    if (tier.threshold === activeGoalKm) {
+    // SF-3 / SF-4b × SF-10: exact match on threshold → add .tier-chip--active
+    if (tier.threshold === activeStepGoal) {
       chip.classList.add('tier-chip--active');
     }
 
-    // SF-8 / SF-15: verbatim mockup format ">Nkm: Nd"
-    chip.textContent = `>${tier.threshold}km: ${tier.active}d`;
+    // SF-4b / SF-8: verbatim mockup format ">Nk: Nd (best Nd)"
+    chip.textContent = `>${tier.threshold / 1000}k: ${tier.active}d (best ${tier.best}d)`;
     tiersContainer.appendChild(chip);
   }
 

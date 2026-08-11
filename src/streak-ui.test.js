@@ -5,8 +5,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createStreakUI } from './streak-ui.js';
-import { TIER_THRESHOLDS } from './streak.js';
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { TIER_STEP_THRESHOLDS } from './streak.js';
+import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,42 +49,46 @@ function makeStreakReject(err) {
 /** Zero-state compute result (mirrors spec). */
 const ZERO_RESULT = {
   unified: 0,
-  tiers: TIER_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 })),
+  tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 })),
   hallOfFame: [],
   lifetime: { total10k: 0, totalDays: 0, pct: 0 },
   activeGoalKm: DEFAULT_GOAL_KM, // 3.0
+  activeStepGoal: DEFAULT_STEP_GOAL, // 10000
 };
 
 /** AC Scenario 4: 40 out of 100 days at 10k+ (40.0%). */
 const SCENARIO_4_RESULT = {
   unified: 7,
-  tiers: TIER_THRESHOLDS.map((t) => ({ threshold: t, active: 5, best: 10 })),
+  tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 5, best: 10 })),
   hallOfFame: [],
   lifetime: { total10k: 40, totalDays: 100, pct: 40.0 },
   activeGoalKm: 3.0,
+  activeStepGoal: DEFAULT_STEP_GOAL,
 };
 
-/** Custom goal not matching any standard tier. */
-const GOAL_4_5_RESULT = {
+/** Custom/legacy step goal not matching any tier rung. */
+const GOAL_NO_MATCH_RESULT = {
   unified: 2,
-  tiers: TIER_THRESHOLDS.map((t) => ({ threshold: t, active: 1, best: 3 })),
+  tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 1, best: 3 })),
   hallOfFame: [],
   lifetime: { total10k: 5, totalDays: 10, pct: 50 },
   activeGoalKm: 4.5,
+  activeStepGoal: 6000, // not a member of TIER_STEP_THRESHOLDS
 };
 
 /** Result with non-zero chip counts for chip-text test. */
 const CHIP_TEXT_RESULT = {
   unified: 42,
   tiers: [
-    { threshold: 1.0, active: 42, best: 60 },
-    { threshold: 3.0, active: 21, best: 30 },
-    { threshold: 5.0, active: 10, best: 15 },
-    { threshold: 10.0, active: 2, best: 5 },
+    { threshold: 5000, active: 42, best: 60 },
+    { threshold: 7500, active: 21, best: 30 },
+    { threshold: 10000, active: 10, best: 15 },
+    { threshold: 15000, active: 2, best: 5 },
   ],
   hallOfFame: [],
   lifetime: { total10k: 20, totalDays: 50, pct: 40 },
   activeGoalKm: 3.0,
+  activeStepGoal: 10000,
 };
 
 // ---------------------------------------------------------------------------
@@ -286,13 +290,18 @@ describe('createStreakUI', () => {
 
     it('four .tier-chip elements are present (one per threshold)', () => {
       const chips = doc.querySelectorAll('.tier-chip');
-      expect(chips.length).toBe(TIER_THRESHOLDS.length);
+      expect(chips.length).toBe(TIER_STEP_THRESHOLDS.length);
     });
 
-    it('zero-state chips read >1km: 0d, >3km: 0d, >5km: 0d, >10km: 0d', () => {
+    it('zero-state chips read >5k: 0d (best 0d), >7.5k: 0d (best 0d), >10k: 0d (best 0d), >15k: 0d (best 0d)', () => {
       const chips = Array.from(doc.querySelectorAll('.tier-chip'));
       const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual(['>1km: 0d', '>3km: 0d', '>5km: 0d', '>10km: 0d']);
+      expect(texts).toEqual([
+        '>5k: 0d (best 0d)',
+        '>7.5k: 0d (best 0d)',
+        '>10k: 0d (best 0d)',
+        '>15k: 0d (best 0d)',
+      ]);
     });
   });
 
@@ -317,17 +326,17 @@ describe('createStreakUI', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Tier chip active highlighting (SF-3)
+  // Tier chip active highlighting (SF-3 / SF-4b × SF-10 invariant)
   // -------------------------------------------------------------------------
   describe('tier chip active highlighting (SF-3)', () => {
     it.each([
-      [1.0, '>1km'],
-      [3.0, '>3km'],
-      [5.0, '>5km'],
-      [10.0, '>10km'],
-    ])('activeGoalKm %s → exactly one .tier-chip--active on the %s chip', async (goalKm, chipText) => {
+      [5000, '>5k'],
+      [7500, '>7.5k'],
+      [10000, '>10k'],
+      [15000, '>15k'],
+    ])('activeStepGoal %s → exactly one .tier-chip--active on the %s chip', async (stepGoal, chipText) => {
       const doc = buildDoc();
-      const streak = makeStreak({ ...ZERO_RESULT, activeGoalKm: goalKm });
+      const streak = makeStreak({ ...ZERO_RESULT, activeStepGoal: stepGoal });
       const reporter = { db: vi.fn() };
 
       const ui = createStreakUI(doc, streak, reporter);
@@ -338,9 +347,9 @@ describe('createStreakUI', () => {
       expect(activeChips[0].textContent).toContain(chipText);
     });
 
-    it('custom 4.5 km goal → no .tier-chip--active (no exact match)', async () => {
+    it('a step goal outside the enum → no .tier-chip--active (no exact match)', async () => {
       const doc = buildDoc();
-      const streak = makeStreak(GOAL_4_5_RESULT);
+      const streak = makeStreak(GOAL_NO_MATCH_RESULT);
       const reporter = { db: vi.fn() };
 
       const ui = createStreakUI(doc, streak, reporter);
@@ -355,7 +364,7 @@ describe('createStreakUI', () => {
   // Chip text format
   // -------------------------------------------------------------------------
   describe('chip text format (SF-8 verbatim mockup)', () => {
-    it('non-zero counts render as >1km: 42d, >3km: 21d, >5km: 10d, >10km: 2d', async () => {
+    it('non-zero counts render as >5k: 42d (best 60d), >7.5k: 21d (best 30d), >10k: 10d (best 15d), >15k: 2d (best 5d)', async () => {
       const doc = buildDoc();
       const streak = makeStreak(CHIP_TEXT_RESULT);
       const reporter = { db: vi.fn() };
@@ -365,7 +374,12 @@ describe('createStreakUI', () => {
 
       const chips = Array.from(doc.querySelectorAll('.tier-chip'));
       const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual(['>1km: 42d', '>3km: 21d', '>5km: 10d', '>10km: 2d']);
+      expect(texts).toEqual([
+        '>5k: 42d (best 60d)',
+        '>7.5k: 21d (best 30d)',
+        '>10k: 10d (best 15d)',
+        '>15k: 2d (best 5d)',
+      ]);
     });
   });
 
@@ -447,12 +461,17 @@ describe('createStreakUI', () => {
       expect(banner.textContent).toBe('0 / 0 Days (0.0% Lifetime)');
     });
 
-    it('compute() rejecting → zero-state chips >1km: 0d, etc.', async () => {
+    it('compute() rejecting → zero-state chips >5k: 0d (best 0d), etc.', async () => {
       await ui.render();
       const chips = Array.from(doc.querySelectorAll('.tier-chip'));
-      expect(chips.length).toBe(TIER_THRESHOLDS.length);
+      expect(chips.length).toBe(TIER_STEP_THRESHOLDS.length);
       const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual(['>1km: 0d', '>3km: 0d', '>5km: 0d', '>10km: 0d']);
+      expect(texts).toEqual([
+        '>5k: 0d (best 0d)',
+        '>7.5k: 0d (best 0d)',
+        '>10k: 0d (best 0d)',
+        '>15k: 0d (best 0d)',
+      ]);
     });
 
     it('compute() rejecting → zero-state Goal: 3.0 km (DEFAULT_GOAL_KM)', async () => {
