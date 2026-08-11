@@ -75,6 +75,19 @@ describe('createSearchLabUI', () => {
       const btn = card.querySelector('button[data-date]');
       expect(btn.textContent).toContain('2026-07-01');
     });
+    it('button text includes remaining km (target - effectiveDistanceKm).toFixed(2)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([
+        { date: '2026-07-01', effectiveDistanceKm: 9.2, target: 10 },
+      ]);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-nearmiss-card');
+      const btn = card.querySelector('button[data-date]');
+      // remaining = (10 - 9.2).toFixed(2) = '0.80'
+      expect(btn.textContent).toContain('0.80');
+      expect(btn.textContent).toContain('km remaining');
+    });
 
     it('clicking a near-miss button dispatches ui:open-day-drawer on doc', async () => {
       mockEngine.findNearMisses.mockResolvedValue([

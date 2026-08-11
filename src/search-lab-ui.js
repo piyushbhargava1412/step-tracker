@@ -60,7 +60,13 @@ export function createSearchLabUI(doc, engine, reporter) {
         btn.type = 'button';
         btn.dataset.date = day.date;
         btn.dataset.action = 'open-day-drawer';
-        btn.textContent = day.date;
+
+        const dateText = doc.createTextNode(day.date + ' — ');
+        const remainingSpan = doc.createElement('span');
+        const remaining = (day.target - day.effectiveDistanceKm).toFixed(2);
+        remainingSpan.textContent = remaining + ' km remaining';
+        btn.appendChild(dateText);
+        btn.appendChild(remainingSpan);
 
         btn.addEventListener('click', () => {
           doc.dispatchEvent(
