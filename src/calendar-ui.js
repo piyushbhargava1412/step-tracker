@@ -93,6 +93,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         payload,
         cardId: 'calendar-month-overview-card',
         showHistoryHint: false,
+        onDayClick: (day, tileEl) => _openDrawer(day, tileEl),
       });
     }
 

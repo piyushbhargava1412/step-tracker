@@ -20,11 +20,15 @@ function makeImageProcessor({
   imgHeight = 600,
   imgError = null,
   toDataURLResult = 'data:image/jpeg;base64,RESIZED',
+  nullContext = false,
 } = {}) {
+  const ctxMock = {
+    drawImage: vi.fn(),
+  };
   const canvasMock = {
     width: 0,
     height: 0,
-    drawImage: vi.fn(),
+    getContext: vi.fn(() => (nullContext ? null : ctxMock)),
     toDataURL: vi.fn(() => toDataURLResult),
   };
   const canvasFactory = vi.fn(() => canvasMock);
@@ -81,7 +85,7 @@ function makeImageProcessor({
     Image: MockImageSpy,
   });
 
-  return { processor, canvasMock, canvasFactory, MockFileReaderSpy, MockImageSpy, readerInstances, imgInstances };
+  return { processor, canvasMock, ctxMock, canvasFactory, MockFileReaderSpy, MockImageSpy, readerInstances, imgInstances };
 }
 
 describe('Constants', () => {
@@ -206,10 +210,16 @@ describe('processImage — output format', () => {
     expect(canvasMock.toDataURL).toHaveBeenCalledWith('image/jpeg', PROOF_IMAGE_QUALITY);
   });
 
-  it('calls canvas.drawImage with the image element', async () => {
-    const { processor, canvasMock } = makeImageProcessor({ imgWidth: 500, imgHeight: 400 });
+  it('calls ctx.drawImage (via getContext("2d")) with the image element', async () => {
+    const { processor, canvasMock, ctxMock } = makeImageProcessor({ imgWidth: 500, imgHeight: 400 });
     await processor.processImage(makeFile('image/jpeg'));
-    expect(canvasMock.drawImage).toHaveBeenCalledTimes(1);
+    expect(canvasMock.getContext).toHaveBeenCalledWith('2d');
+    expect(ctxMock.drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects when getContext returns null (context unavailable)', async () => {
+    const { processor } = makeImageProcessor({ nullContext: true });
+    await expect(processor.processImage(makeFile('image/jpeg'))).rejects.toThrow('Could not get 2D canvas context');
   });
 });
 

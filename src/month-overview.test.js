@@ -379,6 +379,103 @@ describe('createMonthOverview', () => {
   });
 });
 
+  // ── Interactive tiles (onDayClick) ─────────────────────────────────────
+  describe('interactive tiles (onDayClick)', () => {
+    beforeEach(setFakeNow);
+
+    it('without onDayClick, tiles are <div> elements (read-only dashboard view)', async () => {
+      const doc = buildDoc();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render();
+      const tile = doc.querySelector('[data-date="2026-08-01"]');
+      expect(tile.tagName.toLowerCase()).toBe('div');
+    });
+
+    it('with onDayClick, tiles are <button> elements', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render({ onDayClick });
+      const tile = doc.querySelector('[data-date="2026-08-01"]');
+      expect(tile.tagName.toLowerCase()).toBe('button');
+      expect(tile.type).toBe('button');
+    });
+
+    it('with onDayClick, future tiles are disabled', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render({ onDayClick });
+      const futureTile = doc.querySelector('[data-date="2026-08-31"]');
+      expect(futureTile.disabled).toBe(true);
+    });
+
+    it('with onDayClick, past tiles are not disabled', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const payload = monthPayload({ records: [MET_RECORD] });
+      const ui = createMonthOverview(doc, makeEngine(payload), { db: vi.fn() });
+      await ui.render({ onDayClick });
+      const pastTile = doc.querySelector('[data-date="2026-08-01"]');
+      expect(pastTile.disabled).toBe(false);
+    });
+
+    it('clicking a past tile invokes onDayClick with (day, tileEl)', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const payload = monthPayload({ records: [MET_RECORD] });
+      const ui = createMonthOverview(doc, makeEngine(payload), { db: vi.fn() });
+      await ui.render({ onDayClick });
+
+      const tile = doc.querySelector('[data-date="2026-08-01"]');
+      tile.click();
+
+      expect(onDayClick).toHaveBeenCalledTimes(1);
+      const [day, tileEl] = onDayClick.mock.calls[0];
+      expect(day.date).toBe('2026-08-01');
+      expect(tileEl).toBe(tile);
+    });
+
+    it('clicking the today tile invokes onDayClick', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render({ onDayClick });
+
+      const tile = doc.querySelector(`[data-date="${TODAY}"]`);
+      tile.click();
+
+      expect(onDayClick).toHaveBeenCalledTimes(1);
+      expect(onDayClick.mock.calls[0][0].date).toBe(TODAY);
+    });
+
+    it('clicking a disabled future tile does NOT invoke onDayClick', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render({ onDayClick });
+
+      const futureTile = doc.querySelector('[data-date="2026-08-31"]');
+      futureTile.click();
+
+      expect(onDayClick).not.toHaveBeenCalled();
+    });
+
+    it('pad cells carry no data-date and are never buttons', async () => {
+      const doc = buildDoc();
+      const onDayClick = vi.fn();
+      const ui = createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() });
+      await ui.render({ onDayClick });
+
+      const pads = doc.querySelectorAll('.heatmap-tile--pad');
+      expect(pads.length).toBeGreaterThan(0);
+      for (const pad of pads) {
+        expect(pad.tagName.toLowerCase()).not.toBe('button');
+        expect(pad.dataset.date).toBeUndefined();
+      }
+    });
+  });
+
 // Sanity: classification constants used by fixtures are distinct.
 describe('month-overview fixture sanity', () => {
   it('classification constants are distinct', () => {

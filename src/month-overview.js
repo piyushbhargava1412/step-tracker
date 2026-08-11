@@ -65,7 +65,8 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
    * Render a month overview into Dashboard or another injected view.
    *
    * @param {{ slot?: HTMLElement, year?: number, month?: number,
-   *           payload?: object, cardId?: string, showHistoryHint?: boolean }} [options]
+   *           payload?: object, cardId?: string, showHistoryHint?: boolean,
+   *           onDayClick?: (day: object, tileEl: HTMLElement) => void }} [options]
    * @returns {Promise<void>}
    */
   async function render(options = {}) {
@@ -92,8 +93,10 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
       }
     }
 
+    const onDayClick = options.onDayClick || null;
+
     slot.querySelector(`#${cardId}`)?.remove();
-    slot.prepend(_buildCard(doc, payload, cardId, options.showHistoryHint !== false));
+    slot.prepend(_buildCard(doc, payload, cardId, options.showHistoryHint !== false, onDayClick));
   }
 
   /**
@@ -102,9 +105,10 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
    * @param {object} payload - loadMonth/buildZeroState payload
    * @param {string} cardId
    * @param {boolean} showHistoryHint
+   * @param {Function|null} onDayClick - optional callback(day, tileEl) for interactive tiles
    * @returns {HTMLElement}
    */
-  function _buildCard(doc, payload, cardId, showHistoryHint) {
+  function _buildCard(doc, payload, cardId, showHistoryHint, onDayClick) {
     const card = doc.createElement('div');
     card.className = 'card';
     card.id = cardId;
@@ -144,7 +148,7 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
     }
 
     for (const day of payload.days ?? []) {
-      grid.appendChild(_buildTile(doc, day, payload.today));
+      grid.appendChild(_buildTile(doc, day, payload.today, onDayClick));
     }
 
     for (let i = 0; i < (payload.trailingPad ?? 0); i += 1) {
@@ -183,13 +187,24 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
   /**
    * Build a single day tile: day number, compact steps label (or "Today"),
    * and an override asterisk when applicable.
+   *
+   * When `onDayClick` is provided the tile is rendered as a focusable `<button>`
+   * (future tiles get `disabled`), enabling keyboard-accessible day selection.
+   * Without a callback the tile is a plain `<div>` (dashboard read-only view).
+   *
    * @param {Document} doc
    * @param {object} day - enriched calendar day from the payload
    * @param {string} today - YYYY-MM-DD
+   * @param {Function|null} onDayClick - optional callback(day, tileEl)
    * @returns {HTMLElement}
    */
-  function _buildTile(doc, day, today) {
-    const tile = doc.createElement('div');
+  function _buildTile(doc, day, today, onDayClick) {
+    const interactive = !!onDayClick;
+    const tile = doc.createElement(interactive ? 'button' : 'div');
+    if (interactive) {
+      tile.type = 'button';
+      if (day.isFuture) tile.disabled = true;
+    }
     tile.className = `heatmap-tile ${_stateClass(day.classification?.state)}`;
     tile.dataset.date = day.date;
 
@@ -222,6 +237,10 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
       badge.setAttribute('aria-label', 'Manually overridden');
       badge.textContent = '*';
       tile.appendChild(badge);
+    }
+
+    if (interactive && !day.isFuture) {
+      tile.addEventListener('click', () => onDayClick(day, tile));
     }
 
     return tile;

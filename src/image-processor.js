@@ -68,7 +68,12 @@ export function createImageProcessor({
           const canvas = canvasFactory();
           canvas.width = scaledW;
           canvas.height = scaledH;
-          canvas.drawImage(img, 0, 0, scaledW, scaledH);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Could not get 2D canvas context'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, scaledW, scaledH);
           resolve(canvas.toDataURL('image/jpeg', PROOF_IMAGE_QUALITY));
         };
 
