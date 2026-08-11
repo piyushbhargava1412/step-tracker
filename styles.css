@@ -873,3 +873,95 @@ button:hover {
 .revert-btn:hover {
     background: rgba(251, 191, 36, 0.1);
 }
+
+/* ─── ST-007 Search Lab ───────────────────────────────────────────────────── */
+
+/* Filter form card — extends .card, adds a responsive label/input grid */
+.search-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.search-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.search-filters input,
+.search-filters select {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+/* Results table — card-scoped grid rows */
+.search-results-table {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.search-results-table [data-row] {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 2fr;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--bg-card-border);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.search-results-table [data-row]:last-child {
+    border-bottom: none;
+}
+
+.search-results-table [data-cell="date"] {
+    font-family: var(--font-mono);
+    color: var(--accent-cyan);
+}
+
+.search-results-table [data-cell="effective-steps"] {
+    font-family: var(--font-mono);
+    color: var(--accent-emerald);
+    font-weight: 700;
+}
+
+.search-results-table [data-cell="effective-distance"] {
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.search-results-table [data-cell="override-note"] {
+    color: var(--accent-amber);
+    font-size: 0.8rem;
+}
+
+/* Summary row — mirrors .summary-cell / #calendar-summary idiom */
+.search-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin: 4px 0;
+}
+
+/* Export controls */
+.export-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}

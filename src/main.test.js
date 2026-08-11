@@ -54,6 +54,22 @@ vi.mock('./month-overview.js', () => ({
   createMonthOverview: vi.fn(() => mockMonthOverviewInstance)
 }))
 
+// Task 7: mock search.js, search-ui.js, exporter.js
+const mockSearchInstance = { executeQuery: vi.fn(), computeResultSummary: vi.fn() }
+vi.mock('./search.js', () => ({
+  createSearch: vi.fn(() => mockSearchInstance)
+}))
+
+const mockExporterInstance = { exportCsv: vi.fn(), exportJson: vi.fn() }
+vi.mock('./exporter.js', () => ({
+  createExporter: vi.fn(() => mockExporterInstance)
+}))
+
+const mockSearchUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./search-ui.js', () => ({
+  createSearchUI: vi.fn(() => mockSearchUIInstance)
+}))
+
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
@@ -104,6 +120,9 @@ import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
 import { createMonthOverview } from './month-overview.js'
+import { createSearch } from './search.js'
+import { createExporter } from './exporter.js'
+import { createSearchUI } from './search-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -753,5 +772,56 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('main.js — Task 7: search engine wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createSearch factory called once during bootstrap(doc)', async () => {
+    await boot()
+    expect(createSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('createExporter factory called once during bootstrap(doc)', async () => {
+    await boot()
+    expect(createExporter).toHaveBeenCalledTimes(1)
+  })
+
+  it('createSearchUI factory called once with (doc, search, exporter, reporter)', async () => {
+    await boot()
+    expect(createSearchUI).toHaveBeenCalledTimes(1)
+    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockReporter)
+  })
+
+  it('searchUI.render() invoked exactly once on bootstrap', async () => {
+    await boot()
+    expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('render() throwing does not abort bootstrap(); subsequent steps complete', async () => {
+    mockSearchUIInstance.render.mockRejectedValueOnce(new Error('render fail'))
+    await expect(boot()).resolves.toBeUndefined()
+  })
+
+  it('console.error called with correct prefix on searchUI.render failure', async () => {
+    const err = new Error('render fail')
+    mockSearchUIInstance.render.mockRejectedValueOnce(err)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await boot()
+    expect(errorSpy).toHaveBeenCalledWith('[main] searchUI.render failed, continuing', err)
   })
 })

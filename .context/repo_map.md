@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `371dc5b8d87197e66eefafc8e977b8b58211fda9`
-- generated-at: `2026-08-11T00:00:00Z`
+- verification-commit: `6265017b37bb8c1814caae37c1598b42ea75c380`
+- generated-at: `2026-08-11T08:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -37,7 +37,8 @@
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-selector` delegated click → `goal.setActiveGoal()` then `progressUI.render()` (from `src/goal.js` + `src/progress-ui.js`)
   - `data:records:mutated` custom event → `progressUI.render()`, `streakUI.render()`, `calendarUI.render()` (fail-open, registered in `src/main.js`)
-- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, and `calendarUI.render()` on load
+  - `#tab-search` delegated click (`data-action`) → execute/reset/export-csv/export-json actions (from `src/search-ui.js`)
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, and `searchUI.render()` on load
 - Goal changes invoke progress rendering and the streak render callback; sync completion renders progress, streak, and calendar cards
 
 ## Implementation Areas
@@ -59,12 +60,15 @@
 - Calendar renderer: `src/calendar-ui.js` (`createCalendarUI(doc, db, calendarEngine, reporter, records, processImage)` factory; `render()` builds `#calendar-nav`, `#calendar-summary`, `#calendar-grid`, and `#day-drawer` into `#tab-calendar`; override form + revert button injected into drawer when `records` is provided)
 - Record override/revert: `src/records.js` (`createRecords(db)` factory; `overrideRecord(date, params)` — writes `effective_steps`/`effective_distance_km`/`is_overridden`/`override`; `revertRecord(date)` — restores original synced values; never mutates `original_steps`/`original_distance_km`/`synced_at`)
 - Proof-image processing: `src/image-processor.js` (`createImageProcessor(deps)` factory; `processImage(file)` — validates type/size, resizes to ≤1024 px, returns JPEG base64 data URL; `MAX_PROOF_IMAGE_PX`, `PROOF_IMAGE_QUALITY`, `MAX_PROOF_FILE_BYTES`, `ALLOWED_IMAGE_TYPES` constants)
+- Search / filter engine: `src/search.js` (`createSearch(db, goal)` factory; `executeQuery(filters)` — date-range / all-time Dexie query with AND-combined filters (steps, distance, override status, target outcome); `computeResultSummary(records, preFilterSet)` — count, matchPct, cumulativeDistanceKm, avgSteps)
+- Search UI renderer: `src/search-ui.js` (`createSearchUI(doc, search, exporter, reporter)` factory; `render()` builds filter form, results grid, summary card, and export controls into `#tab-search`; delegated `data-action` click dispatcher for execute/reset/export-csv/export-json)
+- CSV/JSON exporter: `src/exporter.js` (`createExporter(doc)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and trigger a `<a download>` click; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
 - UI structure: `index.html` (tab-bar + tab-panel layout; includes calendar skeleton with nav/summary/grid containers and day-detail drawer)
-- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer)
+- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/export-controls)
 - DB schema migrations: `src/db.js` (Dexie DB_VERSION 3; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, goal-history, calendar, calendar-ui, records, image-processor
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, goal-history, calendar, calendar-ui, records, image-processor, search, search-ui, exporter
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

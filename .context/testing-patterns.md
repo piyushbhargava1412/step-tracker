@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
-generated-at: 2026-08-11T00:00:00Z
+verification-commit: 6265017b37bb8c1814caae37c1598b42ea75c380
+generated-at: 2026-08-11T08:00:00Z
 confidence: high
 -->
 
@@ -25,7 +25,8 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
 `src/streak.test.js`, `src/streak-ui.test.js`, `src/goal-history.test.js`,
 `src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
-`src/image-processor.test.js`.
+`src/image-processor.test.js`, `src/search.test.js`, `src/search-ui.test.js`,
+`src/exporter.test.js`.
 
 ---
 
@@ -67,6 +68,9 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration, override form mount, revert button, `data:records:mutated` dispatch |
 | ✅ DONE  | `createRecords` (`src/records.js`)           | `overrideRecord` — guard clauses (invalid steps/distance/note), Dexie put, immutability of original fields; `revertRecord` — missing original guard, field restoration (`src/records.test.js`) |
 | ✅ DONE  | `createImageProcessor` (`src/image-processor.js`) | Guard clauses (null file, invalid type, oversized), resize logic, JPEG base64 output, injected collaborators (`canvasFactory`, `FileReader`, `Image`) (`src/image-processor.test.js`) |
+| ✅ DONE  | `createSearch` (`src/search.js`)                   | `executeQuery` — date-range vs all-time path, AND-combined filters (minSteps/maxSteps/minDistance/overrideStatus/targetOutcome), goal-history integration, result sort (newest first), DB error propagation; `computeResultSummary` — count/matchPct/cumulativeDistanceKm/avgSteps, divide-by-zero guard (`src/search.test.js`, 26 tests) |
+| ✅ DONE  | `createSearchUI` (`src/search-ui.js`)              | Render skeleton (7 data-field controls, action buttons, results grid, summary card, export controls), idempotent re-render, AbortController cleanup, delegated execute/reset/export-csv/export-json actions, error path → reporter.db, no-innerHTML contract (`src/search-ui.test.js`) |
+| ✅ DONE  | `createExporter` (`src/exporter.js`)               | `_toCsv` / `_toJson` serialisation, `_csvCell` RFC-4180 quoting, CSV/JSON parity, `exportCsv`/`exportJson` download seam (Blob, URL.createObjectURL/revokeObjectURL, anchor click), finally-path revoke, error logging (`src/exporter.test.js`) |
 
 ---
 

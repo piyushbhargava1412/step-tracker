@@ -432,3 +432,125 @@ describe('styles.css — ST-006 override form, badge, and revert button', () => 
     expect(cssContent).toContain('.revert-btn');
   });
 });
+
+// ─── Task 8: ST-007 Search Lab CSS — search-filters, results-table, summary, export-controls ───
+
+describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  // ── Selectors present ──────────────────────────────────────────────────────
+
+  it('should contain .search-filters selector', () => {
+    expect(cssContent).toContain('.search-filters');
+  });
+
+  it('should contain .search-results-table selector', () => {
+    expect(cssContent).toContain('.search-results-table');
+  });
+
+  it('should contain .search-summary selector', () => {
+    expect(cssContent).toContain('.search-summary');
+  });
+
+  it('should contain .export-controls selector', () => {
+    expect(cssContent).toContain('.export-controls');
+  });
+
+  it('should contain .filter-actions selector', () => {
+    expect(cssContent).toContain('.filter-actions');
+  });
+
+  // ── .search-filters uses card variables ───────────────────────────────────
+
+  it('.search-filters should use --bg-card background', () => {
+    // .search-filters extends .card; background via --bg-card
+    const match = cssContent.match(/\.search-filters\s*{[^}]+}/);
+    // Either standalone rule uses --bg-card, or it composes .card (which already has it).
+    // We require a rule that asserts var(--bg-card) in the search-filters rule OR that .search-filters
+    // is documented as a .card extension and does not introduce a different background.
+    // Per DoD: assert no colour literal in search-filters section.
+    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
+    expect(st007Section).toBeTruthy();
+    // The ST-007 section must use var(--bg-card) at least once for backgrounds
+    expect(st007Section[0]).toContain('var(--bg-card)');
+  });
+
+  it('.search-filters should use --bg-card-border for border', () => {
+    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
+    expect(st007Section).toBeTruthy();
+    expect(st007Section[0]).toContain('var(--bg-card-border)');
+  });
+
+  // ── No colour literals in ST-007 section ──────────────────────────────────
+
+  it('ST-007 section should contain no hex colour literals', () => {
+    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
+    expect(st007Section).toBeTruthy();
+    // Must not contain bare hex colour literals (#xxx or #xxxxxx)
+    const hexLiteralPattern = /#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/g;
+    const hexMatches = st007Section[0].match(hexLiteralPattern) || [];
+    expect(hexMatches).toHaveLength(0);
+  });
+
+  it('ST-007 section should contain no rgb/rgba colour literals', () => {
+    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
+    expect(st007Section).toBeTruthy();
+    // Must not contain bare rgb/rgba literals (only var(--accent-...) is allowed)
+    const rgbLiteralPattern = /rgba?\(\s*\d+/g;
+    const rgbMatches = st007Section[0].match(rgbLiteralPattern) || [];
+    expect(rgbMatches).toHaveLength(0);
+  });
+
+  // ── .search-results-table row anatomy ────────────────────────────────────
+
+  it('.search-results-table [data-row] should define a grid layout', () => {
+    expect(/\.search-results-table\s+\[data-row\][^{]*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
+  });
+
+  // ── .search-summary extends summary-cell idiom ───────────────────────────
+
+  it('.search-summary should have display: grid', () => {
+    expect(/\.search-summary\s*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
+  });
+
+  // ── .export-controls layout ───────────────────────────────────────────────
+
+  it('.export-controls should have display: flex', () => {
+    expect(/\.export-controls\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
+  });
+
+  // ── No new CSS variables beyond existing tokens ────────────────────────────
+
+  it('should not introduce new CSS custom properties in ST-007 section', () => {
+    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
+    if (st007Section) {
+      // Find all var() usages
+      const varMatches = st007Section[0].match(/var\((--[\w-]+)\)/g) || [];
+      const usedVars = [...new Set(varMatches.map(m => m.match(/--[\w-]+/)[0]))];
+      // Find all new custom property definitions (--foo: ...)
+      const definedVars = st007Section[0].match(/--([\w-]+)\s*:/g) || [];
+      // No new variables should be defined in ST-007 section
+      expect(definedVars).toHaveLength(0);
+      // All used variables must already exist in :root (before ST-007)
+      const beforeSt007 = cssContent.substring(0, cssContent.indexOf('/* ─── ST-007'));
+      for (const variable of usedVars) {
+        expect(beforeSt007).toContain(variable);
+      }
+    }
+  });
+
+  // ── Restyle-boundary locks (existing tests remain green) ──────────────────
+
+  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
+    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  });
+
+  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
+    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  });
+});
