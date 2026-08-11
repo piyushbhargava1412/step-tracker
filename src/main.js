@@ -14,6 +14,8 @@ import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
+import { createRecords } from './records.js'
+import { processImage } from './image-processor.js'  
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -50,7 +52,8 @@ export async function bootstrap(doc = document) {
   const streakUI = createStreakUI(doc, streak, reporter)
   const progressUI = createProgressUI(doc, goal, db, reporter, () => streakUI.render())
   const calendar = createCalendar(db, goal)
-  const calendarUI = createCalendarUI(doc, db, calendar, reporter)
+  const records = createRecords(db)
+  const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage)
 
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
@@ -76,6 +79,25 @@ export async function bootstrap(doc = document) {
       }
     })
   }
+
+  // 8a. Register data:records:mutated listener for override recalculation (fail-open)
+  doc.addEventListener('data:records:mutated', async () => {
+    try {
+      progressUI.render()
+    } catch (err) {
+      console.error('[main] progressUI.render failed after mutation, continuing', err)
+    }
+    try {
+      await streakUI.render()
+    } catch (err) {
+      console.error('[main] streakUI.render failed after mutation, continuing', err)
+    }
+    try {
+      await calendarUI.render()
+    } catch (err) {
+      console.error('[main] calendarUI.render failed after mutation, continuing', err)
+    }
+  })
 
   // 9. Init tab navigation
   const tabBar = doc.querySelector('.tab-bar')

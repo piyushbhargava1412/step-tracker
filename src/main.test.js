@@ -3,6 +3,16 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 // All vi.mock calls are hoisted — they run before any imports
 vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
 
+// Task 5: mock records.js and image-processor.js
+const mockRecordsInstance = { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./records.js', () => ({
+  createRecords: vi.fn(() => mockRecordsInstance)
+}))
+
+vi.mock('./image-processor.js', () => ({
+  processImage: vi.fn().mockResolvedValue('data:image/jpeg;base64,abc')
+}))
+
 // Task 6: mock goal.js and progress-ui.js
 const mockGoalInstance = { getActiveGoal: vi.fn(), setActiveGoal: vi.fn() }
 vi.mock('./goal.js', () => ({
@@ -484,7 +494,7 @@ describe('main.js — Task 12: calendar wiring', () => {
   it('createCalendarUI is invoked exactly once with (document, mockDb, calendarInstance, mockReporter)', async () => {
     await boot()
     expect(createCalendarUI).toHaveBeenCalledTimes(1)
-    expect(createCalendarUI).toHaveBeenCalledWith(document, mockDb, mockCalendarInstance, mockReporter)
+    expect(createCalendarUI).toHaveBeenCalledWith(document, mockDb, mockCalendarInstance, mockReporter, mockRecordsInstance, expect.any(Function))
   })
 
   it('calendarUI.render() is called exactly once on bootstrap', async () => {
@@ -553,5 +563,94 @@ describe('main.js — Task 12: calendar wiring', () => {
   it('bootstrap resolves even if calendarUI.render() rejects on load (fail-open)', async () => {
     mockCalendarUIInstance.render.mockRejectedValue(new Error('calendar render fail'))
     await expect(boot()).resolves.toBeUndefined()
+  })
+})
+
+describe('main.js — Task 5: records + processImage injection + mutation listener', () => {
+  // Use an isolated EventTarget-like document to avoid listener stacking across tests
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    // Create a minimal document-like object backed by a real EventTarget
+    const target = new EventTarget()
+    const fakeDoc = {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+    }
+    return fakeDoc
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  it('createCalendarUI is invoked with records and processImage collaborators (6th and 7th args)', async () => {
+    await bootstrap(isolatedDoc)
+    const callArgs = createCalendarUI.mock.calls[0]
+    expect(callArgs[4]).toBeDefined() // records instance
+    expect(callArgs[5]).toBeDefined() // processImage function
+  })
+
+  it('data:records:mutated dispatch triggers progressUI.render, streakUI.render, calendarUI.render in order', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockProgressUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockStreakUIInstance.render.mock.invocationCallOrder[0])
+    expect(mockStreakUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
+  })
+
+  it('progressUI.render rejection inside mutation handler does not propagate (fail-open); streakUI and calendarUI still called', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockProgressUIInstance.render.mockRejectedValueOnce(new Error('progress fail'))
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('streakUI.render rejection inside mutation handler does not propagate; calendarUI still called', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockRejectedValueOnce(new Error('streak fail'))
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: '2026-08-11' }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
   })
 })
