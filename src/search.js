@@ -60,8 +60,25 @@ export function createSearch(db, goal) {
     }
   }
 
-  function computeResultSummary(_records, _filters) {
-    return null;
+  function computeResultSummary(records, totalDays) {
+    const count = records.length;
+    const matchPct = totalDays === 0 ? null : Math.round((count / totalDays) * 100);
+    if (count === 0) {
+      return { count: 0, matchPct: null, totalDays, cumulativeDistanceKm: 0, avgSteps: null };
+    }
+    let sumDistance = 0;
+    let sumSteps = 0;
+    for (const r of records) {
+      sumDistance += Number.isFinite(r.effective_distance_km) ? r.effective_distance_km : 0;
+      sumSteps += r.effective_steps;
+    }
+    return {
+      count,
+      matchPct,
+      totalDays,
+      cumulativeDistanceKm: sumDistance,
+      avgSteps: Math.round(sumSteps / count),
+    };
   }
 
   return { executeQuery, computeResultSummary };

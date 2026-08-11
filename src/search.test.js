@@ -276,3 +276,95 @@ describe('createSearch — executeQuery', () => {
     expect(source).not.toMatch(/\bwindow\b/);
   });
 });
+
+describe('createSearch — computeResultSummary', () => {
+  it('Scenario 1 tail: count, matchPct, cumulativeDistanceKm, avgSteps correct for mixed 3-record result out of 5 pre-filter records', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const records = [
+      { effective_distance_km: 6.0, effective_steps: 8000 },
+      { effective_distance_km: 7.5, effective_steps: 9000 },
+      { effective_distance_km: Infinity, effective_steps: 7000 },
+    ];
+    const result = computeResultSummary(records, 5);
+    expect(result.count).toBe(3);
+    expect(result.matchPct).toBe(60);
+    expect(result.cumulativeDistanceKm).toBe(13.5);
+    expect(result.avgSteps).toBe(8000);
+    expect(result.totalDays).toBe(5);
+  });
+
+  it('matchPct rounds correctly: count=1, totalDays=3 → matchPct=33', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const records = [{ effective_distance_km: 5.0, effective_steps: 7000 }];
+    const result = computeResultSummary(records, 3);
+    expect(result.matchPct).toBe(33);
+  });
+
+  it('empty result → count:0, matchPct:null, cumulativeDistanceKm:0, avgSteps:null', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const result = computeResultSummary([], 5);
+    expect(result.count).toBe(0);
+    expect(result.matchPct).toBeNull();
+    expect(result.cumulativeDistanceKm).toBe(0);
+    expect(result.avgSteps).toBeNull();
+  });
+
+  it('totalDays=0 → matchPct:null (no divide-by-zero)', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const result = computeResultSummary([], 0);
+    expect(result.matchPct).toBeNull();
+  });
+
+  it('non-finite effective_distance_km rows contribute 0 to cumulativeDistanceKm', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const records = [
+      { effective_distance_km: Infinity, effective_steps: 8000 },
+      { effective_distance_km: NaN, effective_steps: 8000 },
+      { effective_distance_km: 5.0, effective_steps: 8000 },
+    ];
+    const result = computeResultSummary(records, 3);
+    expect(result.cumulativeDistanceKm).toBe(5.0);
+  });
+
+  it('all-time denominator is total row count (not calendar-day span): sparse history fixture', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const records = Array.from({ length: 4 }, (_, i) => ({
+      effective_distance_km: 6.0,
+      effective_steps: 8000,
+    }));
+    const result = computeResultSummary(records, 10);
+    expect(result.matchPct).toBe(40);
+    expect(result.totalDays).toBe(10);
+  });
+
+  it('avgSteps uses effective_steps not original_steps', async () => {
+    const { createSearch } = await import('./search.js');
+    const db = makeDb();
+    const goal = makeGoal();
+    const { computeResultSummary } = createSearch(db, goal);
+    const records = [
+      { effective_distance_km: 5.0, effective_steps: 9000, original_steps: 5000 },
+      { effective_distance_km: 6.0, effective_steps: 7000, original_steps: 3000 },
+    ];
+    const result = computeResultSummary(records, 2);
+    expect(result.avgSteps).toBe(8000);
+  });
+});
