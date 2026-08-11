@@ -2,7 +2,7 @@
  * Calendar UI render layer — sole DOM writer.
  * No Dexie reads; all data arrives via the calendar engine payload.
  *
- * Factory: createCalendarUI(doc, db, calendarEngine, reporter) → { render }
+ * Factory: createCalendarUI(doc, db, calendarEngine, reporter, records, processImage) → { render }
  * `db` is carried for contract parity with createStreakUI (streak-ui.js:125);
  * not used for reads here.
  */
@@ -12,9 +12,11 @@
  * @param {{}} db — carried for contract parity; not used for reads here
  * @param {{ loadMonth: Function, buildZeroState: Function }} calendarEngine
  * @param {{ db: Function }} reporter
+ * @param {{ overrideRecord: Function, revertRecord: Function }} [records] — injected override capability
+ * @param {Function} [processImage] — injected image processor
  * @returns {{ render: Function }}
  */
-export function createCalendarUI(doc, db, calendarEngine, reporter) {
+export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage) {
   // Selected month (0-based), defaults to current local month (SF-9)
   let state = { year: new Date().getFullYear(), month: new Date().getMonth() };
   let controller = null;
@@ -367,6 +369,28 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
         rowDiv.appendChild(valueSpan);
         drawer.appendChild(rowDiv);
       }
+
+      // Revert button — only when record is overridden and records module is available
+      if (day.record.is_overridden && records) {
+        const revertBtn = doc.createElement('button');
+        revertBtn.type = 'button';
+        revertBtn.className = 'revert-btn';
+        revertBtn.dataset.action = 'revert-day';
+        revertBtn.textContent = 'Revert to Synced';
+        revertBtn.addEventListener('click', async () => {
+          const confirmed = window.confirm('Are you sure you want to revert to the original synced values? This will undo your manual override.');
+          if (!confirmed) return;
+          try {
+            await records.revertRecord(day.date);
+            doc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: day.date } }));
+            render();
+          } catch (err) {
+            reporter.db('\u274C Revert failed');
+            console.error('[calendar-ui]', err);
+          }
+        }, { signal: controller.signal });
+        drawer.appendChild(revertBtn);
+      }
     } else {
       // Zero-state: no synced data for this date
       const noDataText = doc.createElement('p');
@@ -391,13 +415,20 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
       }
     }
 
-    // Edit / Override button (disabled until ST-006, SF-14)
+    // Edit / Override button — enabled when records module is available
     const editBtn = doc.createElement('button');
     editBtn.type = 'button';
     editBtn.dataset.action = 'edit-day';
-    editBtn.disabled = true;
-    editBtn.title = 'Editing arrives in ST-006';
+    if (!records) {
+      editBtn.disabled = true;
+      editBtn.title = 'Editing arrives in ST-006';
+    }
     editBtn.textContent = 'Edit / Override';
+    if (records) {
+      editBtn.addEventListener('click', () => {
+        _mountOverrideForm(drawer, day);
+      }, { signal: controller.signal });
+    }
     drawer.appendChild(editBtn);
 
     // Close button
@@ -420,6 +451,106 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
 
     // Focus close button
     closeBtn.focus();
+  }
+
+  /**
+   * Mount the override form inside the drawer, replacing the Edit button.
+   * All content built via createElement/textContent only — no dynamic string injection.
+   */
+  function _mountOverrideForm(drawer, day) {
+    // Remove the Edit button (last button with data-action="edit-day")
+    const editBtn = drawer.querySelector('[data-action="edit-day"]');
+    if (editBtn) editBtn.remove();
+
+    const form = doc.createElement('form');
+    form.dataset.form = 'override';
+
+    // Effective steps input (required)
+    const stepsLabel = doc.createElement('label');
+    stepsLabel.textContent = 'Effective Steps';
+    const stepsInput = doc.createElement('input');
+    stepsInput.type = 'number';
+    stepsInput.min = '0';
+    stepsInput.step = '1';
+    stepsInput.dataset.field = 'effective-steps';
+    stepsInput.required = true;
+    if (day.record) {
+      stepsInput.value = String(day.record.effective_steps);
+    }
+    stepsLabel.appendChild(stepsInput);
+    form.appendChild(stepsLabel);
+
+    // Effective distance input (optional)
+    const distLabel = doc.createElement('label');
+    distLabel.textContent = 'Effective Distance (km)';
+    const distInput = doc.createElement('input');
+    distInput.type = 'number';
+    distInput.min = '0';
+    distInput.step = 'any';
+    distInput.dataset.field = 'effective-distance';
+    if (day.record) {
+      distInput.value = String(day.record.effective_distance_km);
+    }
+    distLabel.appendChild(distInput);
+    form.appendChild(distLabel);
+
+    // Note textarea (required)
+    const noteLabel = doc.createElement('label');
+    noteLabel.textContent = 'Justification Note';
+    const noteTextarea = doc.createElement('textarea');
+    noteTextarea.dataset.field = 'note';
+    noteTextarea.required = true;
+    if (day.record && day.record.override && day.record.override.note) {
+      noteTextarea.value = day.record.override.note;
+    }
+    noteLabel.appendChild(noteTextarea);
+    form.appendChild(noteLabel);
+
+    // Proof image file input (optional)
+    const fileLabel = doc.createElement('label');
+    fileLabel.textContent = 'Proof Image (optional)';
+    const fileInput = doc.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/png,image/jpeg,image/webp';
+    fileInput.dataset.field = 'proof-image';
+    fileLabel.appendChild(fileInput);
+    form.appendChild(fileLabel);
+
+    // Submit button
+    const submitBtn = doc.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.textContent = 'Save Override';
+    form.appendChild(submitBtn);
+
+    // Submit handler registered under controller.signal
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const stepsVal = parseInt(stepsInput.value, 10);
+      const distVal = distInput.value.trim() !== '' ? parseFloat(distInput.value) : undefined;
+      const noteVal = noteTextarea.value;
+      const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+      let proofBase64 = null;
+      try {
+        if (file && processImage) {
+          proofBase64 = await processImage(file);
+        }
+        await records.overrideRecord(day.date, {
+          effective_steps: stepsVal,
+          effective_distance_km: distVal,
+          note: noteVal,
+          proof_image_base64: proofBase64,
+        });
+        doc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: day.date } }));
+        render();
+      } catch (err) {
+        reporter.db('\u274C Override failed');
+        console.error('[calendar-ui]', err);
+      }
+    }, { signal: controller.signal });
+
+    drawer.appendChild(form);
   }
 
   function _closeDrawer(tile) {
