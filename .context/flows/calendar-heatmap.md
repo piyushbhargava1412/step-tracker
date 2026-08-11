@@ -1,10 +1,10 @@
 # Flow: Calendar Heatmap Grid and Day Detail Drawer
 
-> Added: ST-005 — 2026-08-11 | Updated: ST-006 — 2026-08-11
+> Added: ST-005 — 2026-08-11 | Updated: ST-008 — 2026-08-11
 
 <!-- context-meta
-verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
-generated-at: 2026-08-11T00:00:00Z
+verification-commit: HEAD
+generated-at: 2026-08-11T08:00:00Z
 confidence: high
 -->
 
@@ -14,6 +14,7 @@ confidence: high
 - `#sync-btn` click handler — `calendarUI.render()` called after `streakUI.render()`
 - Calendar navigation (Prev/Next buttons, month/year selects) — re-render within the `calendar-ui.js` closure
 - `data:records:mutated` custom DOM event (dispatched by override form submit / revert button) → `calendarUI.render()` (plus `progressUI.render()` + `streakUI.render()`, all fail-open via `src/main.js`)
+- `ui:open-day-drawer` custom DOM event (dispatched by `src/search-lab-ui.js` on near-miss row click) → `calendarUI.openDrawerForDate(date)` via `src/main.js` listener (fail-open)
 
 ## Data Flow
 
@@ -86,6 +87,14 @@ _closeDrawer(tile)
   ├─ drawer.classList.remove('drawer--open'), set hidden on drawer + overlay
   ├─ drawer.replaceChildren()  ← clears content without innerHTML
   └─ tile.focus()  ← restores focus (guarded against removed tile)
+
+openDrawerForDate(date)             [public method on calendarUI — ST-008]
+  ├─ guard: null/invalid/non-3-part date string → no-op (return)
+  ├─ calendarEngine.loadMonth(year, month)  ← re-uses existing engine (may switch displayed month)
+  │    └─ catch(err) → console.error('[calendar-ui]', err); return
+  ├─ payload.days.find(d => d.date === date) → day object
+  │    └─ if not found → no-op (return)
+  └─ _openDrawer(day, null)   ← opens drawer with null tile (focus restoration guard handles null)
 ```
 
 ## Key Modules
@@ -93,11 +102,11 @@ _closeDrawer(tile)
 | Module | Role |
 |---|---|
 | `src/calendar.js` | Pure engine: grid arithmetic, classification, aggregates, nav clamping, I/O surface |
-| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts override form |
+| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts override form; exposes `openDrawerForDate(date)` for cross-tab drawer opens |
 | `src/records.js` | Override/revert capability: `createRecords(db)` → `{ overrideRecord, revertRecord }` |
 | `src/image-processor.js` | Proof-image resize: `processImage(file)` → JPEG base64 data URL ≤1024 px |
 | `src/goal-history.js` | Shared: per-date goal resolution and synthetic fallback (shared with streak.js) |
-| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage)`; registers `data:records:mutated` listener |
+| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage)`; registers `data:records:mutated` and `ui:open-day-drawer` listeners |
 
 ## Classification Ladder (SF-2)
 

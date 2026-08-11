@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
-generated-at: 2026-08-11T00:00:00Z
+verification-commit: HEAD
+generated-at: 2026-08-11T08:00:00Z
 confidence: high
 -->
 
@@ -25,7 +25,7 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
 `src/streak.test.js`, `src/streak-ui.test.js`, `src/goal-history.test.js`,
 `src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
-`src/image-processor.test.js`.
+`src/image-processor.test.js`, `src/search-lab.test.js`, `src/search-lab-ui.test.js`.
 
 ---
 
@@ -67,6 +67,8 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration, override form mount, revert button, `data:records:mutated` dispatch |
 | ✅ DONE  | `createRecords` (`src/records.js`)           | `overrideRecord` — guard clauses (invalid steps/distance/note), Dexie put, immutability of original fields; `revertRecord` — missing original guard, field restoration (`src/records.test.js`) |
 | ✅ DONE  | `createImageProcessor` (`src/image-processor.js`) | Guard clauses (null file, invalid type, oversized), resize logic, JPEG base64 output, injected collaborators (`canvasFactory`, `FileReader`, `Image`) (`src/image-processor.test.js`) |
+| ✅ DONE  | `createSearchLab` / pure helpers (`src/search-lab.js`) | `isNearMiss`, `dayOfWeekIndex`, `dateBounds`, `computeComparisonDelta` pure helpers; `findNearMisses` (near-miss window, goal-history honoring, ascending sort), `computeDayOfWeekSlump` (7-bucket aggregates, `primarySlump` flag, tie-break), `comparePeriods` (two-range aggregation, delta computation, empty/reversed-range guards); shared goal-context load deduplication (`src/search-lab.test.js`) |
+| ✅ DONE  | `createSearchLabUI` (`src/search-lab-ui.js`) | Render near-miss card, slump card, compare card into `#tab-search`; `ui:open-day-drawer` dispatch on near-miss row click; AbortController isolation across instances; fail-open on engine error (`src/search-lab-ui.test.js`) |
 
 ---
 

@@ -44,6 +44,7 @@ relevant to your current task.**
 - [Streak Calculation Render](.context/flows/streak-calculation-render.md)
 - [Today's Progress Card & Goal Commitment](.context/flows/today-progress-goal.md)
 - [Calendar Heatmap Grid and Day Detail Drawer](.context/flows/calendar-heatmap.md)
+- [Search Lab Behavioral Insights](.context/flows/search-lab.md)
 
 <!-- repo-agentifier:managed:end -->
 
