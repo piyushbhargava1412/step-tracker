@@ -1265,3 +1265,85 @@ describe('createStreak — factory (data orchestration)', () => {
     expect(result.activeGoalKm).toBe(5.0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ST-006 Task 7 — Effective-field classification regression
+// ---------------------------------------------------------------------------
+
+describe('createStreak — effective_* field regression (ST-006 Task 7)', () => {
+  const TODAY = '2026-08-10';
+
+  function makeMockDb({ records = [], history = [], activeGoal = null } = {}) {
+    return {
+      daily_records: { toArray: vi.fn().mockResolvedValue(records) },
+      goal_history:  { toArray: vi.fn().mockResolvedValue(history) },
+      settings:      { get:     vi.fn().mockResolvedValue(activeGoal) },
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T12:00:00'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Divergent-field fixture: original_distance_km is below the goal threshold
+  // but effective_distance_km exceeds it (simulates a corrected override).
+  // The streak engine must read effective_*, so the day counts as Met.
+  it('classifies a day as Met using effective_distance_km, not original_distance_km', async () => {
+    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+    const records = [
+      {
+        date: '2026-08-09',
+        original_steps: 1000,             // below goal on original
+        original_distance_km: 0.76,       // 0.76 km < 3.0 km → Missed on original
+        effective_steps: 5000,            // above goal on effective
+        effective_distance_km: 3.81,      // 3.81 km >= 3.0 km → Met on effective
+        is_overridden: true,
+      },
+    ];
+    const db = makeMockDb({ records, history });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // If the engine reads effective_distance_km (correct), unified streak = 1
+    // If it mistakenly reads original_distance_km, unified streak = 0
+    expect(result.unified).toBe(1);
+  });
+
+  // Missed→Met flip via override: a record that was Missed on original_*
+  // becomes Met via effective_* — the active streak should extend by 1.
+  it('Missed→Met override via effective_* extends the active unified streak', async () => {
+    const history = [{ effective_from: '2026-08-01', target_distance_km: 3.0, target_steps: 3937 }];
+
+    // Two consecutive days; 08-08 is naturally Met, 08-09 was Missed on original but overridden to Met
+    const records = [
+      {
+        date: '2026-08-08',
+        original_steps: 5000,
+        original_distance_km: 3.81,
+        effective_steps: 5000,
+        effective_distance_km: 3.81,
+        is_overridden: false,
+      },
+      {
+        date: '2026-08-09',
+        original_steps: 800,
+        original_distance_km: 0.61,       // Missed on original (< 3.0 km)
+        effective_steps: 4000,
+        effective_distance_km: 3.05,      // Met on effective (>= 3.0 km)
+        is_overridden: true,
+      },
+    ];
+    const db = makeMockDb({ records, history });
+    const { compute } = createStreak(db);
+    const result = await compute();
+
+    // Both 08-08 and 08-09 pass on effective_* → streak of 2
+    // If engine reads original_*, 08-09 fails → streak of 0 (chain broken)
+    expect(result.unified).toBe(2);
+  });
+});
