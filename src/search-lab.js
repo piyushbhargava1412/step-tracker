@@ -60,3 +60,59 @@ export function computeComparisonDelta(a, b) {
   if (a === 0 || a == null || b == null) return null;
   return Math.round(((b - a) / a) * 1000) / 10;
 }
+
+import { buildEffectiveGoalHistory, _prepareGoalHistory, _resolvePreparedGoalForDate } from './goal-history.js';
+import { _localDate } from './goal.js';
+
+/**
+ * DI factory: createSearchLab(db, goal)
+ * Returns the Search Lab analytics engine (no DOM, no direct Dexie).
+ *
+ * @param {object} db   - Dexie db instance (injected)
+ * @param {object} goal - goal module (injected), exposes getActiveGoal()
+ * @returns {{ findNearMisses: Function, computeDayOfWeekSlump: Function, comparePeriods: Function }}
+ */
+export function createSearchLab(db, goal) {
+  async function findNearMisses() {
+    const earliest = await db.daily_records.orderBy('date').first();
+    if (!earliest) return [];
+
+    const today = _localDate();
+    const { endExclusive } = dateBounds(earliest.date, today);
+
+    const [records, goalHistoryRows, activeGoal] = await Promise.all([
+      db.daily_records.where('date').between(earliest.date, endExclusive, true, false).toArray(),
+      db.goal_history.toArray(),
+      goal.getActiveGoal(),
+    ]);
+
+    const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
+    const prepared = _prepareGoalHistory(effectiveHistory);
+
+    const nearMisses = records
+      .filter(record => {
+        const target = _resolvePreparedGoalForDate(prepared, record.date);
+        return isNearMiss(record.effective_distance_km, target);
+      })
+      .map(record => ({
+        date: record.date,
+        effectiveDistanceKm: record.effective_distance_km,
+        target: _resolvePreparedGoalForDate(prepared, record.date),
+      }))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    return nearMisses;
+  }
+
+  function computeDayOfWeekSlump() {
+    // Placeholder — implemented in Task 4
+    throw new Error('Not implemented yet');
+  }
+
+  function comparePeriods() {
+    // Placeholder — implemented in Task 5
+    throw new Error('Not implemented yet');
+  }
+
+  return { findNearMisses, computeDayOfWeekSlump, comparePeriods };
+}
