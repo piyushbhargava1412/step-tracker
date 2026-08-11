@@ -425,3 +425,58 @@ describe('createSearchUI — behaviour', () => {
     await expect(clickAction(doc, 'execute')).resolves.toBeUndefined();
   });
 });
+
+describe('createSearchUI — stale data guard after query error', () => {
+  function makeRecord(overrides = {}) {
+    return {
+      date: '2026-01-15',
+      effective_steps: 8000,
+      effective_distance_km: 6.5,
+      is_overridden: false,
+      override: null,
+      ...overrides,
+    };
+  }
+
+  async function clickAction(doc, action) {
+    const btn = doc.querySelector(`[data-action="${action}"]`);
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('succeed → fail → Export CSV is no-op (stale records cleared on error)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records = [makeRecord()];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn()
+      .mockResolvedValueOnce({ records, totalDays: 1 })
+      .mockRejectedValueOnce(new Error('second query failed'));
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const exporter = makeMockExporter();
+    const reporter = makeMockReporter();
+    const { render } = createSearchUI(doc, search, exporter, reporter);
+    render();
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'export-csv');
+    expect(exporter.exportCsv).not.toHaveBeenCalled();
+  });
+
+  it('succeed → fail → Export JSON is no-op (stale records cleared on error)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records = [makeRecord()];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn()
+      .mockResolvedValueOnce({ records, totalDays: 1 })
+      .mockRejectedValueOnce(new Error('second query failed'));
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const exporter = makeMockExporter();
+    const reporter = makeMockReporter();
+    const { render } = createSearchUI(doc, search, exporter, reporter);
+    render();
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'export-json');
+    expect(exporter.exportJson).not.toHaveBeenCalled();
+  });
+});

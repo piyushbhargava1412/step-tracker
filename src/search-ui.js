@@ -44,6 +44,7 @@ export function createSearchUI(doc, search, exporter, reporter) {
       const summary = search.computeResultSummary(result.records, result.totalDays);
       _renderSummary(panel, summary);
     } catch (err) {
+      currentRecords = null;
       console.error('[search]', err);
       reporter.db('❌ Search query failed');
       _renderGrid(panel, []);
