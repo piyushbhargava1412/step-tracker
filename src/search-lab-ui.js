@@ -36,6 +36,7 @@ export function createSearchLabUI(doc, engine, reporter) {
     // ── Near-Miss card ──────────────────────────────────────────────────────
     const nearMissCard = doc.createElement('div');
     nearMissCard.id = 'search-nearmiss-card';
+    nearMissCard.className = 'search-lab-card';
 
     const nmTitle = doc.createElement('h3');
     nmTitle.textContent = 'Near-Miss Days';
@@ -60,6 +61,7 @@ export function createSearchLabUI(doc, engine, reporter) {
         btn.type = 'button';
         btn.dataset.date = day.date;
         btn.dataset.action = 'open-day-drawer';
+        btn.className = 'search-insight-row';
 
         const dateText = doc.createTextNode(day.date + ' — ');
         const remainingSpan = doc.createElement('span');
@@ -83,6 +85,7 @@ export function createSearchLabUI(doc, engine, reporter) {
     // ── Day-of-Week Slump card ──────────────────────────────────────────────
     const slumpCard = doc.createElement('div');
     slumpCard.id = 'search-slump-card';
+    slumpCard.className = 'search-lab-card';
 
     const slumpTitle = doc.createElement('h3');
     slumpTitle.textContent = 'Day-of-Week Slump';
@@ -103,8 +106,10 @@ export function createSearchLabUI(doc, engine, reporter) {
       const dayLabel = row.day ?? DOW_LABELS[i] ?? String(i);
       const rowEl = doc.createElement('div');
       rowEl.dataset.day = dayLabel;
+      rowEl.classList.add('search-insight-row');
       if (row.primarySlump) {
         rowEl.classList.add('search-insight-row--slump');
+        rowEl.dataset.slump = 'true';
       }
 
       const label = doc.createElement('span');
@@ -144,6 +149,7 @@ export function createSearchLabUI(doc, engine, reporter) {
     // ── Comparison card ─────────────────────────────────────────────────────
     const compareCard = doc.createElement('div');
     compareCard.id = 'search-compare-card';
+    compareCard.className = 'search-lab-card';
 
     const cmpTitle = doc.createElement('h3');
     cmpTitle.textContent = 'Period Comparison';
@@ -199,6 +205,7 @@ export function createSearchLabUI(doc, engine, reporter) {
 
       for (const row of rows) {
         const rowEl = doc.createElement('div');
+        rowEl.className = 'search-compare-table';
 
         const lblEl = doc.createElement('span');
         lblEl.textContent = row.label;

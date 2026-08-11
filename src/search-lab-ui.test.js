@@ -662,3 +662,122 @@ describe('createSearchLabUI — slump integration (real engine, DI db mock)', ()
     expect(avgStepsEl.textContent).toBe('7500');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 17: CSS classes applied in DOM writer
+// ---------------------------------------------------------------------------
+describe('createSearchLabUI — CSS class application (Task 17)', () => {
+  let doc;
+  let mockEngine;
+  let mockReporter;
+
+  beforeEach(async () => {
+    const mod = await import('./search-lab-ui.js');
+    createSearchLabUI = mod.createSearchLabUI;
+
+    doc = document.implementation.createHTMLDocument('test');
+    const tabSearch = doc.createElement('div');
+    tabSearch.id = 'tab-search';
+    doc.body.appendChild(tabSearch);
+
+    mockEngine = {
+      findNearMisses: vi.fn(),
+      computeDayOfWeekSlump: vi.fn(),
+      comparePeriods: vi.fn(),
+    };
+    mockReporter = { db: vi.fn(), auth: vi.fn() };
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('#search-nearmiss-card has class search-lab-card', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-nearmiss-card');
+    expect(card.classList.contains('search-lab-card')).toBe(true);
+  });
+
+  it('#search-slump-card has class search-lab-card', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-slump-card');
+    expect(card.classList.contains('search-lab-card')).toBe(true);
+  });
+
+  it('#search-compare-card has class search-lab-card', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-compare-card');
+    expect(card.classList.contains('search-lab-card')).toBe(true);
+  });
+
+  it('near-miss buttons have class search-insight-row', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([
+      { date: '2026-07-01', effectiveDistanceKm: 9.1, target: 10 },
+    ]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-nearmiss-card');
+    const btn = card.querySelector('button[data-date]');
+    expect(btn.classList.contains('search-insight-row')).toBe(true);
+  });
+
+  it('slump rows have class search-insight-row', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([
+      { day: 'Mon', hitRate: 75, avgSteps: 8500, totalDistanceKm: 12.5, primarySlump: false },
+    ]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-slump-card');
+    const row = card.querySelector('[data-day="Mon"]');
+    expect(row.classList.contains('search-insight-row')).toBe(true);
+  });
+
+  it('primary slump row has data-slump="true"', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([
+      { day: 'Tue', hitRate: 30, avgSteps: 5000, totalDistanceKm: 8.0, primarySlump: true },
+    ]);
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+    const card = doc.getElementById('search-slump-card');
+    const row = card.querySelector('[data-day="Tue"]');
+    expect(row.dataset.slump).toBe('true');
+  });
+
+  it('compare results rows have class search-compare-table', async () => {
+    mockEngine.findNearMisses.mockResolvedValue([]);
+    mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    mockEngine.comparePeriods.mockResolvedValue({
+      periodA: { totalSteps: 100, totalDistanceKm: 5.0, hitRate: 80 },
+      periodB: { totalSteps: 200, totalDistanceKm: 10.0, hitRate: 90 },
+      deltas: { totalSteps: 100, totalDistanceKm: 100, hitRate: 12.5 },
+    });
+    const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+    await ui.render();
+
+    // Trigger compare
+    const card = doc.getElementById('search-compare-card');
+    card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+    card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+    card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+    card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+    card.querySelector('[data-action="compare-periods"]').click();
+    await new Promise(r => setTimeout(r, 20));
+
+    const resultsEl = card.querySelector('[data-id="compare-results"]');
+    const rows = resultsEl.querySelectorAll('div');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach(row => {
+      expect(row.classList.contains('search-compare-table')).toBe(true);
+    });
+  });
+});
