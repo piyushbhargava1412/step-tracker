@@ -49,6 +49,11 @@ vi.mock('./calendar-ui.js', () => ({
   createCalendarUI: vi.fn(() => mockCalendarUIInstance)
 }))
 
+const mockMonthOverviewInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./month-overview.js', () => ({
+  createMonthOverview: vi.fn(() => mockMonthOverviewInstance)
+}))
+
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
@@ -98,6 +103,7 @@ import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
+import { createMonthOverview } from './month-overview.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -288,6 +294,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
   })
 
@@ -331,6 +338,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     const btn = document.getElementById('sync-btn')
     btn.click()
     // wait for async handler to complete
@@ -366,6 +374,7 @@ describe('main.js — Task 10: streak engine wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
   })
 
@@ -420,6 +429,7 @@ describe('main.js — Task 10: streak engine wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     const btn = document.getElementById('sync-btn')
     btn.click()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -443,6 +453,7 @@ describe('main.js — Task 10: streak engine wiring', () => {
       return Promise.resolve()
     })
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     const btn = document.getElementById('sync-btn')
     btn.click()
     await new Promise(res => setTimeout(res, 30))
@@ -455,6 +466,7 @@ describe('main.js — Task 10: streak engine wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockRejectedValueOnce(new Error('sync streak render fail'))
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     document.getElementById('sync-btn').click()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -478,6 +490,7 @@ describe('main.js — Task 12: calendar wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
   })
 
@@ -494,7 +507,15 @@ describe('main.js — Task 12: calendar wiring', () => {
   it('createCalendarUI is invoked exactly once with (document, mockDb, calendarInstance, mockReporter)', async () => {
     await boot()
     expect(createCalendarUI).toHaveBeenCalledTimes(1)
-    expect(createCalendarUI).toHaveBeenCalledWith(document, mockDb, mockCalendarInstance, mockReporter, mockRecordsInstance, expect.any(Function))
+    expect(createCalendarUI).toHaveBeenCalledWith(
+      document,
+      mockDb,
+      mockCalendarInstance,
+      mockReporter,
+      mockRecordsInstance,
+      expect.any(Function),
+      mockMonthOverviewInstance,
+    )
   })
 
   it('calendarUI.render() is called exactly once on bootstrap', async () => {
@@ -516,6 +537,7 @@ describe('main.js — Task 12: calendar wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     const btn = document.getElementById('sync-btn')
     btn.click()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -566,6 +588,77 @@ describe('main.js — Task 12: calendar wiring', () => {
   })
 })
 
+describe('main.js — month-overview dashboard card wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createMonthOverview is invoked exactly once with (document, calendarInstance, mockReporter)', async () => {
+    await boot()
+    expect(createMonthOverview).toHaveBeenCalledTimes(1)
+    expect(createMonthOverview).toHaveBeenCalledWith(document, mockCalendarInstance, mockReporter)
+  })
+
+  it('monthOverview.render() is called exactly once on bootstrap', async () => {
+    await boot()
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('monthOverview.render() is called after calendarUI.render() on bootstrap', async () => {
+    await boot()
+    const calendarRenderOrder = mockCalendarUIInstance.render.mock.invocationCallOrder[0]
+    const monthRenderOrder = mockMonthOverviewInstance.render.mock.invocationCallOrder[0]
+    expect(monthRenderOrder).toBeGreaterThan(calendarRenderOrder)
+  })
+
+  it('clicking #sync-btn triggers monthOverview.render() after calendarUI.render()', async () => {
+    await boot()
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
+      .toBeLessThan(mockMonthOverviewInstance.render.mock.invocationCallOrder[0])
+  })
+
+  it('sync-time month-overview render rejection is fail-open', async () => {
+    await boot()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockRejectedValueOnce(new Error('sync month render fail'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    document.getElementById('sync-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] monthOverview.render failed after sync, continuing',
+      expect.any(Error),
+    )
+  })
+
+  it('bootstrap resolves even if monthOverview.render() rejects on load (fail-open)', async () => {
+    mockMonthOverviewInstance.render.mockRejectedValue(new Error('month render fail'))
+    await expect(boot()).resolves.toBeUndefined()
+  })
+})
+
 describe('main.js — Task 5: records + processImage injection + mutation listener', () => {
   // Use an isolated EventTarget-like document to avoid listener stacking across tests
   let isolatedDoc
@@ -592,6 +685,7 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     isolatedDoc = makeIsolatedDoc()
     document.body.innerHTML = `
@@ -616,31 +710,36 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     expect(callArgs[5]).toBeDefined() // processImage function
   })
 
-  it('data:records:mutated dispatch triggers progressUI.render, streakUI.render, calendarUI.render in order', async () => {
+  it('data:records:mutated dispatch triggers progressUI.render, streakUI.render, calendarUI.render, monthOverview.render in order', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
     expect(mockProgressUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockStreakUIInstance.render.mock.invocationCallOrder[0])
     expect(mockStreakUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
+    expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockMonthOverviewInstance.render.mock.invocationCallOrder[0])
   })
 
-  it('progressUI.render rejection inside mutation handler does not propagate (fail-open); streakUI and calendarUI still called', async () => {
+  it('progressUI.render rejection inside mutation handler does not propagate (fail-open); streakUI, calendarUI and monthOverview still called', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()
     mockProgressUIInstance.render.mockRejectedValueOnce(new Error('progress fail'))
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
   })
 
   it('streakUI.render rejection inside mutation handler does not propagate; calendarUI still called', async () => {
@@ -649,8 +748,10 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockRejectedValueOnce(new Error('streak fail'))
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: '2026-08-11' }))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
   })
 })

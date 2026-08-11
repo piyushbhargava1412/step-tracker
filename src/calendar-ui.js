@@ -7,6 +7,8 @@
  * not used for reads here.
  */
 
+import { computeCommitmentHitRate } from './calendar.js';
+
 /**
  * @param {{ getElementById: Function, querySelector: Function, querySelectorAll: Function }} doc
  * @param {{}} db — carried for contract parity; not used for reads here
@@ -14,9 +16,10 @@
  * @param {{ db: Function }} reporter
  * @param {{ overrideRecord: Function, revertRecord: Function }} [records] — injected override capability
  * @param {Function} [processImage] — injected image processor
+ * @param {{ render: Function }} [monthOverview] — reusable month overview renderer
  * @returns {{ render: Function }}
  */
-export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage) {
+export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview) {
   // Selected month (0-based), defaults to current local month (SF-9)
   let state = { year: new Date().getFullYear(), month: new Date().getMonth() };
   let controller = null;
@@ -65,6 +68,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     if (existingNav) existingNav.remove();
     if (existingSummary) existingSummary.remove();
     if (existingGrid) existingGrid.remove();
+    panel.querySelector('#calendar-month-overview-card')?.remove();
 
     // Close any open drawer before rebuilding (SF-8)
     _closeDrawerInternal();
@@ -77,14 +81,34 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     const summaryEl = _buildSummary(payload);
     panel.appendChild(summaryEl);
 
-    // Build and append grid (weekday header + tiles)
-    const gridEl = _buildGrid(payload);
-    gridEl._payload = payload; // Store payload for drawer access
-    panel.appendChild(gridEl);
+    if (monthOverview) {
+      const monthMount = doc.createElement('div');
+      monthMount.id = 'calendar-grid';
+      monthMount.classList.add('month-overview-mount');
+      panel.appendChild(monthMount);
+      await monthOverview.render({
+        slot: monthMount,
+        year,
+        month,
+        payload,
+        cardId: 'calendar-month-overview-card',
+        showHistoryHint: false,
+      });
+    }
+
+    // Keep the legacy interactive grid for callers that have not adopted the
+    // reusable month overview renderer yet.
+    if (!monthOverview) {
+      const gridEl = _buildGrid(payload);
+      gridEl._payload = payload;
+      panel.appendChild(gridEl);
+    }
 
     // Attach delegated listeners
     _attachNavListeners(navEl, signal);
-    _attachGridListeners(gridEl, signal);
+    if (!monthOverview) {
+      _attachGridListeners(panel.querySelector('#calendar-grid'), signal);
+    }
   }
 
   // ── Navigation panel ────────────────────────────────────────────────────
@@ -128,9 +152,13 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       yearSelect.appendChild(opt);
     }
 
+    const period = doc.createElement('div');
+    period.className = 'calendar-period';
+    period.appendChild(monthSelect);
+    period.appendChild(yearSelect);
+
     nav.appendChild(prevBtn);
-    nav.appendChild(monthSelect);
-    nav.appendChild(yearSelect);
+    nav.appendChild(period);
     nav.appendChild(nextBtn);
 
     return nav;
@@ -182,13 +210,17 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     const caption = new Date(payload.year, payload.month, 1)
       .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
+    const hitRate = computeCommitmentHitRate(
+      payload.days,
+      payload.today,
+      payload.activeGoalKm,
+    );
     const cells = [
       { label: 'Total Steps', value: payload.aggregates.totalSteps },
       { label: 'Total Distance', value: payload.aggregates.totalDistanceKm != null
         ? payload.aggregates.totalDistanceKm.toFixed(2) + ' km' : null },
       { label: 'Avg Daily Steps', value: payload.aggregates.averageDailySteps },
-      { label: 'Hit Rate', value: payload.aggregates.hitRatePct != null
-        ? payload.aggregates.hitRatePct + '%' : null },
+      { label: 'Hit Rate', value: hitRate != null ? hitRate + '%' : null },
     ];
 
     // Create caption cell

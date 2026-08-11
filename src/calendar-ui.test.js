@@ -287,7 +287,7 @@ describe('render() — summary', async () => {
     expect(values[1].textContent).toBe('8.40 km');
   });
 
-  it('populated month renders hit rate as integer + "%" ', async () => {
+  it('populated month renders elapsed-day commitment hit rate as integer + "%" ', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     payload.aggregates.hitRatePct = 67;
@@ -297,10 +297,10 @@ describe('render() — summary', async () => {
     await render();
 
     const values = doc.querySelectorAll('#calendar-summary .value');
-    expect(values[3].textContent).toBe('67%');
+    expect(values[3].textContent).toBe('100%');
   });
 
-  it('daysEvaluated === 0 → four em dashes', async () => {
+  it('hit rate uses elapsed classified days rather than record aggregates', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     payload.aggregates = {
@@ -314,9 +314,7 @@ describe('render() — summary', async () => {
     await render();
 
     const values = doc.querySelectorAll('#calendar-summary .value');
-    for (let i = 1; i < values.length; i += 1) {
-      expect(values[i].textContent).toBe('\u2014');
-    }
+    expect(values[3].textContent).toBe('100%');
   });
 
   it('caption reads "August 2026" for (2026, 7)', async () => {

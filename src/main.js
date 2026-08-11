@@ -14,6 +14,7 @@ import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
+import { createMonthOverview } from './month-overview.js'
 import { createRecords } from './records.js'
 import { processImage } from './image-processor.js'  
 
@@ -50,10 +51,14 @@ export async function bootstrap(doc = document) {
   const goal = createGoal(db)
   const streak = createStreak(db)
   const streakUI = createStreakUI(doc, streak, reporter)
-  const progressUI = createProgressUI(doc, goal, db, reporter, () => streakUI.render())
   const calendar = createCalendar(db, goal)
   const records = createRecords(db)
-  const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage)
+  const monthOverview = createMonthOverview(doc, calendar, reporter)
+  const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
+  const progressUI = createProgressUI(doc, goal, db, reporter, () => {
+    streakUI.render()
+    monthOverview.render()
+  })
 
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
@@ -77,6 +82,11 @@ export async function bootstrap(doc = document) {
       } catch (err) {
         console.error('[main] calendarUI.render failed after sync, continuing', err)
       }
+      try {
+        await monthOverview.render()
+      } catch (err) {
+        console.error('[main] monthOverview.render failed after sync, continuing', err)
+      }
     })
   }
 
@@ -96,6 +106,11 @@ export async function bootstrap(doc = document) {
       await calendarUI.render()
     } catch (err) {
       console.error('[main] calendarUI.render failed after mutation, continuing', err)
+    }
+    try {
+      await monthOverview.render()
+    } catch (err) {
+      console.error('[main] monthOverview.render failed after mutation, continuing', err)
     }
   })
 
@@ -124,6 +139,13 @@ export async function bootstrap(doc = document) {
     await calendarUI.render()
   } catch (err) {
     console.error('[main] calendarUI.render failed, continuing', err)
+  }
+
+  // 13. Render current-month overview on page load (mockup dashboard, fail-open)
+  try {
+    await monthOverview.render()
+  } catch (err) {
+    console.error('[main] monthOverview.render failed, continuing', err)
   }
 }
 

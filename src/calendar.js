@@ -20,6 +20,27 @@ export const EXCEEDED_RATIO = 2.0;
 export const DAYS_PER_WEEK = 7;
 
 /**
+ * Computes commitment hit rate over every elapsed day in a month.
+ * Today is intentionally excluded; missing records count as missed days.
+ *
+ * @param {Array<{ date: string, classification?: { state: number } }>} days
+ * @param {string} today - YYYY-MM-DD
+ * @param {number} [targetDistanceKm] - current commitment applied to elapsed days
+ * @returns {number|null}
+ */
+export function computeCommitmentHitRate(days, today, targetDistanceKm) {
+  const elapsed = Array.isArray(days) ? days.filter((day) => day.date < today) : [];
+  if (elapsed.length === 0) return null;
+  const hasCurrentGoal = Number.isFinite(targetDistanceKm) && targetDistanceKm > 0;
+  const met = elapsed.filter((day) => {
+    if (!hasCurrentGoal) return day.classification?.state >= CLASSIFICATION_MET;
+    return Number.isFinite(day.record?.effective_distance_km)
+      && day.record.effective_distance_km >= targetDistanceKm;
+  }).length;
+  return Math.round((met / elapsed.length) * 100);
+}
+
+/**
  * Computes the month boundaries as YYYY-MM-01 strings.
  * Month is 0-based (January = 0).
  *
@@ -286,6 +307,7 @@ export function createCalendar(db, goal) {
       today,
       days,
       aggregates,
+      activeGoalKm: activeGoal?.target_distance_km ?? DEFAULT_GOAL_KM,
       navBounds,
     };
   }
@@ -319,6 +341,7 @@ export function createCalendar(db, goal) {
       today,
       days,
       aggregates,
+      activeGoalKm: DEFAULT_GOAL_KM,
       navBounds,
     };
   }

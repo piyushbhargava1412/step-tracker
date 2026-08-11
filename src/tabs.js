@@ -16,6 +16,11 @@ export function switchTab(tabName, doc = document) {
   panels.forEach(panel => { panel.style.display = 'none'; });
   const active = doc.getElementById(`tab-${tabName}`);
   if (active) active.style.display = 'block';
+
+  const buttons = doc.querySelectorAll('[data-tab]');
+  buttons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tabName);
+  });
 }
 
 /**

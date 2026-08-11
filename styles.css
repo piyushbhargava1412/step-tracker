@@ -1,4 +1,8 @@
 /* ─── ST-003 Design Tokens ────────────────────────────────────────────────── */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
 :root {
     --bg-dark: #0b0f17;
     --bg-card: #161f2e;
@@ -15,56 +19,142 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background-color: var(--bg-dark);
-    color: #ffffff;
-    display: flex;
-    justify-content: center;
-    padding-top: 50px;
+    color: var(--text-primary);
+    margin: 0;
+    padding: 24px;
+    min-height: 100vh;
 }
 
 .container {
-    text-align: center;
+    width: min(1152px, 100%);
+    margin: 0 auto;
     background: #1e1e1e;
-    padding: 30px;
+    padding: 0;
     border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    background: transparent;
 }
 
-/* Header flex layout for title, status, and button */
 header {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 20px;
-    gap: 15px;
+    gap: 20px;
     flex-wrap: wrap;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
-header h1 {
-    margin: 0;
-    flex: 0 0 auto;
-}
-
-header span {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-/* Tab bar flex layout */
-.tab-bar {
+.brand-group,
+.status-group,
+.header-actions {
     display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    align-items: center;
 }
 
-/* Panel visibility: hide by default, show active */
+.brand-group {
+    gap: 16px;
+}
+
+.status-group,
+.header-actions {
+    gap: 8px;
+}
+
+.app-title {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.status-badge.connected {
+    color: var(--accent-emerald);
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.status-badge.persisted {
+    color: var(--accent-cyan);
+    border-color: rgba(6, 182, 212, 0.3);
+    background: rgba(6, 182, 212, 0.1);
+}
+
+.btn {
+    margin: 0;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--bg-card-border);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    box-shadow: 0 0 12px var(--accent-emerald-glow);
+}
+
+.tab-bar {
+    background: rgba(22, 31, 46, 0.6);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 10px;
+    padding: 4px;
+    display: flex;
+    gap: 4px;
+    margin: 20px 0;
+}
+
+.tab-bar button {
+    flex: 1;
+    margin: 0;
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.tab-bar button:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.tab-bar button.active {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    color: var(--accent-emerald);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
 [id^="tab-"] {
     display: none;
 }
 
-[id^="tab-"][style*="display: block"] {
-    display: block;
+.dashboard-panel[style*="display: block"] {
+    display: grid !important;
 }
 
 button {
@@ -107,6 +197,181 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+/* ─── Mockup dashboard composition ───────────────────────────────────────── */
+.dashboard-panel {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    text-align: left;
+    width: 100%;
+}
+
+.dashboard-panel > * {
+    min-width: 0;
+}
+
+.dashboard-panel #lifetime-banner,
+.dashboard-panel #goal-selector {
+    grid-column: 1 / -1;
+}
+
+.dashboard-panel #progress-card {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.dashboard-panel #streak-card {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+.dashboard-panel #goal-selector {
+    grid-row: 3;
+}
+
+.dashboard-panel #month-overview-card {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    width: 100%;
+}
+
+#dashboard-month {
+    display: contents;
+}
+
+.dashboard-panel > .goal-selector {
+    margin: 0;
+    border-radius: 8px;
+}
+
+#tab-calendar {
+    background: rgba(22, 31, 46, 0.45);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+#calendar-grid.month-overview-mount {
+    display: block;
+    max-width: none;
+    margin: 0;
+}
+
+#calendar-grid.month-overview-mount #calendar-month-overview-card {
+    width: 100%;
+}
+
+.month-overview-hint {
+    margin: 16px 0 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.heatmap-weekday {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+.heatmap-tile {
+    aspect-ratio: 2 / 1;
+    min-width: 0;
+    padding: 4px;
+    border: 1px solid var(--bg-card-border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.heatmap-tile--met {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: var(--accent-emerald);
+}
+
+.heatmap-tile--exceeded {
+    background: rgba(6, 182, 212, 0.2);
+    border-color: rgba(6, 182, 212, 0.5);
+    color: var(--accent-cyan);
+}
+
+.heatmap-tile--missed {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #f87171;
+}
+
+.heatmap-tile--today {
+    border-color: var(--accent-emerald);
+}
+
+.heatmap-tile--pad,
+.heatmap-tile--future {
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-muted);
+}
+
+.heatmap-day,
+.heatmap-steps {
+    line-height: 1.25;
+}
+
+.heatmap-tile__override {
+    color: var(--accent-amber);
+}
+
+@media (max-width: 760px) {
+    body {
+        padding: 12px;
+    }
+
+    header {
+        align-items: flex-start;
+        padding: 16px;
+    }
+
+    .brand-group,
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
+    .tab-bar {
+        overflow-x: auto;
+    }
+
+    .tab-bar button {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .dashboard-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-panel #progress-card,
+    .dashboard-panel #streak-card {
+        grid-column: 1;
+        grid-row: auto;
+    }
 }
 
 .metric-row {
@@ -384,12 +649,15 @@ button:hover {
 /* ─── ST-005 Navigation ───────────────────────────────────────────────────── */
 
 #calendar-nav {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 4px;
-    gap: 8px;
-    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 12px;
+    width: 100%;
 }
 
 #calendar-nav button {
@@ -411,10 +679,19 @@ button:hover {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid var(--bg-card-border);
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 0.85rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
     margin: 0;
+    min-width: 110px;
+}
+
+#calendar-nav .calendar-period {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
 }
 
 #calendar-nav button[disabled] {
@@ -429,29 +706,55 @@ button:hover {
 
 #calendar-summary {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
-    max-width: 600px;
-    margin: 8px auto;
+    width: 100%;
+    max-width: none;
+    margin: 12px 0;
 }
 
 .summary-cell {
     background: var(--bg-card);
     border: 1px solid var(--bg-card-border);
     border-radius: 6px;
-    padding: 8px;
-    font-size: 0.75rem;
+    padding: 10px 8px;
+    font-size: 0.8rem;
+    white-space: nowrap;
     color: var(--text-muted);
     text-align: center;
 }
 
 .summary-cell .value {
     display: block;
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-primary);
     margin-top: 4px;
     font-family: var(--font-mono);
+}
+
+@media (max-width: 640px) {
+    #calendar-nav {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+    }
+
+    #calendar-nav .calendar-period {
+        min-width: 0;
+    }
+
+    #calendar-nav select {
+        min-width: 0;
+        width: 100%;
+    }
+
+    #calendar-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #calendar-summary .summary-cell:first-child {
+        grid-column: 1 / -1;
+    }
 }
 
 /* ─── ST-005 Day Detail Drawer ────────────────────────────────────────────── */

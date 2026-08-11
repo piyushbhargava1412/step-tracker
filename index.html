@@ -11,23 +11,31 @@
 <body>
 <div class="container">
     <header>
-        <h1>step-tracker</h1>
-        <span id="auth-status">Not connected</span>
-        <span id="db-status">Initializing…</span>
-        <button id="auth-btn">Connect Google Account</button>
-        <button id="sync-btn">Sync Steps</button>
-        <span id="sync-status"></span>
+        <div class="brand-group">
+            <h1 class="app-title">🚶 step-tracker</h1>
+            <div class="status-group">
+                <span id="auth-status" class="status-badge">Not connected</span>
+                <span id="db-status" class="status-badge">Initializing…</span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="auth-btn" class="btn btn-secondary">Connect Google Account</button>
+            <button id="sync-btn" class="btn btn-primary">Sync Steps</button>
+            <span id="sync-status"></span>
+        </div>
     </header>
 
     <nav class="tab-bar">
-        <button data-tab="dashboard">🏠 Dashboard</button>
-        <button data-tab="calendar">📅 Calendar</button>
-        <button data-tab="search">🔍 Search Lab</button>
-        <button data-tab="spatial">🗺️ Spatial Map</button>
+        <button class="tab-btn active" data-tab="dashboard">🏠 Dashboard</button>
+        <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
+        <button class="tab-btn" data-tab="search">🔍 Search Lab</button>
+        <button class="tab-btn" data-tab="spatial">🗺️ Spatial Map</button>
     </nav>
 
     <main>
-        <div id="tab-dashboard"></div>
+        <div id="tab-dashboard" class="dashboard-panel">
+            <div id="dashboard-month"></div>
+        </div>
         <div id="tab-calendar" style="display:none">
             <div id="calendar-nav"></div>
             <div id="calendar-summary"></div>
