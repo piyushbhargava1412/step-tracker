@@ -1,12 +1,19 @@
 # Flow: Calendar Heatmap Grid and Day Detail Drawer
 
-> Added: ST-005 — 2026-08-11
+> Added: ST-005 — 2026-08-11 | Updated: ST-006 — 2026-08-11
+
+<!-- context-meta
+verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
+generated-at: 2026-08-11T00:00:00Z
+confidence: high
+-->
 
 ## Trigger Points
 
 - `bootstrap()` in `src/main.js` — `calendarUI.render()` called after `streakUI.render()` (step 12)
 - `#sync-btn` click handler — `calendarUI.render()` called after `streakUI.render()`
 - Calendar navigation (Prev/Next buttons, month/year selects) — re-render within the `calendar-ui.js` closure
+- `data:records:mutated` custom DOM event (dispatched by override form submit / revert button) → `calendarUI.render()` (plus `progressUI.render()` + `streakUI.render()`, all fail-open via `src/main.js`)
 
 ## Data Flow
 
@@ -47,7 +54,11 @@ calendarUI.render(year, month)          [src/calendar-ui.js — createCalendarUI
 tile <button data-date="YYYY-MM-DD"> click (delegated listener on #calendar-grid)
   └─ _openDrawer(day)
        ├─ store doc.activeElement for focus restoration
-       ├─ populate #day-drawer: date h2, metric rows, override fields, Edit button (disabled)
+       ├─ populate #day-drawer: date h2, metric rows, Edit/Override button, optional Revert button
+       ├─ if record.is_overridden && records injected → show "Revert to Synced" button
+       │    └─ revert click: window.confirm → records.revertRecord(date) → dispatch data:records:mutated
+       ├─ if records injected → Edit / Override button is active (click → _mountOverrideForm)
+       │    else → Edit button disabled (title: 'Editing arrives in ST-006')
        ├─ if record == null: zero-state ("No synced data for this date", all metrics → '—')
        ├─ drawer.classList.add('drawer--open'), remove hidden from drawer + overlay
        ├─ closeBtn.focus()
@@ -55,6 +66,21 @@ tile <button data-date="YYYY-MM-DD"> click (delegated listener on #calendar-grid
             closeBtn click   → _closeDrawer(tile)
             overlay click    → _closeDrawer(tile)
             doc keydown Escape → _closeDrawer(tile)
+
+_mountOverrideForm(drawer, day)
+  ├─ removes Edit button from drawer
+  ├─ builds <form data-form="override"> with:
+  │    ├─ <input type="number" data-field="effective-steps"> (required, ≥0 integer)
+  │    ├─ <input type="number" data-field="effective-distance"> (optional float ≥0)
+  │    ├─ <textarea data-field="note"> (required, non-empty)
+  │    ├─ <input type="file" data-field="proof-image"> (optional; accept PNG/JPEG/WebP)
+  │    └─ <button type="submit"> Save Override
+  └─ submit handler (under controller.signal):
+       ├─ guard clauses: steps integer ≥0, note non-empty
+       ├─ if file && processImage injected → proofBase64 = await processImage(file)
+       ├─ await records.overrideRecord(date, { effective_steps, effective_distance_km, note, proof_image_base64 })
+       ├─ dispatch CustomEvent('data:records:mutated', { detail: { date } })
+       └─ on error: reporter.db('❌ Override failed') + console.error('[calendar-ui]', err)
 
 _closeDrawer(tile)
   ├─ drawer.classList.remove('drawer--open'), set hidden on drawer + overlay
@@ -67,9 +93,11 @@ _closeDrawer(tile)
 | Module | Role |
 |---|---|
 | `src/calendar.js` | Pure engine: grid arithmetic, classification, aggregates, nav clamping, I/O surface |
-| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle |
+| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts override form |
+| `src/records.js` | Override/revert capability: `createRecords(db)` → `{ overrideRecord, revertRecord }` |
+| `src/image-processor.js` | Proof-image resize: `processImage(file)` → JPEG base64 data URL ≤1024 px |
 | `src/goal-history.js` | Shared: per-date goal resolution and synthetic fallback (shared with streak.js) |
-| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter)` |
+| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage)`; registers `data:records:mutated` listener |
 
 ## Classification Ladder (SF-2)
 

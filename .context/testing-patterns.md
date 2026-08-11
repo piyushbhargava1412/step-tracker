@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 4754aafff08e716cb529f688d20095b5eed11ce8
-generated-at: 2026-08-11T07:37:00Z
+verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
+generated-at: 2026-08-11T00:00:00Z
 confidence: high
 -->
 
@@ -24,7 +24,8 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/steps.test.js`, `src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`,
 `src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
 `src/streak.test.js`, `src/streak-ui.test.js`, `src/goal-history.test.js`,
-`src/calendar.test.js`, `src/calendar-ui.test.js`.
+`src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
+`src/image-processor.test.js`.
 
 ---
 
@@ -63,7 +64,9 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime banner and streak card, fail-open zero-state |
 | ✅ DONE  | `resolveGoalForDate` / `buildEffectiveGoalHistory` (`src/goal-history.js`) | Goal-history walk, synthetic-history fallback, guard clauses |
 | ✅ DONE  | `createCalendar` (`src/calendar.js`)         | `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `loadMonth`, `buildZeroState` |
-| ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration |
+| ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration, override form mount, revert button, `data:records:mutated` dispatch |
+| ✅ DONE  | `createRecords` (`src/records.js`)           | `overrideRecord` — guard clauses (invalid steps/distance/note), Dexie put, immutability of original fields; `revertRecord` — missing original guard, field restoration (`src/records.test.js`) |
+| ✅ DONE  | `createImageProcessor` (`src/image-processor.js`) | Guard clauses (null file, invalid type, oversized), resize logic, JPEG base64 output, injected collaborators (`canvasFactory`, `FileReader`, `Image`) (`src/image-processor.test.js`) |
 
 ---
 
