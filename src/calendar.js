@@ -203,7 +203,7 @@ export function computeNavBounds(earliestRecordDate, today, year, month) {
   const canGoNext = !(selectionYear > todayYearNum || (selectionYear === todayYearNum && selectionMonth >= todayMonthNum));
 
   if (earliestRecordDate == null) {
-    return { canGoPrev: false, canGoNext, minYear: todayYearNum, maxYear };
+    return { canGoPrev: false, canGoNext: false, minYear: todayYearNum, maxYear };
   }
 
   // Parse earliest record date
