@@ -15,7 +15,7 @@ export function createSearch(db, goal) {
         f.endDate !== '';
 
       const raw = hasRange
-        ? await db.daily_records.where('date').between(f.startDate, f.endDate, true, true)
+        ? await db.daily_records.where('date').between(f.startDate, f.endDate, true, true).toArray()
         : await db.daily_records.toArray();
 
       const totalDays = raw.length;

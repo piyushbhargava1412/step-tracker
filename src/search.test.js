@@ -11,14 +11,19 @@ vi.mock('dexie', async () => {
   return { default: MockDexie };
 });
 
+function makeCollection(records) {
+  return { toArray: vi.fn().mockResolvedValue(records) };
+}
+
 function makeBetweenChain(records) {
-  const betweenFn = vi.fn().mockResolvedValue(records);
+  const collection = makeCollection(records);
+  const betweenFn = vi.fn().mockReturnValue(collection);
   const whereFn = vi.fn().mockReturnValue({ between: betweenFn });
-  return { whereFn, betweenFn };
+  return { whereFn, betweenFn, collection };
 }
 
 function makeDb({ records = [], goalHistory = [] } = {}) {
-  const { whereFn, betweenFn } = makeBetweenChain(records);
+  const { whereFn, betweenFn, collection } = makeBetweenChain(records);
   return {
     daily_records: {
       where: whereFn,
@@ -29,6 +34,7 @@ function makeDb({ records = [], goalHistory = [] } = {}) {
     },
     _whereFn: whereFn,
     _betweenFn: betweenFn,
+    _collection: collection,
   };
 }
 
@@ -48,6 +54,21 @@ describe('createSearch — executeQuery', () => {
     expect(db._whereFn).toHaveBeenCalledWith('date');
     expect(db._betweenFn).toHaveBeenCalledWith('2026-01-01', '2026-01-31', true, true);
   });
+  it('date-range path calls .toArray() on the Collection returned by between() — not a bare await', async () => {
+    const { createSearch } = await import('./search.js');
+    const records = [
+      { date: '2026-02-01', effective_steps: 8000, effective_distance_km: 6.0, is_overridden: false },
+      { date: '2026-02-02', effective_steps: 9000, effective_distance_km: 7.0, is_overridden: false },
+    ];
+    const db = makeDb({ records });
+    const goal = makeGoal();
+    const { executeQuery } = createSearch(db, goal);
+    const { records: result } = await executeQuery({ startDate: '2026-02-01', endDate: '2026-02-28' });
+    expect(db._collection.toArray).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(2);
+    expect(result[0].date).toBe('2026-02-02');
+  });
+
 
   it('all-time path (no date range) invokes db.daily_records.toArray() directly', async () => {
     const { createSearch } = await import('./search.js');
