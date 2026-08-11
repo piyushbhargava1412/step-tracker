@@ -34,6 +34,24 @@
             <div id="calendar-grid"></div>
             <div class="drawer-overlay" hidden></div>
             <aside id="day-drawer" role="dialog" aria-modal="true" aria-labelledby="day-drawer-title" hidden></aside>
+            <!-- ST-006: Override-form skeleton (hidden; calendar-ui.js builds/mounts dynamically) -->
+            <div id="override-form-template" hidden>
+                <form data-form="override">
+                    <label>Effective Steps
+                        <input type="number" data-field="effective-steps" min="0" step="1" required>
+                    </label>
+                    <label>Effective Distance (km)
+                        <input type="number" data-field="effective-distance" min="0" step="any">
+                    </label>
+                    <label>Justification Note
+                        <textarea data-field="note" required></textarea>
+                    </label>
+                    <label>Proof Image (optional)
+                        <input type="file" data-field="proof-image" accept="image/png,image/jpeg,image/webp">
+                    </label>
+                    <button type="submit">Save Override</button>
+                </form>
+            </div>
         </div>
         <div id="tab-search" style="display:none"></div>
         <div id="tab-spatial" style="display:none"></div>

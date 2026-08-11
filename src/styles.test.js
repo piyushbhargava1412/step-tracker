@@ -406,3 +406,29 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     }
   });
 });
+
+// ─── Task 6: ST-006 override form, badge, and revert button styling ──────
+
+describe('styles.css — ST-006 override form, badge, and revert button', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('.tile__override-badge rule is defined', () => {
+    expect(cssContent).toContain('.tile__override-badge');
+  });
+
+  it('override-form layout rule is defined (form[data-form="override"] or .override-form)', () => {
+    const hasOverrideFormRule =
+      cssContent.includes('[data-form="override"]') ||
+      cssContent.includes('.override-form');
+    expect(hasOverrideFormRule).toBe(true);
+  });
+
+  it('.revert-btn rule is defined', () => {
+    expect(cssContent).toContain('.revert-btn');
+  });
+});

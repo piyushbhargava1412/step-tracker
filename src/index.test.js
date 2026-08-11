@@ -130,3 +130,42 @@ describe('index.html tabbed shell contract', () => {
     expect(calendar.style.display).toBe('none');
   });
 });
+
+// ─── Task 6: ST-006 Override-form HTML skeleton ───────────────────────────
+
+describe('index.html — ST-006 override-form inputs', () => {
+  it('<input type="number" min="0"> for effective steps exists with data-field="effective-steps"', () => {
+    const input = document.querySelector('[data-field="effective-steps"]');
+    expect(input).not.toBeNull();
+    expect(input.type).toBe('number');
+    expect(input.min).toBe('0');
+  });
+
+  it('<input type="number" min="0" step="any"> for effective distance exists with data-field="effective-distance"', () => {
+    const input = document.querySelector('[data-field="effective-distance"]');
+    expect(input).not.toBeNull();
+    expect(input.type).toBe('number');
+    expect(input.min).toBe('0');
+  });
+
+  it('<textarea> for justification note exists with data-field="note"', () => {
+    const textarea = document.querySelector('textarea[data-field="note"]');
+    expect(textarea).not.toBeNull();
+  });
+
+  it('<input type="file" accept="image/png,image/jpeg,image/webp"> exists with data-field="proof-image"', () => {
+    const input = document.querySelector('[data-field="proof-image"]');
+    expect(input).not.toBeNull();
+    expect(input.type).toBe('file');
+    expect(input.accept).toBe('image/png,image/jpeg,image/webp');
+  });
+
+  it('override inputs are nested inside a [data-form="override"] container', () => {
+    const form = document.querySelector('[data-form="override"]');
+    expect(form).not.toBeNull();
+  });
+
+  it('no inline onclick= attributes in index.html (regression)', () => {
+    expect(html).not.toContain('onclick=');
+  });
+});

@@ -523,3 +523,50 @@ button:hover {
     margin: -10px -10px 10px 0;
     font-size: 1rem;
 }
+
+/* ─── ST-006 Override form, revert button ──────────────────────────────────── */
+
+[data-form="override"] {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+[data-form="override"] label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+[data-form="override"] input,
+[data-form="override"] textarea {
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 0.9rem;
+}
+
+[data-form="override"] textarea {
+    min-height: 64px;
+    resize: vertical;
+}
+
+.revert-btn {
+    background: transparent;
+    border: 1px solid var(--accent-amber);
+    color: var(--accent-amber);
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-top: 8px;
+}
+
+.revert-btn:hover {
+    background: rgba(251, 191, 36, 0.1);
+}
