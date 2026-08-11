@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
-generated-at: 2026-08-10T15:55:56Z
+verification-commit: 4754aafff08e716cb529f688d20095b5eed11ce8
+generated-at: 2026-08-11T07:37:00Z
 confidence: high
 -->
 
@@ -22,7 +22,9 @@ confidence: high
 Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `src/db.test.js`,
 `src/storage.test.js`, `src/tabs.test.js`, `src/ui-status.test.js`, `src/main.test.js`,
 `src/steps.test.js`, `src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`,
-`src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`.
+`src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
+`src/streak.test.js`, `src/streak-ui.test.js`, `src/goal-history.test.js`,
+`src/calendar.test.js`, `src/calendar-ui.test.js`.
 
 ---
 
@@ -57,7 +59,11 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveGoal` (valid row, absent, corrupt, DB error), `setActiveGoal` (valid km, invalid km throws, DB write error graceful), `_localDate` helper |
 | ✅ DONE  | `computeProgress` / `getTodayRecord` (`src/progress.js`) | Pure computation: zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard |
 | ✅ DONE  | `createProgressUI` (`src/progress-ui.js`)    | Render with data, render zero-state, idempotent re-render, goal preset click, custom apply click, validation error, DB error path |
-| 🔴 HIGH  | `parseAndCalculateStreak()`                   | Not yet re-implemented; add once streak module lands in `src/`  |
+| ✅ DONE  | `createStreak` (`src/streak.js`)             | Unified streak, tier streaks, HoF, lifetime10k, compute orchestration, goal history integration |
+| ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime banner and streak card, fail-open zero-state |
+| ✅ DONE  | `resolveGoalForDate` / `buildEffectiveGoalHistory` (`src/goal-history.js`) | Goal-history walk, synthetic-history fallback, guard clauses |
+| ✅ DONE  | `createCalendar` (`src/calendar.js`)         | `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `loadMonth`, `buildZeroState` |
+| ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration |
 
 ---
 

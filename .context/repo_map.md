@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `9a0d42930ab13cb2f6ee855ffffcb01f1e964595`
-- generated-at: `2026-08-10T15:55:56Z`
+- verification-commit: `4754aafff08e716cb529f688d20095b5eed11ce8`
+- generated-at: `2026-08-11T07:37:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -36,8 +36,8 @@
   - `#sync-btn` click → `stepSync.sync()` then `progressUI.render()` (from `src/steps.js` + `src/progress-ui.js`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-selector` delegated click → `goal.setActiveGoal()` then `progressUI.render()` (from `src/goal.js` + `src/progress-ui.js`)
-- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()` and `streakUI.render()` on load
-- Goal changes invoke progress rendering and the streak render callback; sync completion renders both cards
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, and `calendarUI.render()` on load
+- Goal changes invoke progress rendering and the streak render callback; sync completion renders progress, streak, and calendar cards
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
@@ -53,12 +53,15 @@
 - Streak renderer: `src/streak-ui.js` (`createStreakUI` factory; `render()` builds `#lifetime-banner` and `#streak-card`)
 - Progress computation: `src/progress.js` (pure functions: `getTodayRecord`, `computeProgress`)
 - Today's Progress card renderer: `src/progress-ui.js` (`createProgressUI` factory; `render()` builds card + goal-selector into `#tab-dashboard`)
-- UI structure: `index.html` (tab-bar + tab-panel layout)
-- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector)
+- Goal-history resolution: `src/goal-history.js` (`resolveGoalForDate`, `buildEffectiveGoalHistory`, `_prepareGoalHistory`, `_resolvePreparedGoalForDate`; shared by `streak.js` and `calendar.js`)
+- Calendar engine: `src/calendar.js` (`createCalendar(db, goal)` factory; pure functions: `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `buildZeroState`)
+- Calendar renderer: `src/calendar-ui.js` (`createCalendarUI(doc, db, calendarEngine, reporter)` factory; `render()` builds `#calendar-nav`, `#calendar-summary`, `#calendar-grid`, and `#day-drawer` into `#tab-calendar`)
+- UI structure: `index.html` (tab-bar + tab-panel layout; includes calendar skeleton with nav/summary/grid containers and day-detail drawer)
+- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer)
 - Goal-history migration: `src/db.js` (Dexie DB_VERSION 2 adds `goal_history` and seeds valid active goals)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, goal-history, calendar, calendar-ui
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

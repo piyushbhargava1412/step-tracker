@@ -12,6 +12,8 @@ import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
 import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
+import { createCalendar } from './calendar.js'
+import { createCalendarUI } from './calendar-ui.js'
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -47,6 +49,8 @@ export async function bootstrap(doc = document) {
   const streak = createStreak(db)
   const streakUI = createStreakUI(doc, streak, reporter)
   const progressUI = createProgressUI(doc, goal, db, reporter, () => streakUI.render())
+  const calendar = createCalendar(db, goal)
+  const calendarUI = createCalendarUI(doc, db, calendar, reporter)
 
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
@@ -64,6 +68,11 @@ export async function bootstrap(doc = document) {
         await streakUI.render()
       } catch (err) {
         console.error('[main] streakUI.render failed after sync, continuing', err)
+      }
+      try {
+        await calendarUI.render()
+      } catch (err) {
+        console.error('[main] calendarUI.render failed after sync, continuing', err)
       }
     })
   }
@@ -86,6 +95,13 @@ export async function bootstrap(doc = document) {
     await streakUI.render()
   } catch (err) {
     console.error('[main] streakUI.render failed, continuing', err)
+  }
+
+  // 12. Render calendar on page load (SF-7, fail-open)
+  try {
+    await calendarUI.render()
+  } catch (err) {
+    console.error('[main] calendarUI.render failed, continuing', err)
   }
 }
 
