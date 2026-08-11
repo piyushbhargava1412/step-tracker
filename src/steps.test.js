@@ -637,8 +637,8 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
   // ── Regression ─────────────────────────────────────────────────────────────
 
-  it('db.js exports DB_VERSION = 2 (ST-004 schema bump)', () => {
-    expect(DB_VERSION).toBe(2);
+  it('db.js exports DB_VERSION = 3 (ST-006 schema bump)', () => {
+    expect(DB_VERSION).toBe(3);
   });
 
   // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────

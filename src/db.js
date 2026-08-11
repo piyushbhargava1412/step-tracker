@@ -2,15 +2,21 @@ import Dexie from 'dexie';
 import { _localDate } from './goal.js';
 
 export const DB_NAME = 'StepTrackerDB';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
+
+const DAILY_RECORDS_STORES = 'date,effective_steps,effective_distance_km,is_overridden,synced_at';
+const SETTINGS_STORES = 'key';
+const GOAL_HISTORY_STORES = 'effective_from,target_distance_km,target_steps';
 
 export function createDb() {
   const db = new Dexie(DB_NAME);
-  db.version(DB_VERSION)
+
+  // v2: migrate goal settings to goal_history table
+  db.version(2)
     .stores({
-      daily_records: 'date,effective_steps,effective_distance_km,is_overridden,synced_at',
-      settings: 'key',
-      goal_history: 'effective_from,target_distance_km,target_steps',
+      daily_records: DAILY_RECORDS_STORES,
+      settings: SETTINGS_STORES,
+      goal_history: GOAL_HISTORY_STORES,
     })
     .upgrade(async (tx) => {
       try {
@@ -33,6 +39,39 @@ export function createDb() {
         console.error('[db]', err);
       }
     });
+
+  // v3: backfill effective_* / is_overridden / override for legacy daily_records rows
+  db.version(DB_VERSION)
+    .stores({
+      daily_records: DAILY_RECORDS_STORES,
+      settings: SETTINGS_STORES,
+      goal_history: GOAL_HISTORY_STORES,
+    })
+    .upgrade(async (tx) => {
+      try {
+        await tx.table('daily_records').toCollection().each((row, cursor) => {
+          // Idempotent: only touch rows that are missing the new fields
+          if (
+            row.effective_steps !== undefined &&
+            row.effective_distance_km !== undefined &&
+            row.is_overridden !== undefined &&
+            row.override !== undefined
+          ) {
+            return;
+          }
+          cursor.modify({
+            effective_steps: row.original_steps,
+            effective_distance_km: row.original_distance_km,
+            is_overridden: false,
+            override: null,
+          });
+        });
+      } catch (err) {
+        // Never rethrow — a throwing upgrade blocks db.open()
+        console.error('[db]', err);
+      }
+    });
+
   return db;
 }
 

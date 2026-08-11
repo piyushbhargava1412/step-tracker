@@ -237,3 +237,49 @@ describe('computeProgress — corrupt activeGoal', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// ST-006 Task 7 — Effective-field classification regression (computeProgress)
+// ---------------------------------------------------------------------------
+
+describe('computeProgress — effective_* field regression (ST-006 Task 7)', () => {
+  // Divergent-field fixture: original_steps is well below the goal,
+  // but effective_steps (after override) exceeds it.
+  // computeProgress must read effective_steps, so goalMet should be true.
+
+  it('tracks effective_steps, not original_steps, for progress metrics', () => {
+    const activeGoal = { target_steps: 5000, target_distance_km: 3.81 };
+    // Simulated override record: original was 800 steps, effective is 5500
+    const record = {
+      original_steps: 800,
+      original_distance_km: 0.61,
+      effective_steps: 5500,
+      effective_distance_km: 4.19,
+      is_overridden: true,
+    };
+
+    const result = computeProgress(record, activeGoal);
+
+    // If engine reads effective_steps (5500), goalMet = true, steps = 5500
+    // If it reads original_steps (800), goalMet = false, steps = 800
+    expect(result.steps).toBe(5500);
+    expect(result.distance_km).toBe(4.19);
+    expect(result.goalMet).toBe(true);
+    expect(result.pct).toBe(100);
+    expect(result.remaining_steps).toBe(0);
+  });
+
+  it('distance_km reflects effective_distance_km when original_distance_km diverges', () => {
+    const activeGoal = { target_steps: 5000, target_distance_km: 3.81 };
+    const record = {
+      original_steps: 3000,
+      original_distance_km: 2.29,        // different from effective
+      effective_steps: 3000,
+      effective_distance_km: 1.5,        // effective overridden to lower value
+      is_overridden: true,
+    };
+
+    const result = computeProgress(record, activeGoal);
+    expect(result.distance_km).toBe(1.5);  // must be effective, not original
+  });
+});

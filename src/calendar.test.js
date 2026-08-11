@@ -497,3 +497,46 @@ describe('createCalendar — factory', () => {
     expect(dates1.some((d) => dates2.includes(d))).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ST-006 Task 7 — Effective-field classification regression (classifyDay)
+// ---------------------------------------------------------------------------
+
+describe('classifyDay — effective_* field regression (ST-006 Task 7)', () => {
+  const TARGET = 3.0;
+
+  // Divergent-field fixture: original_distance_km is below goal threshold,
+  // effective_distance_km is above it (simulates a corrected override).
+  // classifyDay must read effective_distance_km, so state should be Met (2).
+
+  it('classifies as Met using effective_distance_km when original_distance_km is below threshold', () => {
+    const record = {
+      original_steps: 500,
+      original_distance_km: 0.38,        // 0.38 < 3.0 → would be Missed
+      effective_steps: 4000,
+      effective_distance_km: 3.05,       // 3.05 >= 3.0 → should be Met
+      is_overridden: true,
+    };
+
+    const result = classifyDay(record, TARGET, false);
+
+    // If engine reads effective_distance_km (correct), state = CLASSIFICATION_MET (2)
+    // If it reads original_distance_km, state = CLASSIFICATION_MISSED (1)
+    expect(result.state).toBe(CLASSIFICATION_MET);
+  });
+
+  it('classifies as Missed on effective_distance_km even when original_distance_km exceeds goal', () => {
+    // Reverse divergence: original is Met but effective was overridden to below goal
+    const record = {
+      original_steps: 5000,
+      original_distance_km: 4.5,         // 4.5 >= 3.0 → would be Met
+      effective_steps: 1000,
+      effective_distance_km: 0.76,       // 0.76 < 3.0 → should be Missed
+      is_overridden: true,
+    };
+
+    const result = classifyDay(record, TARGET, false);
+
+    expect(result.state).toBe(CLASSIFICATION_MISSED);
+  });
+});
