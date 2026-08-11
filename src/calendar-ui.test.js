@@ -93,12 +93,14 @@ describe('render() — grid', () => {
     const { render } = createCalendarUI(doc, null, engine, reporter);
     await render();
 
-    // Count all tiles (including padding and weekday header)
+    // Count day tiles (leading pad + days + trailing pad) — header cells use .calendar-header-cell
     const allTiles = doc.querySelectorAll('#calendar-grid .calendar-tile');
     const payload = makeSamplePayload();
-    const expectedCount = payload.leadingPad + payload.days.length + payload.trailingPad + 7; // +7 for weekday header
+    const expectedCount = payload.leadingPad + payload.days.length + payload.trailingPad;
     expect(allTiles.length).toBe(expectedCount);
     expect(expectedCount % 7).toBe(0);
+    // Weekday header cells rendered separately
+    expect(doc.querySelectorAll('#calendar-grid .calendar-header-cell').length).toBe(7);
   });
 
   it('each classification state renders its exact CSS class', async () => {

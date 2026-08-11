@@ -229,22 +229,17 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
   function _buildGrid(payload) {
     const grid = doc.createElement('div');
     grid.id = 'calendar-grid';
+    grid.className = 'calendar-grid';
 
-    // Weekday header (Mon-Sun)
+    // Weekday header (Mon-Sun) — 7 cells placed directly in the grid
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const headerRow = doc.createElement('div');
-    headerRow.style.display = 'grid';
-    headerRow.style.gridTemplateColumns = 'repeat(7, 1fr)';
-    headerRow.style.fontSize = '0.7rem';
-    headerRow.style.color = 'var(--text-muted)';
-    headerRow.setAttribute('aria-hidden', 'true');
     for (const wd of weekdays) {
       const cell = doc.createElement('div');
-      cell.className = 'calendar-tile';
+      cell.className = 'calendar-header-cell';
+      cell.setAttribute('aria-hidden', 'true');
       cell.textContent = wd;
-      headerRow.appendChild(cell);
+      grid.appendChild(cell);
     }
-    grid.appendChild(headerRow);
 
     // Tiles
     const classMap = {

@@ -308,6 +308,15 @@ button:hover {
     margin: 0 auto;
 }
 
+.calendar-header-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    padding: 4px 0;
+}
+
 .calendar-tile {
     display: flex;
     align-items: center;
