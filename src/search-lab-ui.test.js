@@ -328,4 +328,223 @@ describe('createSearchLabUI', () => {
     });
   });
 
+  // ── Task 8: Comparison card with native date inputs ──────────────────────────
+  describe('Comparison card', () => {
+    const COMPARE_RESULT = {
+      periodA: { totalSteps: 50000, totalDistanceKm: 45.0, hitRate: 0.8 },
+      periodB: { totalSteps: 55000, totalDistanceKm: 49.5, hitRate: 0.9 },
+      deltas: { totalSteps: 10.0, totalDistanceKm: 10.0, hitRate: null },
+    };
+
+    function setupSlump() {
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue([]);
+    }
+
+    it('inserts #search-compare-card into #tab-search', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      expect(doc.getElementById('search-compare-card')).not.toBeNull();
+    });
+
+    it('renders four <input type="date"> elements inside the card', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-compare-card');
+      const inputs = card.querySelectorAll('input[type="date"]');
+      expect(inputs.length).toBe(4);
+    });
+
+    it('inputs have correct dataset tags: compare-a-start, compare-a-end, compare-b-start, compare-b-end', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-compare-card');
+      const tags = ['compare-a-start', 'compare-a-end', 'compare-b-start', 'compare-b-end'];
+      for (const tag of tags) {
+        const input = card.querySelector(`[data-compare="${tag}"]`);
+        expect(input, `missing input with data-compare="${tag}"`).not.toBeNull();
+        expect(input.type).toBe('date');
+      }
+    });
+
+    it('all four dates set → triggering compare calls engine.comparePeriods with correct args', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      const btn = card.querySelector('[data-action="compare-periods"]');
+      btn.click();
+      // Wait for async render
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(mockEngine.comparePeriods).toHaveBeenCalledWith(
+        { startDate: '2026-06-01', endDate: '2026-06-30' },
+        { startDate: '2026-07-01', endDate: '2026-07-31' },
+      );
+    });
+
+    it('results table rendered with period A / B aggregates after compare', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      const btn = card.querySelector('[data-action="compare-periods"]');
+      btn.click();
+      await new Promise(r => setTimeout(r, 0));
+
+      const results = card.querySelector('[data-id="compare-results"]');
+      expect(results).not.toBeNull();
+      expect(results.textContent).toContain('50000');
+      expect(results.textContent).toContain('55000');
+    });
+
+    it('null delta in engine response → "—" displayed in delta row', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      card.querySelector('[data-action="compare-periods"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      const results = card.querySelector('[data-id="compare-results"]');
+      // hitRate delta is null → should show —
+      expect(results.textContent).toContain('—');
+    });
+
+    it('non-null delta displayed with sign and one decimal (e.g. "+10.0%")', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      card.querySelector('[data-action="compare-periods"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      const results = card.querySelector('[data-id="compare-results"]');
+      expect(results.textContent).toMatch(/[+\-]\d+\.\d+%/);
+    });
+
+    it('one date missing → zero-state prompt rendered; engine.comparePeriods NOT called', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      // Only set 3 of 4 dates
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      // compare-b-end left blank
+
+      card.querySelector('[data-action="compare-periods"]').click();
+      await new Promise(r => setTimeout(r, 0));
+
+      expect(mockEngine.comparePeriods).not.toHaveBeenCalled();
+      const results = card.querySelector('[data-id="compare-results"]');
+      expect(results.textContent.length).toBeGreaterThan(0);
+    });
+
+    it('engine comparePeriods rejects → zero-state rendered; reporter.db called; no throw', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockRejectedValue(new Error('compare fail'));
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      const card = doc.getElementById('search-compare-card');
+      card.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      // Should not throw
+      let threw = false;
+      try {
+        card.querySelector('[data-action="compare-periods"]').click();
+        await new Promise(r => setTimeout(r, 10));
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(false);
+      expect(mockReporter.db).toHaveBeenCalled();
+    });
+
+    it('second render() → only one #search-compare-card in DOM (idempotent)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      await ui.render();
+      const cards = doc.querySelectorAll('#search-compare-card');
+      expect(cards.length).toBe(1);
+    });
+
+    it('change listener from render-1 does not fire after render-2 (AbortController)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      setupSlump();
+      mockEngine.comparePeriods.mockResolvedValue(COMPARE_RESULT);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+
+      // Capture button from render-1
+      const card1 = doc.getElementById('search-compare-card');
+      const btn1 = card1.querySelector('[data-action="compare-periods"]');
+
+      // Fill in dates in render-1 card
+      card1.querySelector('[data-compare="compare-a-start"]').value = '2026-06-01';
+      card1.querySelector('[data-compare="compare-a-end"]').value = '2026-06-30';
+      card1.querySelector('[data-compare="compare-b-start"]').value = '2026-07-01';
+      card1.querySelector('[data-compare="compare-b-end"]').value = '2026-07-31';
+
+      // Re-render → aborts render-1 controller
+      await ui.render();
+
+      // Reset call count after re-render
+      mockEngine.comparePeriods.mockClear();
+
+      // Clicking stale button from render-1 should NOT call comparePeriods
+      btn1.click();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(mockEngine.comparePeriods).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -122,6 +122,119 @@ export function createSearchLabUI(doc, engine, reporter) {
 
     panel.appendChild(slumpCard);
 
+    // ── Comparison card ─────────────────────────────────────────────────────
+    const compareCard = doc.createElement('div');
+    compareCard.id = 'search-compare-card';
+
+    const cmpTitle = doc.createElement('h3');
+    cmpTitle.textContent = 'Period Comparison';
+    compareCard.appendChild(cmpTitle);
+
+    // Four date inputs
+    const inputDefs = [
+      ['compare-a-start', 'Period A Start'],
+      ['compare-a-end', 'Period A End'],
+      ['compare-b-start', 'Period B Start'],
+      ['compare-b-end', 'Period B End'],
+    ];
+
+    for (const [tag, label] of inputDefs) {
+      const lbl = doc.createElement('label');
+      lbl.textContent = label;
+
+      const input = doc.createElement('input');
+      input.type = 'date';
+      input.dataset.compare = tag;
+
+      lbl.appendChild(input);
+      compareCard.appendChild(lbl);
+    }
+
+    // Compare trigger button
+    const cmpBtn = doc.createElement('button');
+    cmpBtn.type = 'button';
+    cmpBtn.dataset.action = 'compare-periods';
+    cmpBtn.textContent = 'Compare';
+    compareCard.appendChild(cmpBtn);
+
+    // Results container (always present)
+    const resultsEl = doc.createElement('div');
+    resultsEl.dataset.id = 'compare-results';
+    compareCard.appendChild(resultsEl);
+
+    function formatDelta(value) {
+      if (value === null || value === undefined) return '—';
+      const sign = value >= 0 ? '+' : '';
+      return `${sign}${value.toFixed(1)}%`;
+    }
+
+    function renderCompareResults(result) {
+      resultsEl.textContent = '';
+      const { periodA, periodB, deltas } = result;
+
+      const rows = [
+        { label: 'Total Steps', a: periodA.totalSteps, b: periodB.totalSteps, delta: deltas.totalSteps },
+        { label: 'Distance (km)', a: periodA.totalDistanceKm?.toFixed(2), b: periodB.totalDistanceKm?.toFixed(2), delta: deltas.totalDistanceKm },
+        { label: 'Hit Rate', a: periodA.hitRate !== null ? (periodA.hitRate * 100).toFixed(1) + '%' : '—', b: periodB.hitRate !== null ? (periodB.hitRate * 100).toFixed(1) + '%' : '—', delta: deltas.hitRate },
+      ];
+
+      for (const row of rows) {
+        const rowEl = doc.createElement('div');
+
+        const lblEl = doc.createElement('span');
+        lblEl.textContent = row.label;
+
+        const aEl = doc.createElement('span');
+        aEl.textContent = row.a ?? '—';
+
+        const bEl = doc.createElement('span');
+        bEl.textContent = row.b ?? '—';
+
+        const deltaEl = doc.createElement('span');
+        deltaEl.textContent = formatDelta(row.delta);
+
+        rowEl.appendChild(lblEl);
+        rowEl.appendChild(aEl);
+        rowEl.appendChild(bEl);
+        rowEl.appendChild(deltaEl);
+        resultsEl.appendChild(rowEl);
+      }
+    }
+
+    function renderCompareZeroState(message) {
+      resultsEl.textContent = '';
+      const p = doc.createElement('p');
+      p.textContent = message;
+      resultsEl.appendChild(p);
+    }
+
+    cmpBtn.addEventListener('click', async () => {
+      const aStart = compareCard.querySelector('[data-compare="compare-a-start"]').value;
+      const aEnd = compareCard.querySelector('[data-compare="compare-a-end"]').value;
+      const bStart = compareCard.querySelector('[data-compare="compare-b-start"]').value;
+      const bEnd = compareCard.querySelector('[data-compare="compare-b-end"]').value;
+
+      if (!aStart || !aEnd || !bStart || !bEnd) {
+        renderCompareZeroState('Please select all four dates to compare periods.');
+        return;
+      }
+
+      try {
+        const result = await engine.comparePeriods(
+          { startDate: aStart, endDate: aEnd },
+          { startDate: bStart, endDate: bEnd },
+        );
+        renderCompareResults(result);
+      } catch (err) {
+        reporter.db('❌ Comparison failed');
+        console.error('[search-lab]', err);
+        renderCompareZeroState('Comparison failed. Please try again.');
+      }
+    }, { signal });
+
+    panel.appendChild(compareCard);
+
+
   }
 
   return { render };
