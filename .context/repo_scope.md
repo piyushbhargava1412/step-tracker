@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-  - verification-commit: `371dc5b8d87197e66eefafc8e977b8b58211fda9`
-  - generated-at: `2026-08-11T00:00:00Z`
+  - verification-commit: `6265017b37bb8c1814caae37c1598b42ea75c380`
+  - generated-at: `2026-08-11T08:00:00Z`
   - confidence: `high`
 
 ## Purpose
@@ -21,6 +21,8 @@ This repository is a client-side step streak tracker web app that connects to Go
 - Streak computation and output rendering (`src/streak.js`, `src/streak-ui.js`) — effective-date unified streak, fixed tier streaks, Hall of Fame metrics, and lifetime 10k-day banner
 - Record override/revert (`src/records.js`) — `createRecords(db)` factory; `overrideRecord` writes corrected `effective_steps`/`effective_distance_km`/`is_overridden`/`override`; `revertRecord` restores original synced values; never mutates `original_steps`/`original_distance_km`/`synced_at`
 - Proof-image processing (`src/image-processor.js`) — `createImageProcessor(deps)` factory; validates MIME type/size, resizes to ≤1024 px, returns JPEG base64 data URL for storage in `override.proof_image_base64`
+- Search / filter lab (`src/search.js`, `src/search-ui.js`) — `createSearch(db, goal)` executes AND-combined multi-filter Dexie queries (date range, steps, distance, override status, goal-target outcome); `createSearchUI` renders filter form, results grid, summary card, and export controls into `#tab-search`
+- CSV/JSON export (`src/exporter.js`) — `createExporter(doc)` factory; serialises filtered `daily_records` to RFC-4180 CSV or pretty-printed JSON and triggers a `<a download>` click; timezone-safe filename with `_localDate()`
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
 - Environment-based configuration (`.env.example`, `import.meta.env.VITE_CLIENT_ID`)

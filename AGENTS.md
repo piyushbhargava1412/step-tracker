@@ -33,6 +33,7 @@ step aggregates from Google Fit, and computes the current streak client-side wit
 | Testing conventions | [testing-patterns.md](.context/testing-patterns.md) |
 | Design & coding patterns | [design-and-coding-patterns.md](.context/design-and-coding-patterns.md) |
 | Commit convention signal | [repo_map.md#commit-convention](.context/repo_map.md#commit-convention) |
+| Search / filter / export flow | [flows/search-lab-export.md](.context/flows/search-lab-export.md) |
 
 ## Business Flows
 
@@ -44,6 +45,7 @@ relevant to your current task.**
 - [Streak Calculation Render](.context/flows/streak-calculation-render.md)
 - [Today's Progress Card & Goal Commitment](.context/flows/today-progress-goal.md)
 - [Calendar Heatmap Grid and Day Detail Drawer](.context/flows/calendar-heatmap.md)
+- [Search Lab — Filter & Export Daily Records](.context/flows/search-lab-export.md)
 
 <!-- repo-agentifier:managed:end -->
 
