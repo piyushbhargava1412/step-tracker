@@ -631,5 +631,34 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     drawer.replaceChildren();
   }
 
-  return { render };
+  /**
+   * Public date-only opener. Loads the containing month, finds the matching day
+   * in the payload, and opens the existing #day-drawer via _openDrawer.
+   * Guard: null/invalid/unknown/future date → no-op.
+   *
+   * @param {string} date - YYYY-MM-DD
+   * @returns {Promise<void>}
+   */
+  async function openDrawerForDate(date) {
+    if (!date) return;
+    const parts = String(date).split('-').map(Number);
+    if (parts.length !== 3 || parts.some((p) => !Number.isFinite(p))) return;
+    const [year, month1] = parts;
+    let payload;
+    try {
+      payload = await calendarEngine.loadMonth(year, month1 - 1);
+    } catch (err) {
+      console.error('[calendar-ui]', err);
+      return;
+    }
+    const day = payload.days.find((d) => d.date === date);
+    if (!day) return;
+    // Ensure controller is initialized (render may not have been called yet)
+    if (!controller) {
+      controller = new AbortController();
+    }
+    _openDrawer(day, null);
+  }
+
+  return { render, openDrawerForDate };
 }

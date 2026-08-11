@@ -1207,3 +1207,106 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     expect(records.overrideRecord.mock.calls[0][1].effective_steps).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 9 — openDrawerForDate(date) public API
+// ---------------------------------------------------------------------------
+
+describe('openDrawerForDate', () => {
+  it('openDrawerForDate is present on the returned interface object', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const engine = makeMockEngine(makeSamplePayload());
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+    expect(typeof calendarUI.openDrawerForDate).toBe('function');
+  });
+
+  it('openDrawerForDate("2026-08-08") opens #day-drawer populated for that date', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+
+    await calendarUI.openDrawerForDate('2026-08-08');
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hasAttribute('hidden')).toBe(false);
+    const title = doc.getElementById('day-drawer-title');
+    expect(title.textContent).toContain('8');
+  });
+
+  it('openDrawerForDate resolves day payload from engine, not from pre-rendered tiles', async () => {
+    // Call openDrawerForDate WITHOUT calling render() first
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+
+    await calendarUI.openDrawerForDate('2026-08-08');
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hasAttribute('hidden')).toBe(false);
+    expect(engine.loadMonth).toHaveBeenCalled();
+  });
+
+  it('openDrawerForDate("2099-01-01") future/unknown date → no-op, drawer stays hidden', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    // Engine returns empty days for a future month (no matching day)
+    const futureEngine = {
+      loadMonth: vi.fn().mockResolvedValue({ ...payload, days: [] }),
+      buildZeroState: vi.fn().mockReturnValue(payload),
+    };
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, futureEngine, reporter);
+
+    await calendarUI.openDrawerForDate('2099-01-01');
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('openDrawerForDate(null) — null guard: no throw, drawer stays closed', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const engine = makeMockEngine(makeSamplePayload());
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+
+    await expect(calendarUI.openDrawerForDate(null)).resolves.not.toThrow();
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('openDrawerForDate title contains the correct date (August 8, 2026)', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+
+    await calendarUI.openDrawerForDate('2026-08-08');
+
+    const title = doc.getElementById('day-drawer-title');
+    expect(title.textContent).toBe('August 8, 2026');
+  });
+
+  it('existing tile-click → drawer flow unchanged after refactor', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const calendarUI = createCalendarUI(doc, null, engine, reporter);
+    await calendarUI.render();
+
+    // Tile click should still work as before
+    const tile = doc.querySelector('[data-date="2026-08-08"]');
+    tile.click();
+
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hasAttribute('hidden')).toBe(false);
+    expect(drawer.classList.contains('drawer--open')).toBe(true);
+  });
+});
