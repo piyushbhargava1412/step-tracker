@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createImageProcessor, processImage, MAX_PROOF_IMAGE_PX, PROOF_IMAGE_QUALITY } from './image-processor.js';
+import { createImageProcessor, processImage, MAX_PROOF_IMAGE_PX, PROOF_IMAGE_QUALITY, ALLOWED_IMAGE_TYPES } from './image-processor.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -216,5 +216,57 @@ describe('processImage — output format', () => {
 describe('default processImage export', () => {
   it('is a function', () => {
     expect(typeof processImage).toBe('function');
+  });
+});
+
+describe('ALLOWED_IMAGE_TYPES', () => {
+  it('exports ALLOWED_IMAGE_TYPES as a Set or frozen array', () => {
+    expect(ALLOWED_IMAGE_TYPES).toBeDefined();
+    // must support .has() (Set) or convert to check membership
+    const has = (t) => ALLOWED_IMAGE_TYPES instanceof Set
+      ? ALLOWED_IMAGE_TYPES.has(t)
+      : Array.from(ALLOWED_IMAGE_TYPES).includes(t);
+    expect(has('image/png')).toBe(true);
+    expect(has('image/jpeg')).toBe(true);
+    expect(has('image/webp')).toBe(true);
+    expect(has('image/svg+xml')).toBe(false);
+  });
+});
+
+describe('processImage — MIME allowlist guard', () => {
+  it('rejects image/svg+xml fail-fast before FileReader', async () => {
+    const { processor, MockFileReaderSpy } = makeImageProcessor();
+    const file = makeFile('image/svg+xml');
+    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
+    expect(MockFileReaderSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects image/gif fail-fast before FileReader', async () => {
+    const { processor, MockFileReaderSpy } = makeImageProcessor();
+    const file = makeFile('image/gif');
+    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
+    expect(MockFileReaderSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects image/bmp fail-fast before FileReader', async () => {
+    const { processor, MockFileReaderSpy } = makeImageProcessor();
+    const file = makeFile('image/bmp');
+    await expect(processor.processImage(file)).rejects.toThrow(TypeError);
+    expect(MockFileReaderSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts image/png', async () => {
+    const { processor } = makeImageProcessor();
+    await expect(processor.processImage(makeFile('image/png'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
+  });
+
+  it('accepts image/jpeg', async () => {
+    const { processor } = makeImageProcessor();
+    await expect(processor.processImage(makeFile('image/jpeg'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
+  });
+
+  it('accepts image/webp', async () => {
+    const { processor } = makeImageProcessor();
+    await expect(processor.processImage(makeFile('image/webp'))).resolves.toMatch(/^data:image\/jpeg;base64,/);
   });
 });

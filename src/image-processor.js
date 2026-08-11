@@ -9,6 +9,9 @@
 export const MAX_PROOF_IMAGE_PX = 1024;
 export const PROOF_IMAGE_QUALITY = 0.8;
 
+/** Explicit allowlist matching the file input's accept attribute. */
+export const ALLOWED_IMAGE_TYPES = Object.freeze(new Set(['image/png', 'image/jpeg', 'image/webp']));
+
 /**
  * Factory: creates a processImage function with injected collaborators.
  * @param {object} deps
@@ -31,7 +34,7 @@ export function createImageProcessor({
     if (!file) {
       return Promise.reject(new TypeError('file is required'));
     }
-    if (!file.type || !file.type.startsWith('image/')) {
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
       return Promise.reject(new TypeError(`Invalid file type: ${file.type}`));
     }
 
