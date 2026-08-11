@@ -394,15 +394,19 @@ describe('createCalendar — factory', () => {
     const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
     await calendar.loadMonth(2026, 7);
     expect(db.daily_records.where).toHaveBeenCalledWith('date');
-    // between should have been called with the month boundaries
+    const { start, endExclusive } = monthBounds(2026, 7);
+    expect(db.daily_records.between).toHaveBeenCalledWith(start, endExclusive, true, false);
   });
 
   it('all four reads issued in a single Promise.all', async () => {
     const db = makeMockDb();
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const goal = { getActiveGoal: vi.fn().mockResolvedValue(null) };
+    const calendar = createCalendar(db, goal);
     await calendar.loadMonth(2026, 7);
     expect(db.daily_records.toArray).toHaveBeenCalledTimes(1);
     expect(db.goal_history.toArray).toHaveBeenCalledTimes(1);
+    expect(goal.getActiveGoal).toHaveBeenCalledTimes(1);
+    expect(db.daily_records.first).toHaveBeenCalledTimes(1);
   });
 
   it('day with matching record gets record attached', async () => {
