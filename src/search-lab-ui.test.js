@@ -206,13 +206,13 @@ describe('createSearchLabUI', () => {
   // ── Task 7: Day-of-Week Slump card ──────────────────────────────────────────
   describe('Day-of-Week Slump card', () => {
     const SLUMP_DATA = [
-      { day: 'Mon', hitRate: 0.75, avgSteps: 8500, totalDistanceKm: 12.50 },
-      { day: 'Tue', hitRate: null,  avgSteps: null, totalDistanceKm: null },
-      { day: 'Wed', hitRate: 1.0,   avgSteps: 10200, totalDistanceKm: 20.00 },
-      { day: 'Thu', hitRate: 0.5,   avgSteps: 7000,  totalDistanceKm: 9.00 },
-      { day: 'Fri', hitRate: 0.0,   avgSteps: 5000,  totalDistanceKm: 7.00 },
-      { day: 'Sat', hitRate: null,  avgSteps: 9000,  totalDistanceKm: null },
-      { day: 'Sun', hitRate: 0.333, avgSteps: 6000,  totalDistanceKm: 5.50 },
+      { day: 'Mon', hitRate: 75,   avgSteps: 8500, totalDistanceKm: 12.50 },
+      { day: 'Tue', hitRate: null, avgSteps: null, totalDistanceKm: null },
+      { day: 'Wed', hitRate: 100,  avgSteps: 10200, totalDistanceKm: 20.00 },
+      { day: 'Thu', hitRate: 50,   avgSteps: 7000,  totalDistanceKm: 9.00 },
+      { day: 'Fri', hitRate: 0,    avgSteps: 5000,  totalDistanceKm: 7.00 },
+      { day: 'Sat', hitRate: null, avgSteps: 9000,  totalDistanceKm: null },
+      { day: 'Sun', hitRate: 33,   avgSteps: 6000,  totalDistanceKm: 5.50 },
     ];
 
     it('inserts #search-slump-card into #tab-search', async () => {
@@ -244,7 +244,7 @@ describe('createSearchLabUI', () => {
       expect(days).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
     });
 
-    it('non-null hitRate renders as percentage string (e.g. "75.0%")', async () => {
+    it('hitRate integer (e.g. 75) renders as "75.0%" — no ×100 applied', async () => {
       mockEngine.findNearMisses.mockResolvedValue([]);
       mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
       const ui = createSearchLabUI(doc, mockEngine, mockReporter);
@@ -252,6 +252,17 @@ describe('createSearchLabUI', () => {
       const card = doc.getElementById('search-slump-card');
       const monRow = card.querySelector('[data-day="Mon"]');
       expect(monRow.textContent).toContain('75.0%');
+    });
+
+    it('hitRate of 50 renders "50.0%" (DoD: no double ×100)', async () => {
+      const data = [{ day: 'Thu', hitRate: 50, avgSteps: 7000, totalDistanceKm: 9.00 }];
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(data);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const thuRow = card.querySelector('[data-day="Thu"]');
+      expect(thuRow.textContent).toContain('50.0%');
     });
 
     it('null hitRate renders em-dash (—)', async () => {
@@ -331,8 +342,8 @@ describe('createSearchLabUI', () => {
   // ── Task 8: Comparison card with native date inputs ──────────────────────────
   describe('Comparison card', () => {
     const COMPARE_RESULT = {
-      periodA: { totalSteps: 50000, totalDistanceKm: 45.0, hitRate: 0.8 },
-      periodB: { totalSteps: 55000, totalDistanceKm: 49.5, hitRate: 0.9 },
+      periodA: { totalSteps: 50000, totalDistanceKm: 45.0, hitRate: 80 },
+      periodB: { totalSteps: 55000, totalDistanceKm: 49.5, hitRate: 90 },
       deltas: { totalSteps: 10.0, totalDistanceKm: 10.0, hitRate: null },
     };
 

@@ -103,7 +103,7 @@ export function createSearchLabUI(doc, engine, reporter) {
 
       const hitRateEl = doc.createElement('span');
       hitRateEl.textContent = row.hitRate !== null
-        ? `${(row.hitRate * 100).toFixed(1)}%`
+        ? `${row.hitRate.toFixed(1)}%`
         : '—';
 
       const avgStepsEl = doc.createElement('span');
@@ -178,7 +178,7 @@ export function createSearchLabUI(doc, engine, reporter) {
       const rows = [
         { label: 'Total Steps', a: periodA.totalSteps, b: periodB.totalSteps, delta: deltas.totalSteps },
         { label: 'Distance (km)', a: periodA.totalDistanceKm?.toFixed(2), b: periodB.totalDistanceKm?.toFixed(2), delta: deltas.totalDistanceKm },
-        { label: 'Hit Rate', a: periodA.hitRate !== null ? (periodA.hitRate * 100).toFixed(1) + '%' : '—', b: periodB.hitRate !== null ? (periodB.hitRate * 100).toFixed(1) + '%' : '—', delta: deltas.hitRate },
+        { label: 'Hit Rate', a: periodA.hitRate !== null ? periodA.hitRate.toFixed(1) + '%' : '—', b: periodB.hitRate !== null ? periodB.hitRate.toFixed(1) + '%' : '—', delta: deltas.hitRate },
       ];
 
       for (const row of rows) {
