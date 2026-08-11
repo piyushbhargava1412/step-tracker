@@ -182,3 +182,79 @@ Non-finite distance or step values fail their respective thresholds. The engine 
 lifetime 10k metric shown in the banner: `total_10k_days / total_days * 100`, including days with
 at least 10,000 steps. The Hall of Fame retains the top three unified streak periods for future
 analytics; rendering that list is outside this story's scope.
+
+## Calendar
+
+The Calendar tab displays a monthly heatmap grid with daily step performance against the date-effective goal, enabling users to explore their historical progress and access per-day details.
+
+### Navigating Months
+
+The calendar opens on the current local month and allows navigation via:
+
+- **Previous/Next buttons** — Move backward or forward by one month. These buttons are disabled at the data boundaries.
+- **Month dropdown** — Select any of the 12 months.
+- **Year dropdown** — Select from a range derived from your data: from the year of your earliest synced step record to the current year.
+
+**Navigation bounds**: The Prev button disables when the calendar reaches the month containing your earliest synced record; the Next button disables when the calendar reaches the current month. If your data is empty or incomplete, both Prev and Next render disabled and only the current month appears in the year dropdown.
+
+### Tile Colours
+
+Each tile in the calendar represents a single day and is coloured according to that day's performance against the goal in force on that date (using the Streak Engine's Effective Date Lock). The precedence ladder is:
+
+| Condition | Display | Meaning |
+|-----------|---------|---------|
+| **Future date** or **no synced data** | Neutral (muted) | No performance data available yet |
+| `effective_distance_km >= (target × 2.0)` | Green (Exceeded) | Exceeded the daily target by 2× or more |
+| `effective_distance_km >= target × 1.0` | Green (Met) | Met or exceeded the daily target |
+| `effective_distance_km < target × 1.0` | Amber (Missed) | Fell short of the daily target |
+
+**Important**: Every day is evaluated against **the goal in force on that day**, not today's goal. If you changed your target in the past, historical days use the goal that was active when they occurred.
+
+The comparisons use `>=` for both thresholds. Non-finite `effective_distance_km` values (e.g. missing, `NaN`, `Infinity`) are treated as `0`.
+
+### Override Badge
+
+Days marked with a `*` (asterisk) badge indicate `is_overridden === true` — a user-authored override created through manual logging (arriving in ST-006). The badge is orthogonal to the tile colour and may appear on any performance tier.
+
+### Monthly Summary
+
+Below the calendar grid, four metrics summarize the month's performance:
+
+```
+Total Steps      = sum of effective_steps for all contributing days
+Total Distance   = sum of effective_distance_km for all contributing days
+Avg Daily Steps  = Math.round(Total Steps / days_evaluated)
+Hit Rate %       = Math.round((days_target_met / days_evaluated) × 100)
+```
+
+**Critical note on `days_evaluated`**: This metric counts **only past or present days that have at least one synced record**, not all calendar days in the month. This is a **deliberate divergence from the story's literal "Total Days" wording** and is record-backed: a day with no synced data from Google Fit is excluded from both the numerator and denominator. This ensures an incompletely backfilled month is not reported as a near-zero hit rate.
+
+For example:
+- A month with 15 synced days (of which 10 met target) renders Hit Rate as `67%`, not a lower ratio based on the full 31-day month.
+- A month with zero synced records renders all four metrics as `—` (em dash), indicating insufficient data.
+
+### Day Detail Drawer
+
+Clicking any calendar tile (except future dates or padding) opens a side drawer showing detailed information for that day:
+
+**For a synced day:**
+- **Effective Steps** — the steps actually counted (after any override).
+- **Effective Distance** — the distance actually counted (after any override), in km.
+- **Synced (Google Fit)** — the original steps and distance reported by Google Fit.
+- **Verified Manual** — shown only if the day is marked as overridden; displays the user's corrected steps. Otherwise, renders `—`.
+- **Override note** — the user's explanatory text (e.g. "Phone was in pocket during phone call"). Shown only if overridden.
+- **Override status** — whether the day has a user correction (`Yes` or absent).
+
+**For an unsynced day (no record from Google Fit):**
+- The date header appears, but all metrics show `—`.
+- A placeholder message reads `No synced data for this date`.
+- The Edit / Override button is still present and active, allowing you to manually log the day (arriving in ST-006).
+
+**Dismissal:**
+- Click the close button (`×`) in the top-right of the drawer.
+- Click the semi-transparent overlay behind the drawer.
+- Press `Escape` on your keyboard.
+
+Focus returns to the tile you clicked after dismissal. If the calendar re-renders (e.g. month navigation, sync), any open drawer closes automatically.
+
+**Note**: The Edit / Override button is currently disabled and will activate in ST-006, which adds the form for manual logging and override submission.
