@@ -548,3 +548,55 @@ describe('createSearchLabUI', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Integration: real computeDayOfWeekSlump output → render() → avg-steps cell
+// ---------------------------------------------------------------------------
+describe('createSearchLabUI — slump integration (real engine, DI db mock)', () => {
+  it('avg-steps cell renders numeric value from real computeDayOfWeekSlump output (not em-dash)', async () => {
+    // Import real factories
+    const { createSearchLabUI } = await import('./search-lab-ui.js');
+    const { createSearchLab } = await import('./search-lab.js');
+
+    // Monday 2026-06-01 (index 0)
+    const monday = '2026-06-01';
+
+    // DI db mock with one Monday record
+    const dbMock = {
+      daily_records: {
+        orderBy: () => ({ first: async () => ({ date: monday }) }),
+        where: () => ({ between: () => ({ toArray: async () => [
+          { date: monday, steps: 7500, effective_distance_km: 4.2 }
+        ]})}),
+      },
+      goal_history: { toArray: async () => [] },
+    };
+
+    const goalMock = { getActiveGoal: async () => ({ steps_per_day: 6000 }) };
+
+    const lab = createSearchLab(dbMock, goalMock);
+
+    // Set up jsdom document
+    const d = document.implementation.createHTMLDocument('integration');
+    const tab = d.createElement('div');
+    tab.id = 'tab-search';
+    d.body.appendChild(tab);
+
+    const reporter = { db: vi.fn(), auth: vi.fn() };
+    const ui = createSearchLabUI(d, lab, reporter);
+    await ui.render();
+
+    const card = d.getElementById('search-slump-card');
+    expect(card).not.toBeNull();
+
+    // The slump card renders div rows with data-day attribute
+    // Find the Monday row (data-day="Mon")
+    const monRow = card.querySelector('[data-day="Mon"]');
+    expect(monRow).not.toBeNull();
+
+    // 3rd child = avg-steps span (label, hitRate, avgSteps, dist)
+    const avgStepsEl = monRow.children[2];
+    // Should render "7500" (not em-dash) because engine now returns avgSteps key
+    expect(avgStepsEl.textContent).toBe('7500');
+  });
+});

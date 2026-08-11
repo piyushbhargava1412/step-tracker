@@ -105,7 +105,7 @@ export function createSearchLab(db, goal) {
   }
 
   async function computeDayOfWeekSlump() {
-    const EMPTY_BUCKET = () => ({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+    const EMPTY_BUCKET = () => ({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
     const buckets = Array.from({ length: 7 }, EMPTY_BUCKET);
 
     const earliest = await db.daily_records.orderBy('date').first();
@@ -143,7 +143,7 @@ export function createSearchLab(db, goal) {
       if (count === 0) return EMPTY_BUCKET();
       return {
         hitRate: Math.round((metCount / count) * 100),
-        averageSteps: Math.round(sumSteps / count),
+        avgSteps: Math.round(sumSteps / count),
         totalDistanceKm: sumDistanceKm,
         count,
       };

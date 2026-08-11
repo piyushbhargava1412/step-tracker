@@ -290,11 +290,11 @@ describe('createSearchLab', () => {
       const result = await lab.computeDayOfWeekSlump();
       expect(result).toHaveLength(7);
       for (const bucket of result) {
-        expect(bucket).toEqual({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+        expect(bucket).toEqual({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
       }
     });
 
-    it('empty bucket shape: { hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 }', async () => {
+    it('empty bucket shape: { hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 }', async () => {
       const { createSearchLab } = await import('./search-lab.js');
       // Only Monday record — all other buckets should be empty
       const records = [
@@ -307,7 +307,7 @@ describe('createSearchLab', () => {
       const result = await lab.computeDayOfWeekSlump();
       // Tuesday through Sunday should be empty
       for (let i = 1; i <= 6; i++) {
-        expect(result[i]).toEqual({ hitRate: null, averageSteps: null, totalDistanceKm: null, count: 0 });
+        expect(result[i]).toEqual({ hitRate: null, avgSteps: null, totalDistanceKm: null, count: 0 });
       }
     });
 
@@ -340,7 +340,7 @@ describe('createSearchLab', () => {
       expect(result[0].hitRate).toBe(50);
     });
 
-    it('per-bucket averageSteps = Math.round(sumSteps / count)', async () => {
+    it('per-bucket avgSteps = Math.round(sumSteps / count)', async () => {
       const { createSearchLab } = await import('./search-lab.js');
       const records = [
         { date: '2026-08-10', effective_distance_km: 10.0, steps: 11000 }, // Monday
@@ -352,7 +352,7 @@ describe('createSearchLab', () => {
       const lab = createSearchLab(db, goal);
       const result = await lab.computeDayOfWeekSlump();
       // (11000+7000)/2 = 9000
-      expect(result[0].averageSteps).toBe(9000);
+      expect(result[0].avgSteps).toBe(9000);
     });
 
     it('per-bucket totalDistanceKm = sum of distances', async () => {

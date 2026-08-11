@@ -91,12 +91,15 @@ export function createSearchLabUI(doc, engine, reporter) {
       slumpRows = [];
     }
 
-    for (const row of slumpRows) {
+    const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    for (let i = 0; i < slumpRows.length; i++) {
+      const row = slumpRows[i];
+      const dayLabel = row.day ?? DOW_LABELS[i] ?? String(i);
       const rowEl = doc.createElement('div');
-      rowEl.dataset.day = row.day;
+      rowEl.dataset.day = dayLabel;
 
       const label = doc.createElement('span');
-      label.textContent = row.day;
+      label.textContent = dayLabel;
 
       const hitRateEl = doc.createElement('span');
       hitRateEl.textContent = row.hitRate !== null
