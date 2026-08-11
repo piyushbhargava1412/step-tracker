@@ -11,7 +11,7 @@
  */
 
 import { getTodayRecord, computeProgress } from './progress.js';
-import { GOAL_PRESETS_KM } from './goal.js';
+import { STEP_GOAL_OPTIONS } from './goal.js';
 
 /**
  * Factory: Today's Progress card renderer.
@@ -142,93 +142,55 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     const card = _buildCard(progress);
     dashboard.appendChild(card);
 
-    const selector = _buildSelector();
+    const selector = _buildSelector(progress);
     dashboard.appendChild(selector);
   }
 
   /**
-   * Build the goal selector element and attach delegated listeners.
+   * Build the goal selector element (a Step Target <select>) and attach its
+   * change listener.
+   *
+   * @param {{ target_steps: number }} progress - current render's resolved progress state
    * @returns {HTMLElement}
    */
-  function _buildSelector() {
-    const ERROR_MSG = '⚠️ Enter a distance greater than 0';
+  function _buildSelector(progress) {
     const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';
 
     const container = doc.createElement('div');
     container.className = 'goal-selector';
     container.id = 'goal-selector';
 
-    // Preset buttons
-    const presets = GOAL_PRESETS_KM;
-    for (const km of presets) {
-      const btn = doc.createElement('button');
-      btn.className = 'goal-preset';
-      btn.dataset.goalPreset = String(km);
-      btn.textContent = `${km} km`;
-      container.appendChild(btn);
+    const select = doc.createElement('select');
+    select.id = 'goal-select';
+    select.className = 'goal-select';
+
+    for (const steps of STEP_GOAL_OPTIONS) {
+      const option = doc.createElement('option');
+      option.value = String(steps);
+      option.textContent = `${steps.toLocaleString('en-US')} steps`;
+      select.appendChild(option);
     }
 
-    // Custom input
-    const input = doc.createElement('input');
-    input.className = 'goal-input';
-    input.id = 'goal-input';
-    input.type = 'number';
-    input.placeholder = 'Custom km';
-    container.appendChild(input);
-
-    // Apply button
-    const applyBtn = doc.createElement('button');
-    applyBtn.className = 'goal-apply';
-    applyBtn.dataset.goalApply = '';
-    applyBtn.textContent = 'Apply';
-    container.appendChild(applyBtn);
+    select.value = String(progress.target_steps);
+    container.appendChild(select);
 
     // Error span
     const errorSpan = doc.createElement('span');
     errorSpan.id = 'goal-error';
     container.appendChild(errorSpan);
 
-    // Delegated click listener on the container (kills stale listeners when container replaced)
-    container.addEventListener('click', async (e) => {
-      const preset = e.target.dataset.goalPreset;
-      if (preset != null) {
-        await _applyPreset(Number(preset));
-        return;
-      }
-      if ('goalApply' in e.target.dataset) {
-        const v = Number(input.value);
+    // Listener attached to the freshly-created <select> each render — the
+    // stale-container-replaced-on-re-render pattern kills stale listeners.
+    select.addEventListener('change', async (e) => {
+      try {
+        await goal.setActiveStepGoal(Number(e.target.value));
+        await render();
+        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
+      } catch (_err) {
         const errEl = doc.getElementById('goal-error');
-        if (!Number.isFinite(v) || v <= 0) {
-          if (errEl) errEl.textContent = ERROR_MSG;
-          return;
-        }
-        if (errEl) errEl.textContent = '';
-        await _applyCustom(v);
+        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
       }
     });
-
-    // Shared goal-apply logic for both preset and custom paths.
-    async function _applyPreset(km) {
-      try {
-        await goal.setActiveGoal(km);
-        await render();
-        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
-      } catch (_err) {
-        const errEl = doc.getElementById('goal-error');
-        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-      }
-    }
-
-    async function _applyCustom(km) {
-      try {
-        await goal.setActiveGoal(km);
-        await render();
-        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
-      } catch (_err) {
-        const errEl = doc.getElementById('goal-error');
-        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-      }
-    }
 
     return container;
   }
