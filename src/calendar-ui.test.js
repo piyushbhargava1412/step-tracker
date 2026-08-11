@@ -4,7 +4,11 @@
  * because JSDOM's AbortController.signal is not compatible with addEventListener.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { createCalendarUI } from './calendar-ui.js';
+
+const calendarUiSource = fs.readFileSync(path.resolve(__dirname, 'calendar-ui.js'), 'utf8');
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -619,10 +623,7 @@ describe('render() — drawer', async () => {
 // ---------------------------------------------------------------------------
 
 describe('calendar-ui.js — no innerHTML', () => {
-  it('calendar-ui.js contains no innerHTML strings', async () => {
-    const fs = await import('fs');
-    const uiPath = fs ? new URL('calendar-ui.js', import.meta.url).pathname : '';
-    // This test is informational — the actual check is done by grep
-    expect(true).toBe(true);
+  it('calendar-ui.js contains no innerHTML strings', () => {
+    expect(calendarUiSource).not.toMatch(/innerHTML/);
   });
 });

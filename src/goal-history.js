@@ -35,6 +35,9 @@ export function _isValidGoalRow(row) {
  * Returns true if an active_goal row can produce a valid goalHistory entry.
  * Requires a non-empty `effective_from` string and a finite positive `target_distance_km`.
  *
+ * Intentionally separate from _isValidGoalRow: active_goal and goal_history rows are
+ * distinct store shapes and may diverge as the schema evolves.
+ *
  * @param {*} row
  * @returns {boolean}
  */

@@ -327,7 +327,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
     const previousFocus = doc.activeElement;
 
     // Clear previous content
-    drawer.innerHTML = '';
+    drawer.replaceChildren();
 
     // Date header
     const parts = day.date.split('-').map(Number);
@@ -429,16 +429,15 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
 
   function _closeDrawer(tile) {
     const drawer = doc.getElementById('day-drawer');
-    const overlay = doc.querySelector('.drawer-overlay');
+    const overlayEl = doc.querySelector('.drawer-overlay');
     if (!drawer) return;
 
     drawer.classList.remove('drawer--open');
     drawer.setAttribute('hidden', '');
-    const overlayEl = doc.querySelector('.drawer-overlay');
     if (overlayEl) overlayEl.setAttribute('hidden', '');
 
     // Clear content
-    drawer.innerHTML = '';
+    drawer.replaceChildren();
 
     // Restore focus (guarded — tile may have been removed by re-render)
     if (tile && typeof tile.focus === 'function') {
@@ -454,7 +453,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter) {
     drawer.classList.remove('drawer--open');
     drawer.setAttribute('hidden', '');
     if (overlay) overlay.setAttribute('hidden', '');
-    drawer.innerHTML = '';
+    drawer.replaceChildren();
   }
 
   return { render };

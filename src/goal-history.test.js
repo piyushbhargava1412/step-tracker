@@ -13,7 +13,6 @@ import {
   _isValidActiveGoalForHistory,
   _isValidRecord,
   _sortByDate,
-  _ascBy,
 } from './goal-history.js';
 import { DEFAULT_GOAL_KM } from './goal.js';
 

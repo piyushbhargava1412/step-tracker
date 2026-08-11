@@ -71,6 +71,16 @@ describe('buildMonthGrid', () => {
     expect(grid.leadingPad).toBe(1);
   });
 
+  it('month starting on Monday — June 2026 (leadingPad === 0)', () => {
+    const grid = buildMonthGrid(2026, 5, TODAY); // June 2026 starts on Monday
+    expect(grid.leadingPad).toBe(0);
+  });
+
+  it('month starting on Sunday — March 2026 (leadingPad === 6)', () => {
+    const grid = buildMonthGrid(2026, 2, TODAY); // March 2026 starts on Sunday
+    expect(grid.leadingPad).toBe(6);
+  });
+
   it('February 2024 (leap year, 29 days)', () => {
     const grid = buildMonthGrid(2024, 1, '2024-02-15');
     expect(grid.days.length).toBe(29);
