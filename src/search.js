@@ -18,6 +18,8 @@ export function createSearch(db, goal) {
         ? await db.daily_records.where('date').between(f.startDate, f.endDate, true, true)
         : await db.daily_records.toArray();
 
+      const totalDays = raw.length;
+
       const history = await db.goal_history.toArray();
       const activeGoal = await goal.getActiveGoal();
       const effectiveHistory = buildEffectiveGoalHistory(history, activeGoal);
@@ -29,7 +31,7 @@ export function createSearch(db, goal) {
       const overrideStatus = f.overrideStatus ?? 'all';
       const targetOutcome = f.targetOutcome ?? 'all';
 
-      const result = raw.filter((record) => {
+      const records = raw.filter((record) => {
         if (minSteps !== null && record.effective_steps < minSteps) return false;
         if (maxSteps !== null && record.effective_steps > maxSteps) return false;
         if (minDistance !== null && record.effective_distance_km < minDistance) return false;
@@ -53,10 +55,13 @@ export function createSearch(db, goal) {
         return true;
       });
 
-      return result.sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
+      return {
+        records: records.sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0)),
+        totalDays,
+      };
     } catch (err) {
       console.error('[search]', err);
-      return [];
+      return { records: [], totalDays: 0 };
     }
   }
 

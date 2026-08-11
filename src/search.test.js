@@ -86,7 +86,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal({ effective_from: '2025-01-01', target_distance_km: 8.0 });
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ minDistance: 7.5, targetOutcome: 'met' });
+    const { records: result } = await executeQuery({ minDistance: 7.5, targetOutcome: 'met' });
     expect(result.length).toBe(2);
     result.forEach((r) => {
       expect(r.effective_distance_km).toBeGreaterThanOrEqual(7.5);
@@ -107,7 +107,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ overrideStatus: 'overridden' });
+    const { records: result } = await executeQuery({ overrideStatus: 'overridden' });
     expect(result.length).toBe(2);
     result.forEach((r) => expect(r.is_overridden).toBe(true));
   });
@@ -123,7 +123,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ overrideStatus: 'not-overridden' });
+    const { records: result } = await executeQuery({ overrideStatus: 'not-overridden' });
     expect(result.length).toBe(2);
     result.forEach((r) => expect(r.is_overridden).toBe(false));
   });
@@ -139,7 +139,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ overrideStatus: 'all' });
+    const { records: result } = await executeQuery({ overrideStatus: 'all' });
     expect(result.length).toBe(4);
   });
 
@@ -155,7 +155,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ minSteps: 6000, maxSteps: 10000 });
+    const { records: result } = await executeQuery({ minSteps: 6000, maxSteps: 10000 });
     expect(result.length).toBe(3);
     result.forEach((r) => {
       expect(r.effective_steps).toBeGreaterThanOrEqual(6000);
@@ -174,7 +174,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal({ effective_from: '2025-01-01', target_distance_km: 8.0 });
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ targetOutcome: 'missed' });
+    const { records: result } = await executeQuery({ targetOutcome: 'missed' });
     expect(result.length).toBe(2);
     result.forEach((r) => expect(Number.isFinite(r.effective_distance_km)).toBe(true));
   });
@@ -189,7 +189,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal({ effective_from: '2025-01-01', target_distance_km: 8.0 });
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ targetOutcome: 'all' });
+    const { records: result } = await executeQuery({ targetOutcome: 'all' });
     expect(result.length).toBe(3);
   });
 
@@ -201,7 +201,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ minSteps: 100000 });
+    const { records: result } = await executeQuery({ minSteps: 100000 });
     expect(result).toEqual([]);
   });
 
@@ -214,7 +214,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({});
+    const { records: result } = await executeQuery({});
     expect(result.length).toBe(2);
   });
 
@@ -226,7 +226,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    await expect(executeQuery(null)).resolves.toHaveLength(1);
+    await expect(executeQuery(null).then(r => r.records)).resolves.toHaveLength(1);
   });
 
   it('filters=undefined → all records returned; no crash', async () => {
@@ -237,7 +237,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    await expect(executeQuery(undefined)).resolves.toHaveLength(1);
+    await expect(executeQuery(undefined).then(r => r.records)).resolves.toHaveLength(1);
   });
 
   it('non-finite minSteps (NaN) treated as not set; no step filter applied', async () => {
@@ -249,7 +249,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({ minSteps: NaN });
+    const { records: result } = await executeQuery({ minSteps: NaN });
     expect(result.length).toBe(2);
   });
 
@@ -263,7 +263,7 @@ describe('createSearch — executeQuery', () => {
     const db = makeDb({ records });
     const goal = makeGoal();
     const { executeQuery } = createSearch(db, goal);
-    const result = await executeQuery({});
+    const { records: result } = await executeQuery({});
     expect(result[0].date).toBe('2026-01-03');
     expect(result[1].date).toBe('2026-01-02');
     expect(result[2].date).toBe('2026-01-01');

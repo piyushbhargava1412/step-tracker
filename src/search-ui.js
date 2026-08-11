@@ -1,5 +1,6 @@
 export function createSearchUI(doc, search, exporter, goal, reporter) {
   let controller = null;
+  let currentRecords = null;
 
   function render() {
     const panel = doc.getElementById('tab-search');
@@ -12,6 +13,7 @@ export function createSearchUI(doc, search, exporter, goal, reporter) {
       controller.abort();
     }
     controller = new AbortController();
+    const { signal } = controller;
 
     while (panel.firstChild) {
       panel.removeChild(panel.firstChild);
@@ -21,6 +23,134 @@ export function createSearchUI(doc, search, exporter, goal, reporter) {
     panel.appendChild(_buildResultsGrid());
     panel.appendChild(_buildSummary());
     panel.appendChild(_buildExportControls());
+
+    panel.addEventListener('click', async (event) => {
+      const target = event.target.closest('[data-action]');
+      if (!target) return;
+      const action = target.dataset.action;
+      if (action === 'execute') await _handleExecute(panel);
+      else if (action === 'reset') _handleReset(panel);
+      else if (action === 'export-csv') _handleExportCsv();
+      else if (action === 'export-json') _handleExportJson();
+    }, { signal });
+  }
+
+  async function _handleExecute(panel) {
+    const filters = _readFilters(panel);
+    try {
+      const result = await search.executeQuery(filters);
+      currentRecords = result.records;
+      _renderGrid(panel, result.records);
+      const summary = search.computeResultSummary(result.records, result.totalDays);
+      _renderSummary(panel, summary);
+    } catch (err) {
+      console.error('[search]', err);
+      reporter.db('❌ Search query failed');
+      _renderGrid(panel, []);
+    }
+  }
+
+  function _handleReset(panel) {
+    currentRecords = null;
+    panel.querySelectorAll('[data-field]').forEach((el) => {
+      el.value = '';
+    });
+    _renderGrid(panel, []);
+    _renderSummary(panel, { count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
+  }
+
+  function _handleExportCsv() {
+    if (!currentRecords || currentRecords.length === 0) return;
+    exporter.exportCsv(currentRecords);
+  }
+
+  function _handleExportJson() {
+    if (!currentRecords || currentRecords.length === 0) return;
+    exporter.exportJson(currentRecords);
+  }
+
+  function _readFilters(panel) {
+    const filters = {};
+    panel.querySelectorAll('[data-field]').forEach((el) => {
+      const field = el.dataset.field;
+      const val = el.value.trim();
+      if (!val) return;
+      if (field === 'start-date') filters.startDate = val;
+      else if (field === 'end-date') filters.endDate = val;
+      else if (field === 'min-steps') {
+        const n = Number(val);
+        if (Number.isFinite(n)) filters.minSteps = n;
+      } else if (field === 'max-steps') {
+        const n = Number(val);
+        if (Number.isFinite(n)) filters.maxSteps = n;
+      } else if (field === 'min-distance') {
+        const n = Number(val);
+        if (Number.isFinite(n)) filters.minDistance = n;
+      } else if (field === 'override-status' && val !== 'all') {
+        filters.overrideStatus = val;
+      } else if (field === 'target-outcome' && val !== 'all') {
+        filters.targetOutcome = val;
+      }
+    });
+    return filters;
+  }
+
+  function _renderGrid(panel, records) {
+    const grid = panel.querySelector('.search-results-table');
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+    for (const record of records) {
+      const row = doc.createElement('div');
+      row.dataset.row = record.date;
+
+      const dateCell = doc.createElement('span');
+      dateCell.dataset.cell = 'date';
+      dateCell.textContent = record.date;
+      row.appendChild(dateCell);
+
+      const stepsCell = doc.createElement('span');
+      stepsCell.dataset.cell = 'effective-steps';
+      stepsCell.textContent = String(record.effective_steps);
+      row.appendChild(stepsCell);
+
+      const distCell = doc.createElement('span');
+      distCell.dataset.cell = 'effective-distance';
+      distCell.textContent = Number.isFinite(record.effective_distance_km)
+        ? String(record.effective_distance_km)
+        : '—';
+      row.appendChild(distCell);
+
+      const noteCell = doc.createElement('span');
+      noteCell.dataset.cell = 'override-note';
+      noteCell.textContent = record.is_overridden ? (record.override?.note ?? '') : '—';
+      row.appendChild(noteCell);
+
+      grid.appendChild(row);
+    }
+  }
+
+  function _renderSummary(panel, summary) {
+    const summaryEl = panel.querySelector('.search-summary');
+    while (summaryEl.firstChild) summaryEl.removeChild(summaryEl.firstChild);
+
+    const cells = [
+      { label: 'Matches', value: String(summary.count ?? 0) },
+      { label: 'Match %', value: summary.matchPct !== null && summary.matchPct !== undefined ? `${summary.matchPct}%` : '—' },
+      { label: 'Cumulative Distance', value: summary.cumulativeDistanceKm !== undefined ? `${summary.cumulativeDistanceKm} km` : '—' },
+      { label: 'Avg Steps', value: summary.avgSteps !== null && summary.avgSteps !== undefined ? String(summary.avgSteps) : '—' },
+    ];
+
+    for (const cell of cells) {
+      const div = doc.createElement('div');
+      div.className = 'summary-cell';
+      const labelSpan = doc.createElement('span');
+      labelSpan.textContent = cell.label;
+      const valueSpan = doc.createElement('span');
+      valueSpan.className = 'value';
+      valueSpan.textContent = cell.value;
+      div.appendChild(labelSpan);
+      div.appendChild(valueSpan);
+      summaryEl.appendChild(div);
+    }
   }
 
   function _buildFilters() {

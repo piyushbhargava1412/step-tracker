@@ -183,3 +183,249 @@ describe('createSearchUI — render skeleton', () => {
     expect(doc.querySelector('.search-filters')).not.toBeNull();
   });
 });
+
+describe('createSearchUI — behaviour', () => {
+  function makeRecord(overrides = {}) {
+    return {
+      date: '2026-01-15',
+      effective_steps: 8000,
+      effective_distance_km: 6.5,
+      is_overridden: false,
+      override: null,
+      ...overrides,
+    };
+  }
+
+  async function clickAction(doc, action) {
+    const btn = doc.querySelector(`[data-action="${action}"]`);
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('clicking Execute calls search.executeQuery with filters object from form values', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    doc.querySelector('[data-field="min-steps"]').value = '5000';
+    doc.querySelector('[data-field="max-steps"]').value = '10000';
+    await clickAction(doc, 'execute');
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+    const filters = search.executeQuery.mock.calls[0][0];
+    expect(filters.minSteps).toBe(5000);
+    expect(filters.maxSteps).toBe(10000);
+  });
+
+  it('blank filter inputs omitted from filters object passed to executeQuery', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const filters = search.executeQuery.mock.calls[0][0];
+    const keys = Object.keys(filters);
+    expect(keys.length).toBe(0);
+  });
+
+  it('Execute renders a grid row per returned record', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records = [makeRecord(), makeRecord({ date: '2026-01-14' }), makeRecord({ date: '2026-01-13' })];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 3 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 100, cumulativeDistanceKm: 19.5, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const grid = doc.querySelector('.search-results-table');
+    expect(grid.querySelectorAll('[data-row]').length).toBe(3);
+  });
+
+  it('override-note preview cell uses textContent (not innerHTML)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const record = makeRecord({ is_overridden: true, override: { note: '<b>hi</b>' } });
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
+    expect(noteCell.textContent).toBe('<b>hi</b>');
+  });
+
+  it('non-overridden record shows — in override cell', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const record = makeRecord({ is_overridden: false });
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], totalDays: 1 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
+    expect(noteCell.textContent).toBe('—');
+  });
+
+  it('summary card updated with values from computeResultSummary after Execute', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord(), makeRecord()], totalDays: 5 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 3, matchPct: 60, cumulativeDistanceKm: 13.5, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const cells = doc.querySelectorAll('.summary-cell .value');
+    const texts = Array.from(cells).map((c) => c.textContent);
+    expect(texts).toContain('3');
+    expect(texts).toContain('60%');
+    expect(texts).toContain('13.5 km');
+    expect(texts).toContain('8000');
+  });
+
+  it('null matchPct rendered as — in summary', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], totalDays: 0 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const cells = doc.querySelectorAll('.summary-cell .value');
+    const texts = Array.from(cells).map((c) => c.textContent);
+    expect(texts).toContain('—');
+  });
+
+  it('Export CSV calls exporter.exportCsv with the current result array', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records = [makeRecord()];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const exporter = makeMockExporter();
+    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'export-csv');
+    expect(exporter.exportCsv).toHaveBeenCalledTimes(1);
+    expect(exporter.exportCsv).toHaveBeenCalledWith(records);
+  });
+
+  it('Export JSON calls exporter.exportJson with the current result array', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records = [makeRecord()];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records, totalDays: 1 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const exporter = makeMockExporter();
+    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'export-json');
+    expect(exporter.exportJson).toHaveBeenCalledTimes(1);
+    expect(exporter.exportJson).toHaveBeenCalledWith(records);
+  });
+
+  it('Export CSV no-op when no Execute has been run', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const exporter = makeMockExporter();
+    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'export-csv');
+    expect(exporter.exportCsv).not.toHaveBeenCalled();
+  });
+
+  it('Export JSON no-op when no Execute has been run', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const exporter = makeMockExporter();
+    const { render } = createSearchUI(doc, makeMockSearch(), exporter, makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'export-json');
+    expect(exporter.exportJson).not.toHaveBeenCalled();
+  });
+
+  it('Export uses result of last Execute, not stale prior result', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const records1 = [makeRecord({ date: '2026-01-15' })];
+    const records2 = [makeRecord({ date: '2026-01-10' }), makeRecord({ date: '2026-01-09' })];
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn()
+      .mockResolvedValueOnce({ records: records1, totalDays: 1 })
+      .mockResolvedValueOnce({ records: records2, totalDays: 2 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
+    const exporter = makeMockExporter();
+    const { render } = createSearchUI(doc, search, exporter, makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'execute');
+    await clickAction(doc, 'export-csv');
+    expect(exporter.exportCsv).toHaveBeenCalledWith(records2);
+  });
+
+  it('Reset clears all data-field input values', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    doc.querySelector('[data-field="min-steps"]').value = '5000';
+    doc.querySelector('[data-field="max-steps"]').value = '10000';
+    await clickAction(doc, 'reset');
+    const fields = doc.querySelectorAll('[data-field]');
+    fields.forEach((f) => expect(f.value).toBe(''));
+  });
+
+  it('Reset re-renders zero-state results grid', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord(), makeRecord()], totalDays: 2 });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, cumulativeDistanceKm: 13, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    expect(doc.querySelector('.search-results-table').querySelectorAll('[data-row]').length).toBe(2);
+    await clickAction(doc, 'reset');
+    expect(doc.querySelector('.search-results-table').querySelectorAll('[data-row]').length).toBe(0);
+  });
+
+  it('query rejection → reporter.db called with ❌ Search query failed', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
+    const reporter = makeMockReporter();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), reporter);
+    render();
+    await clickAction(doc, 'execute');
+    expect(reporter.db).toHaveBeenCalledWith('❌ Search query failed');
+  });
+
+  it('query rejection → zero-state grid shown', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    expect(doc.querySelector('.search-results-table').querySelectorAll('[data-row]').length).toBe(0);
+  });
+
+  it('query rejection → console.error called with [search] prefix', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = new Error('db fail');
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockRejectedValue(err);
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    expect(errSpy).toHaveBeenCalledWith('[search]', err);
+  });
+
+  it('query rejection does not propagate (no unhandled rejection)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockRejectedValue(new Error('db fail'));
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockGoal(), makeMockReporter());
+    render();
+    await expect(clickAction(doc, 'execute')).resolves.toBeUndefined();
+  });
+});
