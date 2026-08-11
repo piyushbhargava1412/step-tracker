@@ -16,7 +16,9 @@ import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
 import { createMonthOverview } from './month-overview.js'
 import { createRecords } from './records.js'
-import { processImage } from './image-processor.js'  
+import { processImage } from './image-processor.js'
+import { createSearchLab } from './search-lab.js'
+import { createSearchLabUI } from './search-lab-ui.js'
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -59,6 +61,8 @@ export async function bootstrap(doc = document) {
     streakUI.render()
     monthOverview.render()
   })
+  const searchLab = createSearchLab(db, goal)
+  const searchLabUI = createSearchLabUI(doc, searchLab, reporter)
 
   // 7. Bind auth button
   const authBtn = doc.getElementById('auth-btn')
@@ -87,6 +91,11 @@ export async function bootstrap(doc = document) {
       } catch (err) {
         console.error('[main] monthOverview.render failed after sync, continuing', err)
       }
+      try {
+        await searchLabUI.render()
+      } catch (err) {
+        console.error('[main] searchLabUI.render failed after sync, continuing', err)
+      }
     })
   }
 
@@ -111,6 +120,20 @@ export async function bootstrap(doc = document) {
       await monthOverview.render()
     } catch (err) {
       console.error('[main] monthOverview.render failed after mutation, continuing', err)
+    }
+    try {
+      await searchLabUI.render()
+    } catch (err) {
+      console.error('[main] searchLabUI.render failed after mutation, continuing', err)
+    }
+  })
+
+  // 8b. Handle ui:open-day-drawer — forward to calendarUI
+  doc.addEventListener('ui:open-day-drawer', (e) => {
+    try {
+      calendarUI.openDrawerForDate(e.detail.date)
+    } catch (err) {
+      console.error('[main]', err)
     }
   })
 
@@ -146,6 +169,13 @@ export async function bootstrap(doc = document) {
     await monthOverview.render()
   } catch (err) {
     console.error('[main] monthOverview.render failed, continuing', err)
+  }
+
+  // 14. Render Search Lab on page load (ST-008, fail-open)
+  try {
+    await searchLabUI.render()
+  } catch (err) {
+    console.error('[main] searchLabUI.render failed, continuing', err)
   }
 }
 

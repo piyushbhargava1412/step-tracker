@@ -44,7 +44,7 @@ vi.mock('./calendar.js', () => ({
   createCalendar: vi.fn(() => mockCalendarInstance)
 }))
 
-const mockCalendarUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+const mockCalendarUIInstance = { render: vi.fn().mockResolvedValue(undefined), openDrawerForDate: vi.fn() }
 vi.mock('./calendar-ui.js', () => ({
   createCalendarUI: vi.fn(() => mockCalendarUIInstance)
 }))
@@ -52,6 +52,17 @@ vi.mock('./calendar-ui.js', () => ({
 const mockMonthOverviewInstance = { render: vi.fn().mockResolvedValue(undefined) }
 vi.mock('./month-overview.js', () => ({
   createMonthOverview: vi.fn(() => mockMonthOverviewInstance)
+}))
+
+// Task 10: mock search-lab.js and search-lab-ui.js
+const mockSearchLabInstance = { findNearMisses: vi.fn(), computeDayOfWeekSlump: vi.fn(), comparePeriods: vi.fn() }
+vi.mock('./search-lab.js', () => ({
+  createSearchLab: vi.fn(() => mockSearchLabInstance)
+}))
+
+const mockSearchLabUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./search-lab-ui.js', () => ({
+  createSearchLabUI: vi.fn(() => mockSearchLabUIInstance)
 }))
 
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
@@ -104,6 +115,8 @@ import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
 import { createMonthOverview } from './month-overview.js'
+import { createSearchLab } from './search-lab.js'
+import { createSearchLabUI } from './search-lab-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -753,5 +766,121 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('main.js — Task 10: Search Lab wiring', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockSearchLabUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  it('createSearchLab is invoked exactly once with (mockDb, mockGoalInstance)', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createSearchLab).toHaveBeenCalledTimes(1)
+    expect(createSearchLab).toHaveBeenCalledWith(mockDb, mockGoalInstance)
+  })
+
+  it('createSearchLabUI is invoked exactly once with (doc, searchLabInstance, mockReporter)', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createSearchLabUI).toHaveBeenCalledTimes(1)
+    expect(createSearchLabUI).toHaveBeenCalledWith(isolatedDoc, mockSearchLabInstance, mockReporter)
+  })
+
+  it('searchLabUI.render() is called during page-load bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(mockSearchLabUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('dispatching data:records:mutated triggers searchLabUI.render()', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockSearchLabUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockSearchLabUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('#sync-btn click triggers searchLabUI.render() after sync', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockSearchLabUIInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockSearchLabUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('searchLabUI.render() rejection does not break calendarUI.render() (fail-open)', async () => {
+    mockSearchLabUIInstance.render.mockRejectedValue(new Error('search lab error'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await bootstrap(isolatedDoc)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    errorSpy.mockRestore()
+  })
+
+  it('searchLabUI.render() rejection does not propagate to bootstrap caller', async () => {
+    mockSearchLabUIInstance.render.mockRejectedValue(new Error('search lab error'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
+    errorSpy.mockRestore()
+  })
+
+  it('dispatching ui:open-day-drawer calls calendarUI.openDrawerForDate with correct date', async () => {
+    await bootstrap(isolatedDoc)
+    const date = '2026-08-10'
+    isolatedDoc.dispatchEvent(new CustomEvent('ui:open-day-drawer', { detail: { date } }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockCalendarUIInstance.openDrawerForDate).toHaveBeenCalledWith(date)
+  })
+
+  it('ui:open-day-drawer handler: openDrawerForDate throws → error caught; no crash', async () => {
+    await bootstrap(isolatedDoc)
+    mockCalendarUIInstance.openDrawerForDate.mockImplementation(() => { throw new Error('drawer fail') })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    isolatedDoc.dispatchEvent(new CustomEvent('ui:open-day-drawer', { detail: { date: '2026-08-10' } }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(errorSpy).toHaveBeenCalledWith('[main]', expect.any(Error))
+    errorSpy.mockRestore()
   })
 })
