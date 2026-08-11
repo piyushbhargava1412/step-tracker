@@ -201,4 +201,131 @@ describe('createSearchLabUI', () => {
       expect(count).toBe(0);
     });
   });
+
+
+  // ── Task 7: Day-of-Week Slump card ──────────────────────────────────────────
+  describe('Day-of-Week Slump card', () => {
+    const SLUMP_DATA = [
+      { day: 'Mon', hitRate: 0.75, avgSteps: 8500, totalDistanceKm: 12.50 },
+      { day: 'Tue', hitRate: null,  avgSteps: null, totalDistanceKm: null },
+      { day: 'Wed', hitRate: 1.0,   avgSteps: 10200, totalDistanceKm: 20.00 },
+      { day: 'Thu', hitRate: 0.5,   avgSteps: 7000,  totalDistanceKm: 9.00 },
+      { day: 'Fri', hitRate: 0.0,   avgSteps: 5000,  totalDistanceKm: 7.00 },
+      { day: 'Sat', hitRate: null,  avgSteps: 9000,  totalDistanceKm: null },
+      { day: 'Sun', hitRate: 0.333, avgSteps: 6000,  totalDistanceKm: 5.50 },
+    ];
+
+    it('inserts #search-slump-card into #tab-search', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      expect(doc.getElementById('search-slump-card')).not.toBeNull();
+    });
+
+    it('renders exactly 7 rows (one per weekday Mon..Sun)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const rows = card.querySelectorAll('[data-day]');
+      expect(rows.length).toBe(7);
+    });
+
+    it('row labels match Mon Tue Wed Thu Fri Sat Sun in order', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const rows = card.querySelectorAll('[data-day]');
+      const days = Array.from(rows).map(r => r.dataset.day);
+      expect(days).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+    });
+
+    it('non-null hitRate renders as percentage string (e.g. "75.0%")', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const monRow = card.querySelector('[data-day="Mon"]');
+      expect(monRow.textContent).toContain('75.0%');
+    });
+
+    it('null hitRate renders em-dash (—)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const tueRow = card.querySelector('[data-day="Tue"]');
+      expect(tueRow.textContent).toContain('—');
+    });
+
+    it('non-null totalDistanceKm renders as ".toFixed(2) km" (e.g. "12.50 km")', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const monRow = card.querySelector('[data-day="Mon"]');
+      expect(monRow.textContent).toContain('12.50 km');
+    });
+
+    it('null totalDistanceKm renders em-dash (—)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const tueRow = card.querySelector('[data-day="Tue"]');
+      // Tue has null for both hitRate and totalDistanceKm — at least 2 em-dashes
+      const dashes = (tueRow.textContent.match(/—/g) || []).length;
+      expect(dashes).toBeGreaterThanOrEqual(2);
+    });
+
+    it('non-null avgSteps renders as integer string', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const monRow = card.querySelector('[data-day="Mon"]');
+      expect(monRow.textContent).toContain('8500');
+    });
+
+    it('null avgSteps renders em-dash (—)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      const card = doc.getElementById('search-slump-card');
+      const tueRow = card.querySelector('[data-day="Tue"]');
+      expect(tueRow.textContent).toContain('—');
+    });
+
+    it('second render() → only one #search-slump-card in DOM (idempotent)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockResolvedValue(SLUMP_DATA);
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await ui.render();
+      await ui.render();
+      const cards = doc.querySelectorAll('#search-slump-card');
+      expect(cards.length).toBe(1);
+    });
+
+    it('computeDayOfWeekSlump rejects → renders card with zero rows (no throw)', async () => {
+      mockEngine.findNearMisses.mockResolvedValue([]);
+      mockEngine.computeDayOfWeekSlump.mockRejectedValue(new Error('fail'));
+      const ui = createSearchLabUI(doc, mockEngine, mockReporter);
+      await expect(ui.render()).resolves.not.toThrow();
+      const card = doc.getElementById('search-slump-card');
+      expect(card).not.toBeNull();
+      const rows = card.querySelectorAll('[data-day]');
+      expect(rows.length).toBe(0);
+    });
+  });
+
 });

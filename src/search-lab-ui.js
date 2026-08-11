@@ -73,6 +73,55 @@ export function createSearchLabUI(doc, engine, reporter) {
     }
 
     panel.appendChild(nearMissCard);
+
+    // ── Day-of-Week Slump card ──────────────────────────────────────────────
+    const slumpCard = doc.createElement('div');
+    slumpCard.id = 'search-slump-card';
+
+    const slumpTitle = doc.createElement('h3');
+    slumpTitle.textContent = 'Day-of-Week Slump';
+    slumpCard.appendChild(slumpTitle);
+
+    let slumpRows = [];
+    try {
+      slumpRows = (await engine.computeDayOfWeekSlump()) ?? [];
+    } catch (err) {
+      reporter.db('❌ Slump load failed');
+      console.error('[search-lab]', err);
+      slumpRows = [];
+    }
+
+    for (const row of slumpRows) {
+      const rowEl = doc.createElement('div');
+      rowEl.dataset.day = row.day;
+
+      const label = doc.createElement('span');
+      label.textContent = row.day;
+
+      const hitRateEl = doc.createElement('span');
+      hitRateEl.textContent = row.hitRate !== null
+        ? `${(row.hitRate * 100).toFixed(1)}%`
+        : '—';
+
+      const avgStepsEl = doc.createElement('span');
+      avgStepsEl.textContent = row.avgSteps !== null
+        ? String(row.avgSteps)
+        : '—';
+
+      const distEl = doc.createElement('span');
+      distEl.textContent = row.totalDistanceKm !== null
+        ? `${row.totalDistanceKm.toFixed(2)} km`
+        : '—';
+
+      rowEl.appendChild(label);
+      rowEl.appendChild(hitRateEl);
+      rowEl.appendChild(avgStepsEl);
+      rowEl.appendChild(distEl);
+      slumpCard.appendChild(rowEl);
+    }
+
+    panel.appendChild(slumpCard);
+
   }
 
   return { render };
