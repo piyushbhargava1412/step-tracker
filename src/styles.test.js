@@ -432,3 +432,34 @@ describe('styles.css — ST-006 override form, badge, and revert button', () => 
     expect(cssContent).toContain('.revert-btn');
   });
 });
+
+// ─── Task 11: ST-008 Search Lab styles ────────────────────────────────────────
+
+describe('styles.css — ST-008 Search Lab styles (Task 11)', () => {
+  let cssContent;
+  let uiSource;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+    const uiPath = path.resolve(__dirname, 'search-lab-ui.js');
+    uiSource = fs.readFileSync(uiPath, 'utf8');
+  });
+
+  it('.search-lab-card selector is present in styles.css', () => {
+    expect(cssContent).toContain('.search-lab-card');
+  });
+
+  it('insight row selector (.search-insight-row) is present in styles.css', () => {
+    expect(cssContent).toContain('.search-insight-row');
+  });
+
+  it('compare table selector (.search-compare-table) is present in styles.css', () => {
+    expect(cssContent).toContain('.search-compare-table');
+  });
+
+  it('no innerHTML usage in search-lab-ui.js', () => {
+    const occurrences = (uiSource.match(/innerHTML/g) || []).length;
+    expect(occurrences).toBe(0);
+  });
+});
