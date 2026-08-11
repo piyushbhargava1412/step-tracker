@@ -7,40 +7,74 @@
  *
  * Dependencies are injected — no direct document/Dexie/streak imports beyond
  * constants shared with the computation layer.
+ *
+ * Sole DOM writer for the streak feature: every node below is built with
+ * createElement/textContent — never by assigning raw markup.
  */
 
 import { TIER_STEP_THRESHOLDS } from './streak.js';
-import { DEFAULT_GOAL_KM, DEFAULT_STEP_GOAL } from './goal.js';
+import { DEFAULT_STEP_GOAL } from './goal.js';
+
+/**
+ * The three tolerance metrics, in render order (SF-7). Each entry pairs the
+ * user-facing label with the `result.tolerance` key that supplies its day count.
+ */
+const TOLERANCE_METRICS = [
+  { key: 'actual', label: 'Actual Streak (100%)' },
+  { key: 'allowance95', label: '95% Tolerance' },
+  { key: 'allowance90', label: '90% Tolerance' },
+];
+
+const HOF_EMPTY_TEXT = 'No qualifying streak periods yet';
 
 /** Zero-state result used when streak.compute() rejects. */
 function _zeroState() {
   return {
-    unified: 0,
+    tolerance: { actual: 0, allowance95: 0, allowance90: 0 },
     tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 })),
     hallOfFame: [],
-    lifetime: { total10k: 0, totalDays: 0, pct: 0 },
-    activeGoalKm: DEFAULT_GOAL_KM,
+    lifetime: { metDays: 0, totalDays: 0, pct: 0 },
     activeStepGoal: DEFAULT_STEP_GOAL,
   };
 }
 
 /**
- * Build the lifetime banner element.
+ * Create a `<span>`/`<div>` carrying a class and its text in one step — the
+ * whole card is built from these, so it keeps every builder below flat.
  *
  * @param {Document} doc
- * @param {{ total10k: number, totalDays: number, pct: number }} lifetime
+ * @param {string} tag
+ * @param {string} className
+ * @param {string} text
+ * @returns {HTMLElement}
+ */
+function _el(doc, tag, className, text) {
+  const node = doc.createElement(tag);
+  node.className = className;
+  node.textContent = text;
+  return node;
+}
+
+/**
+ * Build the lifetime banner element (SF-4d).
+ *
+ * @param {Document} doc
+ * @param {{ metDays: number, totalDays: number, pct: number }} lifetime
  * @returns {HTMLElement}
  */
 function _buildBanner(doc, lifetime) {
-  const { total10k, totalDays, pct } = lifetime;
+  const { metDays, totalDays, pct } = lifetime;
 
   const banner = doc.createElement('div');
   banner.id = 'lifetime-banner';
 
-  // SF-5: exact format — "${total10k.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')} Days (${pct.toFixed(1)}% Lifetime)"
-  const count = doc.createElement('span');
-  count.className = 'lifetime-count';
-  count.textContent = `${total10k.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')}`;
+  // SF-4d: "${metDays} / ${totalDays} Days (${pct.toFixed(1)}% Lifetime)"
+  const count = _el(
+    doc,
+    'span',
+    'lifetime-count',
+    `${metDays.toLocaleString('en-US')} / ${totalDays.toLocaleString('en-US')}`,
+  );
   banner.appendChild(count);
   banner.appendChild(doc.createTextNode(` Days (${pct.toFixed(1)}% Lifetime)`));
 
@@ -48,72 +82,139 @@ function _buildBanner(doc, lifetime) {
 }
 
 /**
- * Build the Unified Active Streak card element.
+ * Build the 3-metric tolerance block — 100% / 95% / 90% (SF-7).
+ *
+ * The Actual (100%) value doubles as the card's headline number, so it also
+ * carries `.streak-number`; the other two are plain values.
  *
  * @param {Document} doc
- * @param {object} result - full compute() output
+ * @param {{ actual: number, allowance95: number, allowance90: number }} tolerance
  * @returns {HTMLElement}
  */
-function _buildCard(doc, result) {
-  const { unified, tiers, activeGoalKm, activeStepGoal } = result;
+function _buildToleranceMetrics(doc, tolerance) {
+  const container = doc.createElement('div');
+  container.className = 'tolerance-metrics';
 
-  const card = doc.createElement('div');
-  card.className = 'streak-card';
-  card.id = 'streak-card';
+  TOLERANCE_METRICS.forEach(({ key, label }, index) => {
+    const metric = doc.createElement('div');
+    metric.className = 'tolerance-metric';
 
-  // Title
-  const titleEl = doc.createElement('div');
-  titleEl.className = 'card-title';
-  titleEl.textContent = 'Unified Active Streak';
-  card.appendChild(titleEl);
+    const valueClass = index === 0 ? 'tolerance-value streak-number' : 'tolerance-value';
+    metric.appendChild(_el(doc, 'span', valueClass, String(tolerance[key])));
+    metric.appendChild(_el(doc, 'span', 'tolerance-label', label));
 
-  // Lock badge (SF-15)
-  const lockBadge = doc.createElement('div');
-  lockBadge.className = 'lock-badge';
-  lockBadge.textContent = '🔒 Effective Date Lock';
-  card.appendChild(lockBadge);
+    container.appendChild(metric);
+  });
 
-  // Streak number + unit row
-  const metricRow = doc.createElement('div');
-  metricRow.className = 'metric-row';
+  return container;
+}
 
-  const streakNum = doc.createElement('span');
-  streakNum.className = 'streak-number';
-  streakNum.textContent = String(unified);
-  metricRow.appendChild(streakNum);
-
-  const streakUnit = doc.createElement('span');
-  streakUnit.className = 'streak-unit';
-  streakUnit.textContent = 'Days';
-  metricRow.appendChild(streakUnit);
-
-  card.appendChild(metricRow);
-
-  // Goal label (SF-6): "Goal: 5.0 km"
-  const goalEl = doc.createElement('div');
-  goalEl.className = 'streak-goal';
-  goalEl.textContent = `Goal: ${activeGoalKm.toFixed(1)} km`;
-  card.appendChild(goalEl);
-
-  // Tier chips (SF-3, SF-8)
-  const tiersContainer = doc.createElement('div');
-  tiersContainer.className = 'tier-badges';
+/**
+ * Build the tier chip row (SF-3, SF-4b, SF-8).
+ *
+ * @param {Document} doc
+ * @param {Array<{ threshold: number, active: number, best: number }>} tiers
+ * @param {number} activeStepGoal
+ * @returns {HTMLElement}
+ */
+function _buildTierBadges(doc, tiers, activeStepGoal) {
+  const container = doc.createElement('div');
+  container.className = 'tier-badges';
 
   for (const tier of tiers) {
-    const chip = doc.createElement('span');
-    chip.className = 'tier-chip';
+    // SF-4b / SF-8: verbatim mockup format ">Nk: Nd (best Nd)"
+    const chip = _el(
+      doc,
+      'span',
+      'tier-chip',
+      `>${tier.threshold / 1000}k: ${tier.active}d (best ${tier.best}d)`,
+    );
 
     // SF-3 / SF-4b × SF-10: exact match on threshold → add .tier-chip--active
     if (tier.threshold === activeStepGoal) {
       chip.classList.add('tier-chip--active');
     }
 
-    // SF-4b / SF-8: verbatim mockup format ">Nk: Nd (best Nd)"
-    chip.textContent = `>${tier.threshold / 1000}k: ${tier.active}d (best ${tier.best}d)`;
-    tiersContainer.appendChild(chip);
+    container.appendChild(chip);
   }
 
-  card.appendChild(tiersContainer);
+  return container;
+}
+
+/**
+ * Build the Hall of Fame podium block (SF-4c).
+ *
+ * Strict (100%) runs only — there are no 95%/90% podium variants. An empty or
+ * absent list renders `.hof-empty` instead of entries.
+ *
+ * @param {Document} doc
+ * @param {Array<{ startDate: string, endDate: string, days: number }>} hallOfFame
+ * @param {number} stepGoal
+ * @returns {HTMLElement}
+ */
+function _buildHallOfFame(doc, hallOfFame, stepGoal) {
+  const block = doc.createElement('div');
+  block.className = 'hall-of-fame';
+
+  block.appendChild(
+    _el(
+      doc,
+      'div',
+      'hof-title',
+      `Hall of Fame — best runs at ${stepGoal.toLocaleString('en-US')} steps`,
+    ),
+  );
+
+  const entries = Array.isArray(hallOfFame) ? hallOfFame : [];
+  if (entries.length === 0) {
+    block.appendChild(_el(doc, 'div', 'hof-empty', HOF_EMPTY_TEXT));
+    return block;
+  }
+
+  entries.forEach((period, index) => {
+    const entry = doc.createElement('div');
+    entry.className = 'hof-entry';
+
+    entry.appendChild(_el(doc, 'span', 'hof-rank', `#${index + 1}`));
+    entry.appendChild(_el(doc, 'span', 'hof-days', `${period.days} days`));
+    entry.appendChild(
+      _el(doc, 'span', 'hof-range', `${period.startDate} → ${period.endDate}`),
+    );
+
+    block.appendChild(entry);
+  });
+
+  return block;
+}
+
+/**
+ * Build the streak card element.
+ *
+ * Order (SF-7 / SF-4c): title, tolerance metrics, goal label, tier chips,
+ * Hall of Fame. The Hall of Fame lives inside the card, so the wholesale
+ * remove-and-reinject of `#streak-card` already covers its idempotency.
+ *
+ * @param {Document} doc
+ * @param {object} result - full compute() output
+ * @returns {HTMLElement}
+ */
+function _buildCard(doc, result) {
+  const { tolerance, tiers, hallOfFame, activeStepGoal } = result;
+
+  const card = doc.createElement('div');
+  card.className = 'streak-card';
+  card.id = 'streak-card';
+
+  card.appendChild(_el(doc, 'div', 'card-title', 'Step Streak'));
+  card.appendChild(_buildToleranceMetrics(doc, tolerance));
+
+  // SF-6: the goal label is the step lens — "Goal: 10,000 steps", never km.
+  card.appendChild(
+    _el(doc, 'div', 'streak-goal', `Goal: ${activeStepGoal.toLocaleString('en-US')} steps`),
+  );
+
+  card.appendChild(_buildTierBadges(doc, tiers, activeStepGoal));
+  card.appendChild(_buildHallOfFame(doc, hallOfFame, activeStepGoal));
 
   return card;
 }
