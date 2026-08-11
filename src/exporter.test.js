@@ -121,6 +121,22 @@ describe('createExporter — serialisers', () => {
     expect(_csvCell(false)).toBe('false');
   });
 
+  it('_csvCell: formula prefix = wraps in double quotes', () => {
+    expect(_csvCell('=HYPERLINK("http://evil.example",A1)')).toBe('"=HYPERLINK(""http://evil.example"",A1)"');
+  });
+
+  it('_csvCell: formula prefix + wraps in double quotes', () => {
+    expect(_csvCell('+1+1')).toBe('"+1+1"');
+  });
+
+  it('_csvCell: formula prefix - wraps in double quotes', () => {
+    expect(_csvCell('-1')).toBe('"-1"');
+  });
+
+  it('_csvCell: formula prefix @ wraps in double quotes', () => {
+    expect(_csvCell('@SUM(A1:A10)')).toBe('"@SUM(A1:A10)"');
+  });
+
   // --- _toCsv ---
   it('_toCsv first line equals CSV_HEADERS verbatim', () => {
     const record = {

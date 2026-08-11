@@ -26,7 +26,8 @@ export function _toExportRow(record) {
 
 /**
  * RFC-4180 minimal quoting: wraps value in double quotes and doubles any embedded
- * double-quotes iff the stringified value contains , " \n or \r.
+ * double-quotes iff the stringified value contains , " \n or \r, or starts with a
+ * formula-injection trigger character (= + - @) per OWASP CSV injection guidance.
  * Booleans and numbers are rendered plainly.
  *
  * @param {*} value
@@ -34,7 +35,7 @@ export function _toExportRow(record) {
  */
 export function _csvCell(value) {
   const str = String(value);
-  if (/[,"\n\r]/.test(str)) {
+  if (/[,"\n\r]/.test(str) || /^[=+\-@]/.test(str)) {
     return '"' + str.replace(/"/g, '""') + '"';
   }
   return str;
