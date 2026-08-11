@@ -303,3 +303,89 @@ Before storage the image is normalised:
 - **Encoding**: re-encoded to JPEG at quality 0.8, regardless of the input format (PNG, JPEG, WEBP).
 
 This bounds the Base64 string size while retaining sufficient detail for a proof screenshot. Accepted input types: `image/png`, `image/jpeg`, `image/webp`.
+
+## Search Lab
+
+The Search Lab tab (`#tab-search`) provides a dynamic query builder over the local `daily_records` store. All filtering, aggregation, and export happens entirely client-side — no data leaves the browser.
+
+### Query Builder
+
+Seven filter controls are available. All active constraints are combined with AND logic — a record must satisfy every non-empty filter to appear in the results.
+
+| Control | Field | Values |
+|---------|-------|--------|
+| Start Date | `startDate` | ISO date string (`YYYY-MM-DD`); leave blank for all-time |
+| End Date | `endDate` | ISO date string (`YYYY-MM-DD`); leave blank for all-time |
+| Min Steps | `minSteps` | Integer; records with `effective_steps < minSteps` are excluded |
+| Max Steps | `maxSteps` | Integer; records with `effective_steps > maxSteps` are excluded |
+| Min Distance (km) | `minDistance` | Decimal; records with `effective_distance_km < minDistance` are excluded |
+| Override Status | `overrideStatus` | `all` (default), `overridden`, `not-overridden` |
+| Target Outcome | `targetOutcome` | `all` (default), `met`, `missed` |
+
+**Date range**: When both Start Date and End Date are provided, the query reads only records in that closed interval. When either is blank, the query scans the full table.
+
+**Override Status**: Selects records where `is_overridden === true` (`overridden`), `is_overridden !== true` (`not-overridden`), or either (`all`).
+
+**Target Outcome**: Evaluates each record against the goal that was in force on that date (the same date-effective goal used by the Streak Engine). `met` selects records where `effective_distance_km >= goal_for_date`; `missed` selects records with a finite `effective_distance_km` that falls below the goal. Records with non-finite distance values do not pass either filter and are excluded from both `met` and `missed` result sets.
+
+**Results** are returned sorted newest-first.
+
+### Result Summary
+
+After each query the summary card shows four metrics computed over the returned result set:
+
+```
+Matches                = count of records in the result set
+Match %                = Math.round((Matches / totalDays) × 100)
+Cumulative Distance    = sum of effective_distance_km for all result records
+                         (non-finite values contribute 0)
+Avg Steps              = Math.round(sum of effective_steps / Matches)
+```
+
+**Match % denominator (`totalDays`)**: the number of records in the pre-filter set — either the full `daily_records` table (all-time query) or the records in the specified date range. This is record-based, not calendar-day-based, matching the Calendar's `days_evaluated` convention. When `totalDays` is `0`, Match % renders as `—`. When the result set is empty, Avg Steps renders as `—` and Cumulative Distance renders as `0 km`.
+
+### Export
+
+The **Export CSV** and **Export JSON** buttons are enabled once a query returns at least one record. Clicking either triggers a client-side download — no data is transmitted to any server.
+
+**Filename convention**: `step-tracker-export-YYYY-MM-DD.csv` / `step-tracker-export-YYYY-MM-DD.json`, where the date is the local calendar date at the time of export.
+
+#### CSV Format
+
+The CSV file uses RFC-4180 encoding (CRLF line endings, fields containing commas, double-quotes, or newlines wrapped in double-quotes with embedded double-quotes doubled). The first line is always the header row:
+
+```
+Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note
+```
+
+Each subsequent row corresponds to one `daily_records` entry in the result set:
+
+| Column | Source field | Notes |
+|--------|-------------|-------|
+| `Date` | `record.date` | ISO date string (`YYYY-MM-DD`) |
+| `Original_Steps` | `record.original_steps` | Raw Google Fit step count |
+| `Original_Distance_KM` | `record.original_distance_km` | Raw Google Fit distance in km |
+| `Effective_Steps` | `record.effective_steps` | Steps used by all metrics (post-override) |
+| `Effective_Distance_KM` | `record.effective_distance_km` | Distance used by all metrics (post-override) |
+| `Is_Overridden` | `record.is_overridden === true` | Boolean: `true` or `false` |
+| `Override_Note` | `record.override?.note ?? ''` | Audit justification; empty string when not overridden |
+
+#### JSON Format
+
+The JSON file is a pretty-printed array (`JSON.stringify(..., null, 2)`) of objects. Each object has exactly the same seven keys as the CSV headers:
+
+```json
+[
+  {
+    "Date": "2026-08-10",
+    "Original_Steps": 8200,
+    "Original_Distance_KM": 6.249,
+    "Effective_Steps": 9500,
+    "Effective_Distance_KM": 7.237,
+    "Is_Overridden": true,
+    "Override_Note": "Phone was in pocket during run"
+  }
+]
+```
+
+The JSON keys are identical to the CSV header names — the two formats are produced from the same `_toExportRow` mapper and cannot drift relative to each other.
