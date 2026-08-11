@@ -47,3 +47,16 @@ export function dateBounds(startDate, endDate) {
   const nd = String(next.getDate()).padStart(2, '0');
   return { start: startDate, endExclusive: `${ny}-${nm}-${nd}` };
 }
+
+/**
+ * Computes the percentage delta between two period totals for comparison display.
+ * Returns null when a division by zero or null operand would produce Infinity/NaN.
+ *
+ * @param {number|null} a  baseline period total
+ * @param {number|null} b  comparison period total
+ * @returns {number|null}  one-decimal % change, or null when undefinable
+ */
+export function computeComparisonDelta(a, b) {
+  if (a === 0 || a == null || b == null) return null;
+  return Math.round(((b - a) / a) * 1000) / 10;
+}

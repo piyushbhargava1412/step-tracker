@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isNearMiss, dayOfWeekIndex, dateBounds } from './search-lab.js';
+import { isNearMiss, dayOfWeekIndex, dateBounds, computeComparisonDelta } from './search-lab.js';
 
 describe('isNearMiss', () => {
   it('returns true when effectiveDistanceKm is exactly target * 0.90 (lower boundary inclusive)', () => {
@@ -88,5 +88,35 @@ describe('dateBounds', () => {
       start: '2025-12-01',
       endExclusive: '2026-01-01',
     });
+  });
+});
+
+describe('computeComparisonDelta', () => {
+  it('returns 10 for (100, 110) — positive delta', () => {
+    expect(computeComparisonDelta(100, 110)).toBe(10);
+  });
+
+  it('returns -5 for (100, 95) — negative delta', () => {
+    expect(computeComparisonDelta(100, 95)).toBe(-5);
+  });
+
+  it('returns 33.3 for (3, 4) — one-decimal rounding', () => {
+    expect(computeComparisonDelta(3, 4)).toBe(33.3);
+  });
+
+  it('returns null when a === 0 (avoids Infinity)', () => {
+    expect(computeComparisonDelta(0, 100)).toBeNull();
+  });
+
+  it('returns null when a is null', () => {
+    expect(computeComparisonDelta(null, 100)).toBeNull();
+  });
+
+  it('returns null when b is null', () => {
+    expect(computeComparisonDelta(100, null)).toBeNull();
+  });
+
+  it('returns null when both a and b are null', () => {
+    expect(computeComparisonDelta(null, null)).toBeNull();
   });
 });
