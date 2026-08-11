@@ -89,6 +89,9 @@ export function createRecords(db) {
   async function revertRecord(date) {
     try {
       const row = await db.daily_records.get(date);
+      if (!Number.isFinite(row?.original_steps)) {
+        throw new TypeError('[records] revertRecord: no original values to revert to');
+      }
       const reverted = { ...row };
       reverted.effective_steps = row.original_steps;
       reverted.effective_distance_km = row.original_distance_km;

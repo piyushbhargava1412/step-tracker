@@ -315,6 +315,28 @@ describe('createRecords', () => {
     });
   });
 
+
+  describe('revertRecord — guard: missing original values', () => {
+    it('throws TypeError and does NOT call put when row has no original_steps', async () => {
+      // Manual-log row: original_steps/original_distance_km are undefined
+      const manualRow = {
+        date: '2024-03-01',
+        effective_steps: 4200,
+        effective_distance_km: 3.2,
+        is_overridden: true,
+        // original_steps and original_distance_km intentionally absent
+      };
+      const db = makeMockDb(manualRow);
+      const records = createRecords(db);
+
+      await expect(records.revertRecord('2024-03-01')).rejects.toThrow(TypeError);
+      await expect(records.revertRecord('2024-03-01')).rejects.toThrow(
+        '[records] revertRecord: no original values to revert to'
+      );
+      expect(db.daily_records.put).not.toHaveBeenCalled();
+    });
+  });
+
   describe('revertRecord — error paths', () => {
     it('rejects and logs [records] when db.put rejects during revert', async () => {
       const db = {
