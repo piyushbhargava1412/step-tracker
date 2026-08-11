@@ -687,3 +687,81 @@ describe('computeDayOfWeekSlump – day labels (Task 13)', () => {
     expect(result[6].day).toBe('Sun'); // bucket index 6 is Sunday
   });
 });
+
+// Task 20: goal-history fetch deduplication tests
+describe('Task 20 – shared goal-context load (no redundant IDB round-trips)', () => {
+  function makeSpyDb({ earliest, records, goalHistory }) {
+    const goalHistoryToArray = vi.fn().mockResolvedValue(goalHistory ?? []);
+    return {
+      db: {
+        daily_records: {
+          orderBy: () => ({ first: () => Promise.resolve(earliest ?? undefined) }),
+          where: () => ({
+            between: () => ({ toArray: () => Promise.resolve(records ?? []) }),
+          }),
+        },
+        goal_history: { toArray: goalHistoryToArray },
+      },
+      goalHistoryToArray,
+    };
+  }
+
+  it('findNearMisses calls goal_history.toArray at most once', async () => {
+    const { createSearchLab } = await import('./search-lab.js?t=task20a');
+    const { db, goalHistoryToArray } = makeSpyDb({
+      earliest: { date: '2026-01-01' },
+      records: [{ date: '2026-01-02', effective_distance_km: 9.5 }],
+      goalHistory: [{ effective_from: '2026-01-01', target_distance_km: 10 }],
+    });
+    const getActiveGoal = vi.fn().mockResolvedValue({ effective_from: '2026-01-01', target_distance_km: 10 });
+    const goal = { getActiveGoal };
+    const lab = createSearchLab(db, goal);
+    await lab.findNearMisses();
+    expect(goalHistoryToArray).toHaveBeenCalledTimes(1);
+    expect(getActiveGoal).toHaveBeenCalledTimes(1);
+  });
+
+  it('computeDayOfWeekSlump calls goal_history.toArray at most once', async () => {
+    const { createSearchLab } = await import('./search-lab.js?t=task20b');
+    const { db, goalHistoryToArray } = makeSpyDb({
+      earliest: { date: '2026-08-10' },
+      records: [{ date: '2026-08-10', effective_distance_km: 10.0, steps: 10000 }],
+      goalHistory: [{ effective_from: '2026-01-01', target_distance_km: 10 }],
+    });
+    const getActiveGoal = vi.fn().mockResolvedValue({ effective_from: '2026-01-01', target_distance_km: 10 });
+    const goal = { getActiveGoal };
+    const lab = createSearchLab(db, goal);
+    await lab.computeDayOfWeekSlump();
+    expect(goalHistoryToArray).toHaveBeenCalledTimes(1);
+    expect(getActiveGoal).toHaveBeenCalledTimes(1);
+  });
+
+  it('comparePeriods calls goal_history.toArray at most once (shared across both periods)', async () => {
+    const { createSearchLab } = await import('./search-lab.js?t=task20c');
+    const goalHistoryToArray = vi.fn().mockResolvedValue([{ effective_from: '2026-01-01', target_distance_km: 10 }]);
+    const getActiveGoal = vi.fn().mockResolvedValue({ effective_from: '2026-01-01', target_distance_km: 10 });
+    const db = {
+      daily_records: {
+        orderBy: () => ({ first: () => Promise.resolve(undefined) }),
+        where: () => ({
+          between: (start) => ({
+            toArray: () => Promise.resolve(
+              start === '2026-01-01'
+                ? [{ date: '2026-01-01', effective_distance_km: 10.0, steps: 10000 }]
+                : [{ date: '2026-02-01', effective_distance_km: 11.0, steps: 11000 }]
+            ),
+          }),
+        }),
+      },
+      goal_history: { toArray: goalHistoryToArray },
+    };
+    const goal = { getActiveGoal };
+    const lab = createSearchLab(db, goal);
+    await lab.comparePeriods(
+      { startDate: '2026-01-01', endDate: '2026-01-31' },
+      { startDate: '2026-02-01', endDate: '2026-02-28' },
+    );
+    expect(goalHistoryToArray).toHaveBeenCalledTimes(1);
+    expect(getActiveGoal).toHaveBeenCalledTimes(1);
+  });
+});

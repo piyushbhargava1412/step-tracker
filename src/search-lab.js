@@ -75,6 +75,22 @@ const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
  * @returns {{ findNearMisses: Function, computeDayOfWeekSlump: Function, comparePeriods: Function }}
  */
 export function createSearchLab(db, goal) {
+  /**
+   * Fetches goal history and active goal once, returning the prepared context.
+   * Used to avoid redundant IDB round-trips across engine methods.
+   *
+   * @returns {Promise<{ effectiveHistory: Array, prepared: object }>}
+   */
+  async function loadGoalContext() {
+    const [goalHistoryRows, activeGoal] = await Promise.all([
+      db.goal_history.toArray(),
+      goal.getActiveGoal(),
+    ]);
+    const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
+    const prepared = _prepareGoalHistory(effectiveHistory);
+    return { effectiveHistory, prepared };
+  }
+
   async function findNearMisses() {
     const earliest = await db.daily_records.orderBy('date').first();
     if (!earliest) return [];
@@ -82,14 +98,10 @@ export function createSearchLab(db, goal) {
     const today = _localDate();
     const { endExclusive } = dateBounds(earliest.date, today);
 
-    const [records, goalHistoryRows, activeGoal] = await Promise.all([
+    const [records, { prepared }] = await Promise.all([
       db.daily_records.where('date').between(earliest.date, endExclusive, true, false).toArray(),
-      db.goal_history.toArray(),
-      goal.getActiveGoal(),
+      loadGoalContext(),
     ]);
-
-    const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
-    const prepared = _prepareGoalHistory(effectiveHistory);
 
     const nearMisses = records
       .filter(record => {
@@ -116,14 +128,10 @@ export function createSearchLab(db, goal) {
     const today = _localDate();
     const { endExclusive } = dateBounds(earliest.date, today);
 
-    const [records, goalHistoryRows, activeGoal] = await Promise.all([
+    const [records, { prepared }] = await Promise.all([
       db.daily_records.where('date').between(earliest.date, endExclusive, true, false).toArray(),
-      db.goal_history.toArray(),
-      goal.getActiveGoal(),
+      loadGoalContext(),
     ]);
-
-    const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
-    const prepared = _prepareGoalHistory(effectiveHistory);
 
     // Accumulators per bucket
     const sums = Array.from({ length: 7 }, () => ({ sumSteps: 0, sumDistanceKm: 0, metCount: 0, count: 0 }));
@@ -180,19 +188,11 @@ export function createSearchLab(db, goal) {
       return range && range.startDate && range.endDate && range.startDate <= range.endDate;
     }
 
-    async function aggregatePeriod(range) {
-      if (!isValidRange(range)) return EMPTY_PERIOD();
-      const { start, endExclusive } = dateBounds(range.startDate, range.endDate);
-      const [records, goalHistoryRows, activeGoal] = await Promise.all([
-        db.daily_records.where('date').between(start, endExclusive, true, false).toArray(),
-        db.goal_history.toArray(),
-        goal.getActiveGoal(),
-      ]);
+    // Fetch goal context once, shared across both periods
+    const { prepared } = await loadGoalContext();
 
-      if (records.length === 0) return EMPTY_PERIOD();
-
-      const effectiveHistory = buildEffectiveGoalHistory(goalHistoryRows, activeGoal);
-      const prepared = _prepareGoalHistory(effectiveHistory);
+    function aggregatePeriodSync(range, records) {
+      if (!isValidRange(range) || records.length === 0) return EMPTY_PERIOD();
 
       let totalSteps = 0;
       let totalDistanceKm = 0;
@@ -212,10 +212,26 @@ export function createSearchLab(db, goal) {
       return { totalSteps, totalDistanceKm, hitRate };
     }
 
-    const [periodA, periodB] = await Promise.all([
-      aggregatePeriod(rangeA),
-      aggregatePeriod(rangeB),
+    // Fetch records for both periods in parallel (goal context already loaded)
+    const [recordsA, recordsB] = await Promise.all([
+      isValidRange(rangeA)
+        ? db.daily_records.where('date').between(
+            dateBounds(rangeA.startDate, rangeA.endDate).start,
+            dateBounds(rangeA.startDate, rangeA.endDate).endExclusive,
+            true, false
+          ).toArray()
+        : Promise.resolve([]),
+      isValidRange(rangeB)
+        ? db.daily_records.where('date').between(
+            dateBounds(rangeB.startDate, rangeB.endDate).start,
+            dateBounds(rangeB.startDate, rangeB.endDate).endExclusive,
+            true, false
+          ).toArray()
+        : Promise.resolve([]),
     ]);
+
+    const periodA = aggregatePeriodSync(rangeA, recordsA);
+    const periodB = aggregatePeriodSync(rangeB, recordsB);
 
     return {
       periodA,
