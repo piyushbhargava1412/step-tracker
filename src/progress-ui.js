@@ -17,7 +17,7 @@ import { GOAL_PRESETS_KM } from './goal.js';
  * Factory: Today's Progress card renderer.
  *
  * @param {Document} doc          - The DOM document (injected for testability)
- * @param {{ getActiveGoal: Function }} goal  - Goal Commitment engine instance
+ * @param {{ getActiveStepGoal: Function }} goal - Goal Commitment engine instance
  * @param {object} db             - Injected Dexie db handle
  * @param {{ db: Function }} reporter         - Status reporter (ui-status channel)
  * @param {Function} onGoalApplied - Optional callback invoked after successful goal apply (default no-op)
@@ -25,31 +25,16 @@ import { GOAL_PRESETS_KM } from './goal.js';
  */
 export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
   /**
-   * Build the progress card HTML element from progress data.
+   * Build the progress card element from progress data.
+   * DOM is built with createElement/createTextNode/textContent only.
    *
-   * @param {{ steps, distance_km, target_steps, target_km, pct,
-   *           remaining_steps, remaining_m, remaining_km, goalMet }} progress
+   * @param {{ steps, target_steps, pct, remaining_steps, goalMet }} progress
    * @returns {HTMLElement}
    */
   function _buildCard(progress) {
-    const {
-      steps,
-      distance_km,
-      target_steps,
-      target_km,
-      pct,
-      remaining_steps,
-      remaining_m,
-      remaining_km,
-      goalMet,
-    } = progress;
+    const { steps, target_steps, pct, remaining_steps, goalMet } = progress;
 
     const displayPct = goalMet ? 100 : pct;
-
-    // Distance for remaining-hint (SF-5)
-    const distanceStr = remaining_km < 1.0
-      ? `${remaining_m} meters`
-      : `${remaining_km.toFixed(2)} km`;
 
     const card = doc.createElement('div');
     card.className = 'card';
@@ -58,9 +43,16 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     // Card title row
     const titleDiv = doc.createElement('div');
     titleDiv.className = 'card-title';
-    titleDiv.innerHTML =
-      `<span>Today's Progress</span>` +
-      `<span class="progress-pct">${displayPct}%</span>`;
+
+    const titleLabel = doc.createElement('span');
+    titleLabel.textContent = "Today's Progress";
+    titleDiv.appendChild(titleLabel);
+
+    const pctSpan = doc.createElement('span');
+    pctSpan.className = 'progress-pct';
+    pctSpan.textContent = `${displayPct}%`;
+    titleDiv.appendChild(pctSpan);
+
     card.appendChild(titleDiv);
 
     // Metric row
@@ -69,16 +61,16 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
 
     const metricValue = doc.createElement('div');
     metricValue.className = 'metric-value';
-    metricValue.innerHTML =
-      `${steps.toLocaleString('en-US')} ` +
-      `<span class="metric-unit">/ ${target_steps.toLocaleString('en-US')} steps</span>`;
-    metricRow.appendChild(metricValue);
+    metricValue.appendChild(
+      doc.createTextNode(`${steps.toLocaleString('en-US')} `)
+    );
 
-    const metricSub = doc.createElement('div');
-    metricSub.className = 'metric-sub';
-    metricSub.textContent =
-      `${distance_km.toFixed(2)} / ${target_km.toFixed(2)} km`;
-    metricRow.appendChild(metricSub);
+    const metricUnit = doc.createElement('span');
+    metricUnit.className = 'metric-unit';
+    metricUnit.textContent = `/ ${target_steps.toLocaleString('en-US')} steps`;
+    metricValue.appendChild(metricUnit);
+
+    metricRow.appendChild(metricValue);
 
     card.appendChild(metricRow);
 
@@ -109,7 +101,7 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
       const hint = doc.createElement('div');
       hint.className = 'remaining-hint';
       hint.textContent =
-        `⏱️ ${remaining_steps.toLocaleString('en-US')} steps remaining to fulfill daily target (~${distanceStr})`;
+        `⏱️ ${remaining_steps.toLocaleString('en-US')} steps remaining to fulfill daily target`;
       card.appendChild(hint);
     }
 
@@ -131,11 +123,11 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
 
     let progress;
     try {
-      const [todayRecord, activeGoal] = await Promise.all([
+      const [todayRecord, activeStepGoal] = await Promise.all([
         getTodayRecord(db),
-        goal.getActiveGoal(),
+        goal.getActiveStepGoal(),
       ]);
-      progress = computeProgress(todayRecord, activeGoal);
+      progress = computeProgress(todayRecord, activeStepGoal);
     } catch (err) {
       console.error('[progress]', err);
       reporter.db('❌ Progress load failed');

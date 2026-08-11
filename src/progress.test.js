@@ -5,6 +5,7 @@
  */
 
 import { computeProgress, getTodayRecord } from './progress.js';
+import { DEFAULT_STEP_GOAL } from './goal.js';
 import { _localDate as _formatLocalDate } from './date-utils.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -42,7 +43,7 @@ describe('_formatLocalDate', () => {
 // ---------------------------------------------------------------------------
 describe('getTodayRecord', () => {
   it('calls db.daily_records.get with a local YYYY-MM-DD key', async () => {
-    const mockGet = vi.fn().mockResolvedValue({ effective_steps: 100, effective_distance_km: 0.08 });
+    const mockGet = vi.fn().mockResolvedValue({ effective_steps: 100 });
     const mockDb = { daily_records: { get: mockGet } };
 
     await getTodayRecord(mockDb);
@@ -66,7 +67,7 @@ describe('getTodayRecord', () => {
   });
 
   it('returns whatever db.daily_records.get resolves to', async () => {
-    const record = { effective_steps: 3200, effective_distance_km: 2.44 };
+    const record = { effective_steps: 3200 };
     const mockDb = { daily_records: { get: vi.fn().mockResolvedValue(record) } };
 
     const result = await getTodayRecord(mockDb);
@@ -82,30 +83,50 @@ describe('getTodayRecord', () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeProgress — Scenario 3 (canonical fixture)
+// computeProgress — happy path against the step lens
 // ---------------------------------------------------------------------------
-describe('computeProgress — Scenario 3', () => {
-  const activeGoal = { target_steps: 5000, target_distance_km: 3.81 };
+describe('computeProgress — happy path (step goal)', () => {
+  it('3200 / 10000 → pct=32, remaining_steps=6800, goalMet=false', () => {
+    const result = computeProgress({ effective_steps: 3200 }, 10000);
 
-  it('3200 / 5000 → pct=64, remaining_steps=1800, remaining_m=1372, goalMet=false', () => {
-    const record = { effective_steps: 3200, effective_distance_km: 2.44 };
-    const result = computeProgress(record, activeGoal);
-
-    expect(result.steps).toBe(3200);
-    expect(result.distance_km).toBe(2.44);
-    expect(result.target_steps).toBe(5000);
-    expect(result.pct).toBe(64);
-    expect(result.remaining_steps).toBe(1800);
-    expect(result.remaining_m).toBe(1372); // Math.round(1800/1312.33 * 1000)
-    expect(result.goalMet).toBe(false);
+    expect(result).toStrictEqual({
+      steps: 3200,
+      target_steps: 10000,
+      pct: 32,
+      remaining_steps: 6800,
+      goalMet: false,
+    });
   });
 
-  it('remaining_km ≈ 1.37 (≥ 1.0 km branch)', () => {
-    const record = { effective_steps: 3200, effective_distance_km: 2.44 };
-    const result = computeProgress(record, activeGoal);
+  it('rounds pct to the nearest integer', () => {
+    // 3333 / 10000 = 33.33% → 33
+    expect(computeProgress({ effective_steps: 3333 }, 10000).pct).toBe(33);
+    // 3335 / 7500 = 44.466…% → 44
+    expect(computeProgress({ effective_steps: 3335 }, 7500).pct).toBe(44);
+  });
 
-    expect(result.remaining_km).toBeCloseTo(1.37, 1);
-    expect(result.remaining_km).toBeGreaterThanOrEqual(1.0);
+  it('honours every STEP_GOAL_OPTIONS value as the denominator', () => {
+    expect(computeProgress({ effective_steps: 2500 }, 5000).pct).toBe(50);
+    expect(computeProgress({ effective_steps: 2500 }, 7500).pct).toBe(33);
+    expect(computeProgress({ effective_steps: 2500 }, 10000).pct).toBe(25);
+    expect(computeProgress({ effective_steps: 2500 }, 15000).pct).toBe(17);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeProgress — return-shape contract
+// ---------------------------------------------------------------------------
+describe('computeProgress — return-shape contract', () => {
+  it('returns exactly the 5 step-lens keys — no distance fields', () => {
+    const result = computeProgress({ effective_steps: 4000, effective_distance_km: 3.05 }, 10000);
+
+    expect(Object.keys(result).sort()).toStrictEqual(
+      ['goalMet', 'pct', 'remaining_steps', 'steps', 'target_steps']
+    );
+    expect(result).not.toHaveProperty('distance_km');
+    expect(result).not.toHaveProperty('target_km');
+    expect(result).not.toHaveProperty('remaining_km');
+    expect(result).not.toHaveProperty('remaining_m');
   });
 });
 
@@ -113,128 +134,95 @@ describe('computeProgress — Scenario 3', () => {
 // computeProgress — boundary values
 // ---------------------------------------------------------------------------
 describe('computeProgress — boundary values', () => {
-  const goal5k = { target_steps: 5000, target_distance_km: 3.81 };
-
-  it('0 steps → pct=0, remaining_steps=5000, goalMet=false, no NaN', () => {
-    const result = computeProgress({ effective_steps: 0, effective_distance_km: 0 }, goal5k);
+  it('0 steps → pct=0, remaining_steps=10000, goalMet=false, no NaN', () => {
+    const result = computeProgress({ effective_steps: 0 }, 10000);
     expect(result.pct).toBe(0);
-    expect(result.remaining_steps).toBe(5000);
+    expect(result.remaining_steps).toBe(10000);
     expect(result.goalMet).toBe(false);
     expect(Number.isNaN(result.pct)).toBe(false);
-    expect(Number.isNaN(result.remaining_km)).toBe(false);
   });
 
-  it('exactly at target (5000/5000) → pct=100, remaining_steps=0, remaining_m=0, goalMet=true', () => {
-    const result = computeProgress({ effective_steps: 5000, effective_distance_km: 3.81 }, goal5k);
+  it('exactly at target (10000/10000) → pct=100, remaining_steps=0, goalMet=true', () => {
+    const result = computeProgress({ effective_steps: 10000 }, 10000);
     expect(result.pct).toBe(100);
     expect(result.remaining_steps).toBe(0);
-    expect(result.remaining_m).toBe(0);
     expect(result.goalMet).toBe(true);
   });
 
-  it('1 step over target (5001/5000) → pct capped at 100, goalMet=true', () => {
-    const result = computeProgress({ effective_steps: 5001, effective_distance_km: 3.82 }, goal5k);
+  it('1 step over target → pct capped at 100, remaining_steps clamped to 0', () => {
+    const result = computeProgress({ effective_steps: 10001 }, 10000);
     expect(result.pct).toBe(100);
-    expect(result.goalMet).toBe(true);
     expect(result.remaining_steps).toBe(0);
+    expect(result.goalMet).toBe(true);
   });
 
-  it('200 remaining steps → remaining_m=152, remaining_km < 1.0', () => {
-    // 5000 - 4800 = 200 remaining
-    const result = computeProgress({ effective_steps: 4800, effective_distance_km: 3.65 }, goal5k);
-    expect(result.remaining_steps).toBe(200);
-    expect(result.remaining_m).toBe(152); // Math.round(200/1312.33 * 1000)
-    expect(result.remaining_km).toBeLessThan(1.0);
-  });
-
-  it('1800 remaining steps → remaining_km ≥ 1.0, ≈ 1.37', () => {
-    const result = computeProgress({ effective_steps: 3200, effective_distance_km: 2.44 }, goal5k);
-    expect(result.remaining_steps).toBe(1800);
-    expect(result.remaining_km).toBeGreaterThanOrEqual(1.0);
-    expect(result.remaining_km).toBeCloseTo(1.37, 1);
-  });
-
-  it('distance_km = 0.0 when record has 0 effective_distance_km', () => {
-    const result = computeProgress({ effective_steps: 200, effective_distance_km: 0 }, goal5k);
-    expect(result.distance_km).toBe(0);
-    expect(result.distance_km.toFixed(2)).toBe('0.00');
+  it('steps far above the goal → pct clamps to 100, remaining_steps clamps to 0', () => {
+    const result = computeProgress({ effective_steps: 42000 }, 5000);
+    expect(result.pct).toBe(100);
+    expect(result.remaining_steps).toBe(0);
+    expect(result.goalMet).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// computeProgress — absent / null record (guard clauses)
+// computeProgress — absent / corrupt record (guard clauses)
 // ---------------------------------------------------------------------------
 describe('computeProgress — absent record', () => {
-  const goal5k = { target_steps: 5000, target_distance_km: 3.81 };
+  it('null todayRecord → all-zero step shape, no throw', () => {
+    expect(computeProgress(null, 10000)).toStrictEqual({
+      steps: 0,
+      target_steps: 10000,
+      pct: 0,
+      remaining_steps: 10000,
+      goalMet: false,
+    });
+  });
 
-  it('null todayRecord → defaults to 0 steps / 0.0 km, no throw', () => {
-    const result = computeProgress(null, goal5k);
+  it('undefined todayRecord → same all-zero shape', () => {
+    const result = computeProgress(undefined, 10000);
     expect(result.steps).toBe(0);
-    expect(result.distance_km).toBe(0);
     expect(result.pct).toBe(0);
     expect(result.goalMet).toBe(false);
   });
 
-  it('undefined todayRecord → same defaults', () => {
-    const result = computeProgress(undefined, goal5k);
-    expect(result.steps).toBe(0);
-    expect(result.distance_km).toBe(0);
-    expect(result.pct).toBe(0);
-    expect(result.goalMet).toBe(false);
+  it('non-finite effective_steps → steps = 0', () => {
+    expect(computeProgress({ effective_steps: NaN }, 10000).steps).toBe(0);
+    expect(computeProgress({ effective_steps: Infinity }, 10000).steps).toBe(0);
+    expect(computeProgress({}, 10000).steps).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// computeProgress — corrupt / absent activeGoal (guard clauses)
+// computeProgress — corrupt / absent stepGoal (fail-open guard)
 // ---------------------------------------------------------------------------
-describe('computeProgress — corrupt activeGoal', () => {
-  const record3200 = { effective_steps: 3200, effective_distance_km: 2.44 };
-  const DEFAULT_GOAL_STEPS = 3937; // 3.0 * 1312.33 rounded
+describe('computeProgress — corrupt stepGoal fails open', () => {
+  const RECORD = { effective_steps: 3200 };
+  const BAD_GOALS = [0, NaN, undefined, null, -1, Infinity, '10000', {}];
 
-  it('null activeGoal → fail-open to default (3937 steps), no throw', () => {
-    const result = computeProgress(record3200, null);
-    expect(result.target_steps).toBe(DEFAULT_GOAL_STEPS);
-    expect(Number.isNaN(result.pct)).toBe(false);
-    expect(Number.isFinite(result.pct)).toBe(true);
+  it.each(BAD_GOALS)('stepGoal %o → falls open to DEFAULT_STEP_GOAL', (badGoal) => {
+    const result = computeProgress(RECORD, badGoal);
+    expect(result.target_steps).toBe(DEFAULT_STEP_GOAL);
+    expect(result.target_steps).toBe(10000);
   });
 
-  it('non-finite target_steps (NaN) → fail-open to 3937, no NaN', () => {
-    const result = computeProgress(record3200, { target_steps: NaN, target_distance_km: 3.0 });
-    expect(result.target_steps).toBe(DEFAULT_GOAL_STEPS);
-    expect(Number.isNaN(result.pct)).toBe(false);
-  });
-
-  it('non-finite target_steps (Infinity) → fail-open to 3937', () => {
-    const result = computeProgress(record3200, { target_steps: Infinity, target_distance_km: 3.0 });
-    expect(result.target_steps).toBe(DEFAULT_GOAL_STEPS);
-  });
-
-  it('non-finite target_distance_km → fail-open to 3937', () => {
-    const result = computeProgress(record3200, { target_steps: 5000, target_distance_km: NaN });
-    expect(result.target_steps).toBe(DEFAULT_GOAL_STEPS);
-  });
-
-  it('target_steps = 0 → pct=0, goalMet=false, no Infinity/NaN (division-by-zero guard)', () => {
-    const result = computeProgress(record3200, { target_steps: 0, target_distance_km: 0 });
-    expect(result.pct).toBe(0);
-    expect(result.goalMet).toBe(false);
-    expect(Number.isNaN(result.pct)).toBe(false);
-    expect(Number.isFinite(result.pct)).toBe(true);
-  });
-
-  it('absent target_steps (undefined) → fail-open to 3937', () => {
-    const result = computeProgress(record3200, { target_distance_km: 3.0 });
-    expect(result.target_steps).toBe(DEFAULT_GOAL_STEPS);
-  });
-
-  it('result contains no NaN or Infinity fields for any corrupt input', () => {
-    const result = computeProgress(null, null);
-    for (const [key, val] of Object.entries(result)) {
+  it.each(BAD_GOALS)('stepGoal %o → no NaN or Infinity in any numeric field', (badGoal) => {
+    const result = computeProgress(RECORD, badGoal);
+    for (const val of Object.values(result)) {
       if (typeof val === 'number') {
         expect(Number.isNaN(val)).toBe(false);
         expect(Number.isFinite(val)).toBe(true);
       }
     }
+  });
+
+  it('both record and goal absent → zero-state with default target', () => {
+    expect(computeProgress(null, null)).toStrictEqual({
+      steps: 0,
+      target_steps: DEFAULT_STEP_GOAL,
+      pct: 0,
+      remaining_steps: DEFAULT_STEP_GOAL,
+      goalMet: false,
+    });
   });
 });
 
@@ -248,38 +236,33 @@ describe('computeProgress — effective_* field regression (ST-006 Task 7)', () 
   // computeProgress must read effective_steps, so goalMet should be true.
 
   it('tracks effective_steps, not original_steps, for progress metrics', () => {
-    const activeGoal = { target_steps: 5000, target_distance_km: 3.81 };
     // Simulated override record: original was 800 steps, effective is 5500
     const record = {
       original_steps: 800,
-      original_distance_km: 0.61,
       effective_steps: 5500,
-      effective_distance_km: 4.19,
       is_overridden: true,
     };
 
-    const result = computeProgress(record, activeGoal);
+    const result = computeProgress(record, 5000);
 
     // If engine reads effective_steps (5500), goalMet = true, steps = 5500
     // If it reads original_steps (800), goalMet = false, steps = 800
     expect(result.steps).toBe(5500);
-    expect(result.distance_km).toBe(4.19);
     expect(result.goalMet).toBe(true);
     expect(result.pct).toBe(100);
     expect(result.remaining_steps).toBe(0);
   });
 
-  it('distance_km reflects effective_distance_km when original_distance_km diverges', () => {
-    const activeGoal = { target_steps: 5000, target_distance_km: 3.81 };
+  it('uses the downward-overridden effective_steps when it is lower than original', () => {
     const record = {
-      original_steps: 3000,
-      original_distance_km: 2.29,        // different from effective
+      original_steps: 9000,
       effective_steps: 3000,
-      effective_distance_km: 1.5,        // effective overridden to lower value
       is_overridden: true,
     };
 
-    const result = computeProgress(record, activeGoal);
-    expect(result.distance_km).toBe(1.5);  // must be effective, not original
+    const result = computeProgress(record, 10000);
+    expect(result.steps).toBe(3000);
+    expect(result.pct).toBe(30);
+    expect(result.goalMet).toBe(false);
   });
 });
