@@ -66,7 +66,6 @@ function makeSamplePayload() {
         isFuture,
         record: isFuture ? null : { effective_steps: 5000, effective_distance_km: 5.0, original_steps: 4800, original_distance_km: 4.6 },
         classification: isFuture ? { state: 0, isOverridden: false } : { state: 2, isOverridden: false },
-        targetDistanceKm: 3.0,
       };
     }),
     aggregates: {
@@ -78,6 +77,7 @@ function makeSamplePayload() {
       hitRatePct: 100,
     },
     navBounds: { canGoPrev: true, canGoNext: false, minYear: 2026, maxYear: 2026 },
+    activeStepGoal: 5000,
   };
 }
 
@@ -1205,5 +1205,28 @@ describe('Task 15 — Form validation before overrideRecord', () => {
 
     await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());
     expect(records.overrideRecord.mock.calls[0][1].effective_steps).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 11 (ST-007a) — activeGoalKm must not appear in any src/** file
+// ---------------------------------------------------------------------------
+
+describe('Task 11 (ST-007a) — activeGoalKm removed from src/**', () => {
+  it('no src/**/*.js file contains the string "activeGoalKm"', () => {
+    const srcDir = path.resolve(__dirname);
+    function scanDir(dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanDir(full);
+        } else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) {
+          const source = fs.readFileSync(full, 'utf8');
+          expect(source, `${full} contains activeGoalKm`).not.toContain('activeGoalKm');
+        }
+      }
+    }
+    scanDir(srcDir);
   });
 });

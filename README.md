@@ -91,59 +91,36 @@ The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST
 
 ## Goal Commitment & Today's Progress
 
-The Dashboard shows a **Today's Progress** card that measures your daily step count against a configurable distance goal. Goal configuration and progress computation are handled client-side with no backend.
+The Dashboard shows a **Today's Progress** card that measures your daily step count against a configurable step goal. Goal configuration and progress computation are handled client-side with no backend.
 
-### Active Goal — Dexie `settings` row
+### Active Step Goal — Scalar Lens
 
 The current goal is persisted as a single row in the Dexie `settings` store (primary key `'key'`):
 
 ```json
 {
-  "key": "active_goal",
-  "target_distance_km": 3.0,
-  "target_steps": 3937,
-  "effective_from": "2026-08-10"
+  "key": "active_step_goal",
+  "target_steps": 10000
 }
 ```
 
-On the **first Dashboard load**, if no `active_goal` row exists, the app lazily writes the **3.0 km default** (3937 steps) and uses it immediately — no manual setup required.
+`active_step_goal` is a **freely re-selectable live lens with no effective-from semantics**. The current value is applied to *every* historical day — there is no per-date goal history and no Effective Date Lock. Changing the goal retroactively reclassifies every past day in the calendar heatmap and all streak metrics.
 
-### Preset Values
+### Step Goal Presets
 
-Four one-click distance presets are available: **1 km**, **3 km**, **5 km**, and **10 km**. Selecting a preset takes effect immediately and persists the new goal for all future loads.
+Four step-count presets are available (`STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`). The default is `DEFAULT_STEP_GOAL = 10000`. Selecting a preset takes effect immediately and persists the new goal for all future loads. Distance-based goals are not supported.
 
-### Conversion Formula
+> **Why these tiers?** The tier ladder is the `STEP_GOAL_OPTIONS` enum verbatim — no km-to-steps conversion is applied. A converted ladder (e.g. `1312.33 × km`) can never produce a value equal to an enum member, which would permanently kill the active-chip highlight in the UI; the rounding would also be an approximation of an approximation; and a threshold of 1,312 steps/day carries no practical signal.
 
-`target_steps` is derived from the distance using the normative constant:
-
-```
-KM_TO_STEPS = 1312.33
-target_steps = Math.round(distance_km × 1312.33)
-```
-
-Authoritative rounded values for the four presets:
-
-| Distance | `target_steps` |
-|----------|---------------|
-| 1 km     | 1312          |
-| 3 km     | 3937          |
-| 5 km     | 6562          |
-| 10 km    | 13123         |
-
-The formula is the authoritative source; the rounded values in the table are derived from it.
-
-### Custom Distance Input
-
-Any **positive distance** (integers or decimals, e.g. `4.5` km) may be entered in the custom input field. The new goal **takes effect immediately** — the progress card re-renders against the new target as soon as the goal is applied. Inputs of `0`, negative values, non-numeric strings, `NaN`, and `Infinity` are rejected with an inline validation message and produce no database write.
+On first load, if no `active_step_goal` row exists, the app lazily writes the `10000`-step default and uses it immediately — no manual setup required.
 
 ### Card States
 
 The Today's Progress card renders in one of two exclusive states based on the percentage `Math.min(100, Math.round(effective_steps / target_steps × 100))`:
 
 **In-Progress** (`< 100%`):
-- Displays the current percentage, step count, and remaining distance.
+- Displays the current percentage, step count, and remaining steps.
 - A live progress bar fills to the current percentage (`width: <pct>%`, `role="progressbar"`).
-- A remaining counter shows steps and approximate distance left: e.g. `⏱️ 1,800 steps remaining to fulfill daily target (~1.37 km)`. Distance follows the SF-5 rule: remaining steps ÷ 1312.33; values under 1 km display in meters (e.g. `152 meters`), 1 km and over display with two decimal places (e.g. `1.37 km`).
 
 **Goal Met** (`≥ 100%`):
 - Displays `100%` and a `✅ Daily Commitment Met` badge.
@@ -152,40 +129,54 @@ The Today's Progress card renders in one of two exclusive states based on the pe
 
 ## Streak Engine
 
-The Dashboard calculates the Unified Active Streak using an Effective Date Lock. Each historical
-date `D` is evaluated against `G(D)`, the goal that was effective on that date, rather than the
-current goal. The calculation:
+The Dashboard calculates three tolerance streak metrics via `computeToleranceStreaks(records, stepGoal, today)` in `src/streak.js`. All three share a single evaluation lens: the live `active_step_goal` scalar applied uniformly to every historical day.
 
-1. Resolves `G(D)` from the latest `goal_history` entry whose `effective_from` is on or before `D`.
-2. Uses the earliest history entry as the baseline for dates before the first logged change.
-3. Compares `effective_distance_km` with `G(D)` using `>=`.
-4. Counts consecutive passing days backwards from today.
-5. Skips an incomplete today, but stops at the first non-passing past day.
+### Three-Metric Tolerance Engine
 
-The `goal_history` Dexie store was added in `DB_VERSION 2` with `effective_from` as its primary key,
-alongside `target_distance_km` and `target_steps`. The migration seeds history from the existing
-`settings.active_goal` row, and every later goal change appends or replaces the row for that local
-date. If history is unavailable, computation falls back to the current active goal and then the
-3.0 km default.
+| Metric | What it counts |
+|--------|---------------|
+| **`actual`** (100%) | Consecutive passing days backward from anchor; any miss terminates. |
+| **`allowance95`** (95%) | Days in the backward window where `misses ≤ floor(d / 20)` — one allowed miss per 20 calendar days. |
+| **`allowance90`** (90%) | Days in the backward window where `misses ≤ floor(d / 10)` — one allowed miss per 10 calendar days. |
 
-### Unified vs. Goal-Tier Streaks
+Constants (from `src/streak.js`):
+- `ALLOWANCE_WINDOW_95 = 20` (95% tier)
+- `ALLOWANCE_WINDOW_90 = 10` (90% tier)
 
-The Unified Active Streak follows the user's date-effective goal. Independent Goal-Tier streaks
-use fixed daily distance thresholds of **1 km**, **3 km**, **5 km**, and **10 km**. Their active
-counts are displayed as the Dashboard's tier chips; the engine also computes each tier's best-ever
-run for analytics. The chips use `>=` evaluation even though their compact labels use the mockup's
-`>1km`, `>3km`, `>5km`, and `>10km` display format.
+**Anchor rule**: the walk starts at `today` if today's record exists and `effective_steps >= stepGoal`; otherwise today is excluded and the walk starts at yesterday. Today is never charged as a miss.
 
-Today's incomplete or missing record does not break an active streak, because the day is still in
-progress. A missing record for a past date is treated as non-passing and terminates the streak.
-Non-finite distance or step values fail their respective thresholds. The engine also computes the
-lifetime 10k metric shown in the banner: `total_10k_days / total_days * 100`, including days with
-at least 10,000 steps. The Hall of Fame retains the top three unified streak periods for future
-analytics; rendering that list is outside this story's scope.
+**Miss rule**: a missing past day reads as 0 steps and counts as a miss. The 100% engine terminates on the first miss. Each allowance engine spends one miss unit (`misses += 1`) and keeps walking while `misses <= floor(d / N)`, recording the furthest affordable depth. Once `misses > floor(d / N)` that engine freezes.
+
+**`earliestRecordDate` bound**: the walk ends when `day < earliestRecordDate` — the oldest synced record. This prevents allowance engines from walking into pre-history indefinitely.
+
+**Depth convention**: the anchor day is `d = 1`; `d` increments by one per calendar day walked back. `floor(d / N)` is load-bearing — the AC arithmetic only holds with a 1-based depth.
+
+**AC Scenario 2 worked example** (39 days, one miss at depth 20):
+- 39 days of data; day 20 is the only miss.
+- `actual`: terminates at the miss → **19**.
+- `allowance95`: at depth 20 the budget is `floor(20/20) = 1`; 1 miss ≤ 1 → affordable. Walk continues through all 39 days → **39**.
+- `allowance90`: at depth 20 the budget is `floor(20/10) = 2`; 1 miss ≤ 2 → affordable. Walk continues through all 39 days → **39**.
+- Result: `{ actual: 19, allowance95: 39, allowance90: 39 }`.
+
+### Tier Streaks
+
+`computeTierStreaks(records, today)` evaluates the same `STEP_GOAL_OPTIONS` ladder as independent fixed thresholds (i.e., each of `[5000, 7500, 10000, 15000]` is evaluated independently). For each tier:
+- **`active`**: backward walk from today with the in-progress rule (today's shortfall is skipped, not a miss).
+- **`best`**: longest consecutive `>=` run in the full history, including today if it passes. Missing calendar days break the run.
+
+All evaluations use `>=`.
+
+### Hall of Fame
+
+`computeHallOfFame(records, stepGoal)` returns the top three (`HALL_OF_FAME_SIZE = 3`) longest strict (100%) streak periods evaluated against the single `active_step_goal`. Periods are ranked by `days` descending, then by recency (`startDate` descending) as a tie-break. The Hall of Fame uses the same scalar lens — no per-date goal history.
+
+### Lifetime Compliance
+
+`computeLifetimeCompliance(records, stepGoal)` returns `{ metDays, totalDays, pct }` — the fraction of all synced days that hit `effective_steps >= stepGoal`.
 
 ## Calendar
 
-The Calendar tab displays a monthly heatmap grid with daily step performance against the date-effective goal, enabling users to explore their historical progress and access per-day details.
+The Calendar tab displays a monthly heatmap grid with daily step performance against the active step goal, enabling users to explore their historical progress and access per-day details.
 
 ### Navigating Months
 
@@ -197,24 +188,26 @@ The calendar opens on the current local month and allows navigation via:
 
 **Navigation bounds**: The Prev button disables when the calendar reaches the month containing your earliest synced record; the Next button disables when the calendar reaches the current month. If your data is empty or incomplete, both Prev and Next render disabled and only the current month appears in the year dropdown.
 
-### Tile Colours
+### Tile Colours — Dynamic Classification
 
-Each tile in the calendar represents a single day and is coloured according to that day's performance against the goal in force on that date (using the Streak Engine's Effective Date Lock). The precedence ladder is:
+Each tile is coloured by `classifyDay(record, stepGoal, isFuture)` in `src/calendar.js` using `ratio = effective_steps / active_step_goal`:
 
 | Condition | Display | Meaning |
 |-----------|---------|---------|
 | **Future date** or **no synced data** | Neutral (muted) | No performance data available yet |
-| `effective_distance_km >= (target × 2.0)` | Green (Exceeded) | Exceeded the daily target by 2× or more |
-| `effective_distance_km >= target × 1.0` | Green (Met) | Met or exceeded the daily target |
-| `effective_distance_km < target × 1.0` | Amber (Missed) | Fell short of the daily target |
+| `ratio >= EXCEEDED_RATIO` (`1.5`) | Green (Exceeded) | Exceeded the daily target by 50% or more |
+| `ratio >= MET_RATIO` (`1.0`) | Green (Met) | Met or exceeded the daily target |
+| `ratio < MET_RATIO` | Amber (Missed) | Fell short of the daily target |
 
-**Important**: Every day is evaluated against **the goal in force on that day**, not today's goal. If you changed your target in the past, historical days use the goal that was active when they occurred.
+Constants: `MET_RATIO = 1.0`, `EXCEEDED_RATIO = 1.5` (from `src/calendar.js`).
 
-The comparisons use `>=` for both thresholds. Non-finite `effective_distance_km` values (e.g. missing, `NaN`, `Infinity`) are treated as `0`.
+**Important**: Every day is evaluated against the **current** `active_step_goal` — the scalar lens. Changing the goal rerenders all tiles with the new threshold. Classification writes nothing to Dexie.
+
+The comparisons use `>=` for both thresholds. Non-finite `effective_steps` values (e.g. missing, `NaN`, `Infinity`) are treated as `0`.
 
 ### Override Badge
 
-Days marked with a `*` (asterisk) badge indicate `is_overridden === true` — a user-authored override created through manual logging (arriving in ST-006). The badge is orthogonal to the tile colour and may appear on any performance tier.
+Days marked with a `*` (asterisk) badge indicate `is_overridden === true` — a user-authored override created through manual logging. The badge is orthogonal to the tile colour and may appear on any performance tier.
 
 ### Monthly Summary
 
@@ -227,7 +220,7 @@ Avg Daily Steps  = Math.round(Total Steps / days_evaluated)
 Hit Rate %       = Math.round((days_target_met / days_evaluated) × 100)
 ```
 
-**Critical note on `days_evaluated`**: This metric counts **only past or present days that have at least one synced record**, not all calendar days in the month. This is a **deliberate divergence from the story's literal "Total Days" wording** and is record-backed: a day with no synced data from Google Fit is excluded from both the numerator and denominator. This ensures an incompletely backfilled month is not reported as a near-zero hit rate.
+**Critical note on `days_evaluated`**: This metric counts **only past or present days that have at least one synced record**, not all calendar days in the month. A day with no synced data from Google Fit is excluded from both the numerator and denominator. This ensures an incompletely backfilled month is not reported as a near-zero hit rate.
 
 For example:
 - A month with 15 synced days (of which 10 met target) renders Hit Rate as `67%`, not a lower ratio based on the full 31-day month.
@@ -308,9 +301,11 @@ This bounds the Base64 string size while retaining sufficient detail for a proof
 
 The Search Lab tab (`#tab-search`) provides a dynamic query builder over the local `daily_records` store. All filtering, aggregation, and export happens entirely client-side — no data leaves the browser.
 
+**Independence**: `createSearch(db)` receives only the Dexie database — no `goal` collaborator is injected. The panel manages its own step-target input (`stepTarget`) locally; this value drives both the `targetOutcome` filter and the Near-Miss Detector. The Min Distance filter has been removed (distance measurements are unreliable as a primary filter criterion; distance is still present in the records and exported, but not filterable). Retained distance *measurements* remain in the `effective_distance_km` field and all exports.
+
 ### Query Builder
 
-Seven filter controls are available. All active constraints are combined with AND logic — a record must satisfy every non-empty filter to appear in the results.
+Six filter controls are available. All active constraints are combined with AND logic — a record must satisfy every non-empty filter to appear in the results.
 
 | Control | Field | Values |
 |---------|-------|--------|
@@ -318,17 +313,20 @@ Seven filter controls are available. All active constraints are combined with AN
 | End Date | `endDate` | ISO date string (`YYYY-MM-DD`); leave blank for all-time |
 | Min Steps | `minSteps` | Integer; records with `effective_steps < minSteps` are excluded |
 | Max Steps | `maxSteps` | Integer; records with `effective_steps > maxSteps` are excluded |
-| Min Distance (km) | `minDistance` | Decimal; records with `effective_distance_km < minDistance` are excluded |
 | Override Status | `overrideStatus` | `all` (default), `overridden`, `not-overridden` |
 | Target Outcome | `targetOutcome` | `all` (default), `met`, `missed` |
 
 **Date range**: When both Start Date and End Date are provided, the query reads only records in that closed interval. When either is blank, the query scans the full table.
 
-**Override Status**: Selects records where `is_overridden === true` (`overridden`), `is_overridden !== true` (`not-overridden`), or either (`all`).
+**Override Status**: Selects records where `is_overridden === true` (`overridden`), `is_overridden !== false` (`not-overridden`), or either (`all`).
 
-**Target Outcome**: Evaluates each record against the goal that was in force on that date (the same date-effective goal used by the Streak Engine). `met` selects records where `effective_distance_km >= goal_for_date`; `missed` selects records with a finite `effective_distance_km` that falls below the goal. Records with non-finite distance values do not pass either filter and are excluded from both `met` and `missed` result sets.
+**Target Outcome**: Evaluates each record against the panel-local `stepTarget` field. `met` selects records where `effective_steps >= stepTarget`; `missed` selects records with a finite `effective_steps` that falls below the target. Records with non-finite step values do not pass either filter.
 
 **Results** are returned sorted newest-first.
+
+### Near-Miss Detector
+
+`computeNearMisses(records, stepTarget)` (from `src/search.js`) identifies days that fell just short of the step target. The near-miss band is `NEAR_MISS_BAND_PCT = 10` — i.e. `[stepTarget × 0.9, stepTarget)`. Records with `effective_steps` in that range are returned sorted newest-first with each record's `shortfall` (i.e. `stepTarget - effective_steps`).
 
 ### Result Summary
 
@@ -389,3 +387,26 @@ The JSON file is a pretty-printed array (`JSON.stringify(..., null, 2)`) of obje
 ```
 
 The JSON keys are identical to the CSV header names — the two formats are produced from the same `_toExportRow` mapper and cannot drift relative to each other.
+
+## Database Schema
+
+### DB Version 4 (`DB_VERSION = 4`)
+
+The app uses [Dexie](https://dexie.org/) (IndexedDB wrapper). The current schema version is **4**.
+
+**Stores:**
+
+| Store | Primary key / indexes |
+|-------|----------------------|
+| `daily_records` | `date`, `effective_steps`, `effective_distance_km`, `is_overridden`, `synced_at` |
+| `settings` | `key` |
+
+The `goal_history` table that existed in DB v2–v3 has been **dropped** in v4. It is not present in the current schema.
+
+**v4 Migration (one-way, non-reversible):**
+1. The `active_goal` settings row (legacy km-based goal) is deleted.
+2. A new `active_step_goal` row `{ key: 'active_step_goal', target_steps: 10000 }` is seeded in `settings`.
+3. The legacy km goal is **not** converted — it is reset to the `10000`-step default.
+4. `goal_history` is dropped (`null` in the v4 store map).
+
+This migration is one-way: downgrading to a DB version that expects `goal_history` is not supported.

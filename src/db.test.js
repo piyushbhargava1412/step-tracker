@@ -17,6 +17,10 @@ vi.mock('dexie', async () => {
       });
       this.open = vi.fn().mockResolvedValue(undefined);
       this.daily_records = { count: vi.fn().mockResolvedValue(0) };
+      // settings table stub — tests override delete/put per-case
+      this.settings = { delete: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined) };
+      // transaction stub: executes the callback immediately with db.settings
+      this.transaction = vi.fn().mockImplementation(async (_mode, _table, cb) => cb());
       MockDexie._lastInstance = this;
     }
   }
@@ -46,8 +50,8 @@ describe('DB constants', () => {
   it('DB_NAME equals StepTrackerDB', () => {
     expect(DB_NAME).toBe('StepTrackerDB');
   });
-  it('DB_VERSION equals 3', () => {
-    expect(DB_VERSION).toBe(3);
+  it('DB_VERSION equals 4', () => {
+    expect(DB_VERSION).toBe(4);
   });
 });
 
@@ -335,5 +339,133 @@ describe('initDB() - edge case', () => {
     const reporter = makeReporter();
     await expect(initDB(db, reporter)).resolves.toBeUndefined();
     expect(reporter.db).toHaveBeenCalled();
+  });
+});
+
+// ─── Task 18: Dexie v4 migration ─────────────────────────────────────────────
+
+describe('DB constants — v4', () => {
+  it('DB_VERSION equals 4', () => {
+    expect(DB_VERSION).toBe(4);
+  });
+});
+
+describe('createDb() — v4 version chain', () => {
+  it('calls version(4) in addition to v2 and v3', async () => {
+    const db = createDb();
+    const calls = db.version.mock.calls.map(([v]) => v);
+    expect(calls).toContain(4);
+  });
+
+  it('v4 .stores() passes goal_history: null (table-drop directive)', async () => {
+    const db = createDb();
+    // version() is called: v2 at index 0, v3 at index 1, v4 at index 2
+    const v4Chain = db.version.mock.results[2].value;
+    expect(v4Chain.stores).toHaveBeenCalledWith(
+      expect.objectContaining({ goal_history: null })
+    );
+  });
+
+  it('v4 DAILY_RECORDS_STORES is byte-identical to v3', async () => {
+    const db = createDb();
+    const v3Arg = db.version.mock.results[1].value.stores.mock.calls[0][0].daily_records;
+    const v4Arg = db.version.mock.results[2].value.stores.mock.calls[0][0].daily_records;
+    expect(v4Arg).toBe(v3Arg);
+  });
+
+  it('v4 registers an upgrade function', async () => {
+    const db = createDb();
+    const v4Upgrade = db.version.mock.results[2].value.upgrade;
+    expect(v4Upgrade).toHaveBeenCalled();
+    expect(typeof v4Upgrade.mock.calls[0][0]).toBe('function');
+  });
+});
+
+// ─── Task 25: v4 upgrade atomicity ────────────────────────────────────────────
+
+describe('createDb() — v4 upgrade handler (atomic transaction)', () => {
+  function getV4Handler(db) {
+    return db.version.mock.results[2].value.upgrade.mock.calls[0][0];
+  }
+
+  it('wraps delete+put in db.transaction called with "rw" mode', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const tx = {}; // v4 handler no longer uses tx directly
+    await handler(tx);
+    expect(db.transaction).toHaveBeenCalledWith('rw', db.settings, expect.any(Function));
+  });
+
+  it('wraps delete+put in db.transaction scoped to db.settings table', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    const [_mode, tableArg] = db.transaction.mock.calls[0];
+    expect(tableArg).toBe(db.settings);
+  });
+
+  it('deletes settings["active_goal"] during upgrade', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    expect(db.settings.delete).toHaveBeenCalledWith('active_goal');
+  });
+
+  it('puts { key: "active_step_goal", target_steps: 10000 } during upgrade', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    expect(db.settings.put).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
+  });
+
+  it('written row contains no effective_from / valid_from / date-scoping key', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    const written = db.settings.put.mock.calls[0][0];
+    expect(written).not.toHaveProperty('effective_from');
+    expect(written).not.toHaveProperty('valid_from');
+    expect(Object.keys(written)).toEqual(['key', 'target_steps']);
+  });
+
+  it('catches a rejecting transaction and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('transaction failed');
+    db.transaction.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('catches a rejecting settings.delete() and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('delete failed');
+    db.settings.delete.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('catches a rejecting settings.put() and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('put failed');
+    db.settings.put.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('running the upgrade twice yields the same end state (idempotent)', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    await handler({});
+    expect(db.settings.delete).toHaveBeenCalledTimes(2);
+    expect(db.settings.delete).toHaveBeenCalledWith('active_goal');
+    expect(db.settings.put).toHaveBeenCalledTimes(2);
+    expect(db.settings.put).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
   });
 });

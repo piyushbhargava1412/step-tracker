@@ -16,9 +16,10 @@ import {
   classifyDay,
   computeMonthlyAggregates,
   computeNavBounds,
+  computeCommitmentHitRate,
   createCalendar,
 } from './calendar.js';
-import { DEFAULT_GOAL_KM } from './goal.js';
+import { DEFAULT_STEP_GOAL } from './goal.js';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -120,89 +121,84 @@ describe('buildMonthGrid', () => {
 });
 
 // ---------------------------------------------------------------------------
-// classifyDay
+// classifyDay (step lens — Task 10)
 // ---------------------------------------------------------------------------
 
 describe('classifyDay', () => {
-  const TARGET = 3.0;
+  const STEP_GOAL = 10000;
 
   it('undefined record → state 0, isOverridden false', () => {
-    expect(classifyDay(undefined, TARGET, false)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
+    expect(classifyDay(undefined, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
   });
 
   it('null record → state 0, isOverridden false', () => {
-    expect(classifyDay(null, TARGET, false)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
+    expect(classifyDay(null, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
   });
 
   it('future date with a record → state 0, isOverridden false', () => {
-    const record = { effective_distance_km: 5.0, effective_steps: 6000 };
-    expect(classifyDay(record, TARGET, true)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
+    const record = { effective_steps: 15000 };
+    expect(classifyDay(record, STEP_GOAL, true)).toEqual({ state: CLASSIFICATION_NO_DATA, isOverridden: false });
   });
 
   it('ratio exactly 1.0× → state 2 (Met)', () => {
-    const record = { effective_distance_km: 3.0, effective_steps: 4000 };
-    expect(classifyDay(record, TARGET, false)).toEqual({ state: CLASSIFICATION_MET, isOverridden: false });
+    const record = { effective_steps: 10000 };
+    expect(classifyDay(record, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_MET, isOverridden: false });
   });
 
   it('ratio just below 1.0× → state 1 (Missed)', () => {
-    const record = { effective_distance_km: 2.999, effective_steps: 4000 };
-    expect(classifyDay(record, TARGET, false)).toEqual({ state: CLASSIFICATION_MISSED, isOverridden: false });
+    const record = { effective_steps: 9999 };
+    expect(classifyDay(record, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_MISSED, isOverridden: false });
   });
 
-  it('ratio exactly 2.0× → state 3 (Exceeded)', () => {
-    const record = { effective_distance_km: 6.0, effective_steps: 8000 };
-    expect(classifyDay(record, TARGET, false)).toEqual({ state: CLASSIFICATION_EXCEEDED, isOverridden: false });
+  it('ratio exactly 1.5× → state 3 (Exceeded)', () => {
+    const record = { effective_steps: 15000 };
+    expect(classifyDay(record, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_EXCEEDED, isOverridden: false });
   });
 
-  it('ratio just below 2.0× → state 2 (Met)', () => {
-    const record = { effective_distance_km: 5.999, effective_steps: 8000 };
-    expect(classifyDay(record, TARGET, false)).toEqual({ state: CLASSIFICATION_MET, isOverridden: false });
+  it('ratio just below 1.5× → state 2 (Met)', () => {
+    const record = { effective_steps: 14999 };
+    expect(classifyDay(record, STEP_GOAL, false)).toEqual({ state: CLASSIFICATION_MET, isOverridden: false });
   });
 
-  it('effective_distance_km NaN → state 1 (Missed)', () => {
-    const record = { effective_distance_km: NaN, effective_steps: 6000 };
-    expect(classifyDay(record, TARGET, false).state).toBe(CLASSIFICATION_MISSED);
+  it('effective_steps NaN → state 1 (Missed)', () => {
+    const record = { effective_steps: NaN };
+    expect(classifyDay(record, STEP_GOAL, false).state).toBe(CLASSIFICATION_MISSED);
   });
 
-  it('effective_distance_km Infinity → state 1 (Missed)', () => {
-    const record = { effective_distance_km: Infinity, effective_steps: 6000 };
-    expect(classifyDay(record, TARGET, false).state).toBe(CLASSIFICATION_MISSED);
+  it('effective_steps Infinity → state 1 (Missed)', () => {
+    const record = { effective_steps: Infinity };
+    expect(classifyDay(record, STEP_GOAL, false).state).toBe(CLASSIFICATION_MISSED);
   });
 
-  it('effective_distance_km string → state 1 (Missed)', () => {
-    const record = { effective_distance_km: '5', effective_steps: 6000 };
-    expect(classifyDay(record, TARGET, false).state).toBe(CLASSIFICATION_MISSED);
-  });
-
-  it('targetDistanceKm 0 → falls back to DEFAULT_GOAL_KM', () => {
-    const record = { effective_distance_km: 3.5, effective_steps: 4000 };
+  it('stepGoal 0 → falls back to DEFAULT_STEP_GOAL', () => {
+    const record = { effective_steps: DEFAULT_STEP_GOAL };
     expect(classifyDay(record, 0, false).state).toBe(
-      classifyDay(record, DEFAULT_GOAL_KM, false).state,
+      classifyDay(record, DEFAULT_STEP_GOAL, false).state,
     );
   });
 
-  it('targetDistanceKm -1 → falls back to DEFAULT_GOAL_KM', () => {
-    const record = { effective_distance_km: 3.5, effective_steps: 4000 };
+  it('stepGoal -1 → falls back to DEFAULT_STEP_GOAL', () => {
+    const record = { effective_steps: DEFAULT_STEP_GOAL };
     expect(classifyDay(record, -1, false).state).toBe(
-      classifyDay(record, DEFAULT_GOAL_KM, false).state,
+      classifyDay(record, DEFAULT_STEP_GOAL, false).state,
     );
   });
 
-  it('targetDistanceKm NaN → falls back to DEFAULT_GOAL_KM', () => {
-    const record = { effective_distance_km: 3.5, effective_steps: 4000 };
+  it('stepGoal NaN → falls back to DEFAULT_STEP_GOAL', () => {
+    const record = { effective_steps: DEFAULT_STEP_GOAL };
     expect(classifyDay(record, NaN, false).state).toBe(
-      classifyDay(record, DEFAULT_GOAL_KM, false).state,
+      classifyDay(record, DEFAULT_STEP_GOAL, false).state,
     );
   });
 
   it('isOverridden: true on Missed, Met, and Exceeded', () => {
-    const missed = { effective_distance_km: 1.0, effective_steps: 1000, is_overridden: true };
-    const met = { effective_distance_km: 3.0, effective_steps: 4000, is_overridden: true };
-    const exceeded = { effective_distance_km: 6.0, effective_steps: 8000, is_overridden: true };
+    const missed = { effective_steps: 1000, is_overridden: true };
+    const met = { effective_steps: 10000, is_overridden: true };
+    const exceeded = { effective_steps: 15000, is_overridden: true };
 
-    expect(classifyDay(missed, TARGET, false).isOverridden).toBe(true);
-    expect(classifyDay(met, TARGET, false).isOverridden).toBe(true);
-    expect(classifyDay(exceeded, TARGET, false).isOverridden).toBe(true);
+    expect(classifyDay(missed, STEP_GOAL, false).isOverridden).toBe(true);
+    expect(classifyDay(met, STEP_GOAL, false).isOverridden).toBe(true);
+    expect(classifyDay(exceeded, STEP_GOAL, false).isOverridden).toBe(true);
   });
 });
 
@@ -366,17 +362,13 @@ describe('computeNavBounds', () => {
 });
 
 // ---------------------------------------------------------------------------
-// createCalendar — factory (Tasks 6)
+// createCalendar — factory (Task 10 step lens)
 // ---------------------------------------------------------------------------
 
 describe('createCalendar — factory', () => {
   const TODAY = '2026-08-10';
 
-  function makeMockDb({ records = [], history = [], activeGoal = null, earliestRecord = null } = {}) {
-    const recordMap = new Map();
-    for (const r of records) {
-      recordMap.set(r.date, r);
-    }
+  function makeMockDb({ records = [], earliestRecord = null } = {}) {
     return {
       daily_records: {
         where: vi.fn().mockReturnThis(),
@@ -385,8 +377,6 @@ describe('createCalendar — factory', () => {
         orderBy: vi.fn().mockReturnThis(),
         first: vi.fn().mockResolvedValue(earliestRecord),
       },
-      goal_history: { toArray: vi.fn().mockResolvedValue(history) },
-      settings: { get: vi.fn().mockResolvedValue(null) },
     };
   }
 
@@ -401,21 +391,20 @@ describe('createCalendar — factory', () => {
 
   it('between() receives exact monthBounds values with (start, endExclusive, true, false)', async () => {
     const db = makeMockDb();
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     await calendar.loadMonth(2026, 7);
     expect(db.daily_records.where).toHaveBeenCalledWith('date');
     const { start, endExclusive } = monthBounds(2026, 7);
     expect(db.daily_records.between).toHaveBeenCalledWith(start, endExclusive, true, false);
   });
 
-  it('all four reads issued in a single Promise.all', async () => {
+  it('three reads issued in a single Promise.all (no goal_history)', async () => {
     const db = makeMockDb();
-    const goal = { getActiveGoal: vi.fn().mockResolvedValue(null) };
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(10000) };
     const calendar = createCalendar(db, goal);
     await calendar.loadMonth(2026, 7);
     expect(db.daily_records.toArray).toHaveBeenCalledTimes(1);
-    expect(db.goal_history.toArray).toHaveBeenCalledTimes(1);
-    expect(goal.getActiveGoal).toHaveBeenCalledTimes(1);
+    expect(goal.getActiveStepGoal).toHaveBeenCalledTimes(1);
     expect(db.daily_records.first).toHaveBeenCalledTimes(1);
   });
 
@@ -424,7 +413,7 @@ describe('createCalendar — factory', () => {
       { date: '2026-08-08', effective_steps: 5000, effective_distance_km: 5.0 },
     ];
     const db = makeMockDb({ records });
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     const payload = await calendar.loadMonth(2026, 7);
     const dayWithRecord = payload.days.find((d) => d.date === '2026-08-08');
     expect(dayWithRecord.record).toEqual(records[0]);
@@ -432,27 +421,10 @@ describe('createCalendar — factory', () => {
 
   it('day without matching record gets null', async () => {
     const db = makeMockDb({ records: [] });
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     const payload = await calendar.loadMonth(2026, 7);
     const noDataDay = payload.days.find((d) => d.date === '2026-08-01');
     expect(noDataDay.record).toBeNull();
-  });
-
-  it('empty goal_history + valid active_goal resolves targets from synthetic history', async () => {
-    const activeGoal = { effective_from: '2026-08-01', target_distance_km: 5.0, target_steps: 6562 };
-    const db = makeMockDb({ records: [], activeGoal });
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(activeGoal) });
-    const payload = await calendar.loadMonth(2026, 7);
-    const day = payload.days[0];
-    expect(day.targetDistanceKm).toBe(5.0);
-  });
-
-  it('empty goal_history + no valid active_goal falls back to DEFAULT_GOAL_KM', async () => {
-    const db = makeMockDb({ records: [] });
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
-    const payload = await calendar.loadMonth(2026, 7);
-    const day = payload.days[0];
-    expect(day.targetDistanceKm).toBe(DEFAULT_GOAL_KM);
   });
 
   it('loadMonth rejects when daily_records rejects', async () => {
@@ -464,16 +436,14 @@ describe('createCalendar — factory', () => {
         orderBy: vi.fn().mockReturnThis(),
         first: vi.fn().mockResolvedValue(null),
       },
-      goal_history: { toArray: vi.fn().mockResolvedValue([]) },
-      settings: { get: vi.fn().mockResolvedValue(null) },
     };
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     await expect(calendar.loadMonth(2026, 7)).rejects.toThrow('DB failed');
   });
 
   it('buildZeroState returns full grid, all state 0, all metrics null', () => {
     const db = makeMockDb();
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     const payload = calendar.buildZeroState(2026, 7);
     expect(payload.days.length).toBeGreaterThan(0);
     for (const day of payload.days) {
@@ -487,7 +457,7 @@ describe('createCalendar — factory', () => {
 
   it('two sequential calls with different months return independent payloads', async () => {
     const db = makeMockDb();
-    const calendar = createCalendar(db, { getActiveGoal: vi.fn().mockResolvedValue(null) });
+    const calendar = createCalendar(db, { getActiveStepGoal: vi.fn().mockResolvedValue(10000) });
     const p1 = await calendar.loadMonth(2026, 7);
     const p2 = await calendar.loadMonth(2026, 8);
     expect(p1.year).toBe(2026);
@@ -499,44 +469,228 @@ describe('createCalendar — factory', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ST-006 Task 7 — Effective-field classification regression (classifyDay)
+// ST-006 Task 7 — Effective-field classification regression (classifyDay on steps)
 // ---------------------------------------------------------------------------
 
-describe('classifyDay — effective_* field regression (ST-006 Task 7)', () => {
-  const TARGET = 3.0;
+describe('classifyDay — effective_steps field regression (ST-007a Task 10)', () => {
+  const STEP_GOAL = 10000;
 
-  // Divergent-field fixture: original_distance_km is below goal threshold,
-  // effective_distance_km is above it (simulates a corrected override).
-  // classifyDay must read effective_distance_km, so state should be Met (2).
+  // Divergent-field fixture: original_steps is below goal threshold,
+  // effective_steps is above it (simulates a corrected override).
+  // classifyDay must read effective_steps, so state should be Met (2).
 
-  it('classifies as Met using effective_distance_km when original_distance_km is below threshold', () => {
+  it('classifies as Met using effective_steps when original_steps is below threshold', () => {
     const record = {
       original_steps: 500,
-      original_distance_km: 0.38,        // 0.38 < 3.0 → would be Missed
-      effective_steps: 4000,
-      effective_distance_km: 3.05,       // 3.05 >= 3.0 → should be Met
+      effective_steps: 10500, // >= 10000 → should be Met
       is_overridden: true,
     };
 
-    const result = classifyDay(record, TARGET, false);
-
-    // If engine reads effective_distance_km (correct), state = CLASSIFICATION_MET (2)
-    // If it reads original_distance_km, state = CLASSIFICATION_MISSED (1)
+    const result = classifyDay(record, STEP_GOAL, false);
     expect(result.state).toBe(CLASSIFICATION_MET);
   });
 
-  it('classifies as Missed on effective_distance_km even when original_distance_km exceeds goal', () => {
-    // Reverse divergence: original is Met but effective was overridden to below goal
+  it('classifies as Missed on effective_steps even when original_steps exceeds goal', () => {
     const record = {
-      original_steps: 5000,
-      original_distance_km: 4.5,         // 4.5 >= 3.0 → would be Met
-      effective_steps: 1000,
-      effective_distance_km: 0.76,       // 0.76 < 3.0 → should be Missed
+      original_steps: 15000, // >= 10000 → would be Met
+      effective_steps: 500,  // < 10000 → should be Missed
       is_overridden: true,
     };
 
-    const result = classifyDay(record, TARGET, false);
-
+    const result = classifyDay(record, STEP_GOAL, false);
     expect(result.state).toBe(CLASSIFICATION_MISSED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ST-007a Task 10 — Step lens conversion tests
+// ---------------------------------------------------------------------------
+
+describe('Task 10 — classifyDay step lens (EXCEEDED_RATIO = 1.5)', () => {
+  // EXCEEDED_RATIO boundary: at stepGoal=10000, 1.5x = 15000
+  it('9,999 steps at stepGoal 10000 → MISSED', () => {
+    const record = { effective_steps: 9999, is_overridden: false };
+    expect(classifyDay(record, 10000, false).state).toBe(CLASSIFICATION_MISSED);
+  });
+
+  it('10,000 steps at stepGoal 10000 → MET (MET_RATIO boundary inclusive)', () => {
+    const record = { effective_steps: 10000, is_overridden: false };
+    expect(classifyDay(record, 10000, false).state).toBe(CLASSIFICATION_MET);
+  });
+
+  it('14,999 steps at stepGoal 10000 → MET (below 1.5x)', () => {
+    const record = { effective_steps: 14999, is_overridden: false };
+    expect(classifyDay(record, 10000, false).state).toBe(CLASSIFICATION_MET);
+  });
+
+  it('15,000 steps at stepGoal 10000 → EXCEEDED (1.5x boundary inclusive)', () => {
+    const record = { effective_steps: 15000, is_overridden: false };
+    expect(classifyDay(record, 10000, false).state).toBe(CLASSIFICATION_EXCEEDED);
+  });
+
+  it('same record re-classifies at stepGoal 5000 vs 15000 with no DB write', () => {
+    const mockDb = { settings: { put: vi.fn(), get: vi.fn() } };
+    const record = { effective_steps: 6000, is_overridden: false };
+    const at5k = classifyDay(record, 5000, false);
+    const at15k = classifyDay(record, 15000, false);
+    // 8000 >= 5000 → MET; 8000 < 15000 → MISSED
+    expect(at5k.state).toBe(CLASSIFICATION_MET);
+    expect(at15k.state).toBe(CLASSIFICATION_MISSED);
+    // No DB write happened
+    expect(mockDb.settings.put).not.toHaveBeenCalled();
+    expect(mockDb.settings.get).not.toHaveBeenCalled();
+  });
+
+  it('future day → NO_DATA regardless of record', () => {
+    const record = { effective_steps: 15000, is_overridden: false };
+    expect(classifyDay(record, 10000, true).state).toBe(CLASSIFICATION_NO_DATA);
+  });
+
+  it('null record → NO_DATA', () => {
+    expect(classifyDay(null, 10000, false).state).toBe(CLASSIFICATION_NO_DATA);
+  });
+
+  it('non-finite effective_steps → MISSED', () => {
+    const record = { effective_steps: NaN, is_overridden: false };
+    expect(classifyDay(record, 10000, false).state).toBe(CLASSIFICATION_MISSED);
+  });
+
+  it('non-finite stepGoal falls open to DEFAULT_STEP_GOAL (10000)', () => {
+    // 10000 steps / DEFAULT_STEP_GOAL (10000) = 1.0 → MET
+    const record = { effective_steps: 10000, is_overridden: false };
+    expect(classifyDay(record, NaN, false).state).toBe(CLASSIFICATION_MET);
+  });
+
+  it('isOverridden is preserved on step-lens path', () => {
+    const record = { effective_steps: 10000, is_overridden: true };
+    expect(classifyDay(record, 10000, false).isOverridden).toBe(true);
+  });
+});
+
+describe('Task 10 — computeCommitmentHitRate step lens', () => {
+  function makeDay(date, steps, isFuture = false) {
+    return {
+      date,
+      isFuture,
+      record: steps != null ? { effective_steps: steps } : null,
+    };
+  }
+
+  it('today excluded, elapsed days computed on effective_steps vs stepGoal', () => {
+    const today = '2026-08-10';
+    const days = [
+      makeDay('2026-08-08', 10000), // met at 10000
+      makeDay('2026-08-09', 5000),  // missed at 10000
+      makeDay('2026-08-10', 12000, false), // today — excluded
+    ];
+    expect(computeCommitmentHitRate(days, today, 10000)).toBe(50);
+  });
+
+  it('missing record counts as a miss', () => {
+    const today = '2026-08-10';
+    const days = [
+      makeDay('2026-08-08', 10000), // met
+      { date: '2026-08-09', isFuture: false, record: null }, // missing = miss
+    ];
+    expect(computeCommitmentHitRate(days, today, 10000)).toBe(50);
+  });
+
+  it('returns null when no elapsed days', () => {
+    const today = '2026-08-10';
+    const days = [
+      makeDay('2026-08-10', 10000, false), // today only — excluded
+    ];
+    expect(computeCommitmentHitRate(days, today, 10000)).toBeNull();
+  });
+
+  it('all days met → 100', () => {
+    const today = '2026-08-10';
+    const days = [
+      makeDay('2026-08-07', 10000),
+      makeDay('2026-08-08', 12000),
+      makeDay('2026-08-09', 15000),
+    ];
+    expect(computeCommitmentHitRate(days, today, 10000)).toBe(100);
+  });
+
+  it('none of the days met → 0', () => {
+    const today = '2026-08-10';
+    const days = [
+      makeDay('2026-08-07', 100),
+      makeDay('2026-08-08', 200),
+    ];
+    expect(computeCommitmentHitRate(days, today, 10000)).toBe(0);
+  });
+});
+
+describe('Task 10 — createCalendar loadMonth step lens payload', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T12:00:00'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeMockDb({ records = [], earliestRecord = null } = {}) {
+    return {
+      daily_records: {
+        where: vi.fn().mockReturnThis(),
+        between: vi.fn().mockReturnThis(),
+        toArray: vi.fn().mockResolvedValue(records),
+        orderBy: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(earliestRecord),
+      },
+      // goal_history should NOT be called in Task 10
+      goal_history: { toArray: vi.fn().mockRejectedValue(new Error('should not be called')) },
+    };
+  }
+
+  it('loadMonth never calls db.goal_history.toArray()', async () => {
+    const db = makeMockDb();
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(10000) };
+    const calendar = createCalendar(db, goal);
+    await calendar.loadMonth(2026, 7);
+    expect(db.goal_history.toArray).not.toHaveBeenCalled();
+  });
+
+  it('payload contains activeStepGoal and no activeGoalKm', async () => {
+    const db = makeMockDb();
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(7500) };
+    const calendar = createCalendar(db, goal);
+    const payload = await calendar.loadMonth(2026, 7);
+    expect(payload.activeStepGoal).toBe(7500);
+    expect(payload).not.toHaveProperty('activeGoalKm');
+  });
+
+  it('no day object carries targetDistanceKm', async () => {
+    const db = makeMockDb({ records: [{ date: '2026-08-08', effective_steps: 9000 }] });
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(10000) };
+    const calendar = createCalendar(db, goal);
+    const payload = await calendar.loadMonth(2026, 7);
+    for (const day of payload.days) {
+      expect(day).not.toHaveProperty('targetDistanceKm');
+    }
+  });
+
+  it('buildZeroState payload has activeStepGoal = DEFAULT_STEP_GOAL and no activeGoalKm', () => {
+    const db = makeMockDb();
+    const goal = { getActiveStepGoal: vi.fn() };
+    const calendar = createCalendar(db, goal);
+    const payload = calendar.buildZeroState(2026, 7);
+    expect(payload.activeStepGoal).toBe(DEFAULT_STEP_GOAL);
+    expect(payload).not.toHaveProperty('activeGoalKm');
+  });
+
+  it('classifyDay uses effective_steps for classification in loadMonth', async () => {
+    const records = [{ date: '2026-08-08', effective_steps: 15000, effective_distance_km: 1.0 }];
+    const db = makeMockDb({ records });
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(10000) };
+    const calendar = createCalendar(db, goal);
+    const payload = await calendar.loadMonth(2026, 7);
+    const day = payload.days.find((d) => d.date === '2026-08-08');
+    // 15000 / 10000 = 1.5 → EXCEEDED
+    expect(day.classification.state).toBe(CLASSIFICATION_EXCEEDED);
   });
 });

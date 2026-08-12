@@ -1,8 +1,8 @@
 # Design & Coding Patterns
 
 <!-- context-meta
-verification-commit: 4754aafff08e716cb529f688d20095b5eed11ce8
-generated-at: 2026-08-11T07:37:00Z
+verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
+generated-at: 2026-08-12T06:00:00Z
 confidence: high
 -->
 
@@ -54,11 +54,28 @@ confidence: high
   `-ui.js` module is the only file that touches the document. Established across all feature areas.
   *Evidence (≥3)*: `src/streak.js`/`src/streak-ui.js`; `src/progress.js`/`src/progress-ui.js`;
   `src/calendar.js`/`src/calendar-ui.js`.
-- **Shared pure module extracted to avoid duplication**: when two feature engines share an algorithmic
-  building block, it is extracted into its own module rather than duplicated or placed in a utils grab-bag.
-  The extracted module is pure (no DOM, no Dexie) and exports its primitives at the fine-grained level
-  needed for performance-sensitive callers. *Evidence*: `src/goal-history.js` (shared by `streak.js`
-  and `calendar.js`; exports both the public API and prepared-once sub-steps).
+- **Shared pure module extracted to avoid duplication**: when multiple feature engines share a
+  utility or algorithmic building block, it is extracted into its own module rather than duplicated
+  or placed in a utils grab-bag. The extracted module is pure (no DOM, no Dexie) and exports its
+  primitives at the fine-grained level needed by all callers. *Evidence (≥3)*: `src/date-utils.js`
+  (`_localDate`, `_addDaysUtc` — shared by `goal.js`, `streak.js`, `steps.js`,
+  `exporter.js`, and others); `src/units.js` (`KM_TO_STEPS` — shared by `progress.js`, `records.js`).
+- **Pure export beside factory (not inside closure)**: when a module's primary export is a factory
+  (`createXxx`), supplementary pure functions that are independently testable and do not require the
+  factory's closed-over state are exported as named module-level exports rather than being nested
+  inside the factory closure. This keeps the factory surface minimal and allows callers to import
+  only the pure function without instantiating the factory. *Evidence*: `src/search.js` exports
+  `computeNearMisses(records, stepTarget)` at module level alongside the `createSearch(db)` factory;
+  `src/calendar.js` exports `classifyDay`, `buildMonthGrid`, `computeMonthlyAggregates`, etc. as
+  named exports alongside `createCalendar`.
+- **Scalar-lens goal (no per-date resolution)**: goal state is stored and read as a single integer
+  (`target_steps`). No `effective_from` date-scoping, no per-date goal-history resolution, and no
+  `goal_history` table. Any computation that needs a goal value for a historical day uses the
+  single active step goal uniformly. This rule prevents the "effective goal history" complexity from
+  creeping back into streak, calendar, or search modules. *Evidence*: `src/goal.js`
+  (`getActiveStepGoal` returns a plain integer; no `effective_from` field); `src/streak.js`
+  (passes scalar `target` to `computeToleranceStreaks`); `src/calendar.js`
+  (`classifyDay(record, stepGoal, isFuture)` receives the scalar directly).
 
 **Superseded (was "Recommended default", now established)**
 
@@ -149,6 +166,9 @@ confidence: high
 | Config injection contract                    | `.env.example`         | Gold-standard shape of `.env.local`; `VITE_CLIENT_ID` placeholder             |
 | Presentation shell + module entry            | `index.html`           | Tab-bar structure + `<script type="module" src="/src/main.js">`                |
 | Dark-theme + tab-panel presentation          | `styles.css`           | Central styling for tab bar, panels, dark theme                                |
+| Pure export beside factory                   | `src/search.js`        | `computeNearMisses` exported at module level alongside `createSearch` factory  |
+| Scalar-lens goal pattern                     | `src/goal.js`          | `getActiveStepGoal` returns integer; no per-date history, no km fields         |
+| Shared pure utility module                   | `src/date-utils.js`    | `_localDate` / `_addDaysUtc` — single source for timezone-safe date helpers   |
 
 ---
 
@@ -169,3 +189,5 @@ confidence: high
 | Introducing magic numbers with no explanation                   | Name them as `UPPER_SNAKE` constants and/or add an inline unit comment                  | `src/db.js` (DB_NAME, DB_VERSION), `src/auth.js` (SCOPES)        |
 | Silently swallowing errors                                      | Log to `console.error` with `[module]` context AND surface via `reporter` method        | `src/ui-status.js`, `src/db.js`, `src/storage.js` logging pattern |
 | Using `innerHTML` for DOM mutations in render layers            | Use `textContent` for text; `createElement`/`appendChild`/`replaceChildren()` for structure; never `innerHTML` assignment (XSS injection surface, especially for user-authored content like `override.note`) | `src/calendar-ui.js` (no-innerHTML contract, enforced by `src/calendar-ui.test.js` via `fs.readFileSync`) |
+| Nesting a pure function inside a factory closure unnecessarily  | Export pure functions at module level alongside the factory (`createXxx`) when they do not depend on factory-closed-over state | `src/search.js` — `computeNearMisses` is a named module export, not a closure member |
+| Per-date goal resolution over a stored history table            | Use the scalar-lens pattern: a single active step-goal integer applied uniformly to all historical days; never add an `effective_from` field or `goal_history` table | `src/goal.js`, `src/streak.js`, `src/calendar.js` — scalar step goal |

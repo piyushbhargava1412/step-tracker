@@ -11,13 +11,13 @@
  */
 
 import { getTodayRecord, computeProgress } from './progress.js';
-import { GOAL_PRESETS_KM } from './goal.js';
+import { STEP_GOAL_OPTIONS } from './goal.js';
 
 /**
  * Factory: Today's Progress card renderer.
  *
  * @param {Document} doc          - The DOM document (injected for testability)
- * @param {{ getActiveGoal: Function }} goal  - Goal Commitment engine instance
+ * @param {{ getActiveStepGoal: Function }} goal - Goal Commitment engine instance
  * @param {object} db             - Injected Dexie db handle
  * @param {{ db: Function }} reporter         - Status reporter (ui-status channel)
  * @param {Function} onGoalApplied - Optional callback invoked after successful goal apply (default no-op)
@@ -25,31 +25,16 @@ import { GOAL_PRESETS_KM } from './goal.js';
  */
 export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
   /**
-   * Build the progress card HTML element from progress data.
+   * Build the progress card element from progress data.
+   * DOM is built with createElement/createTextNode/textContent only.
    *
-   * @param {{ steps, distance_km, target_steps, target_km, pct,
-   *           remaining_steps, remaining_m, remaining_km, goalMet }} progress
+   * @param {{ steps, target_steps, pct, remaining_steps, goalMet }} progress
    * @returns {HTMLElement}
    */
   function _buildCard(progress) {
-    const {
-      steps,
-      distance_km,
-      target_steps,
-      target_km,
-      pct,
-      remaining_steps,
-      remaining_m,
-      remaining_km,
-      goalMet,
-    } = progress;
+    const { steps, target_steps, pct, remaining_steps, goalMet } = progress;
 
     const displayPct = goalMet ? 100 : pct;
-
-    // Distance for remaining-hint (SF-5)
-    const distanceStr = remaining_km < 1.0
-      ? `${remaining_m} meters`
-      : `${remaining_km.toFixed(2)} km`;
 
     const card = doc.createElement('div');
     card.className = 'card';
@@ -58,9 +43,16 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     // Card title row
     const titleDiv = doc.createElement('div');
     titleDiv.className = 'card-title';
-    titleDiv.innerHTML =
-      `<span>Today's Progress</span>` +
-      `<span class="progress-pct">${displayPct}%</span>`;
+
+    const titleLabel = doc.createElement('span');
+    titleLabel.textContent = "Today's Progress";
+    titleDiv.appendChild(titleLabel);
+
+    const pctSpan = doc.createElement('span');
+    pctSpan.className = 'progress-pct';
+    pctSpan.textContent = `${displayPct}%`;
+    titleDiv.appendChild(pctSpan);
+
     card.appendChild(titleDiv);
 
     // Metric row
@@ -69,16 +61,16 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
 
     const metricValue = doc.createElement('div');
     metricValue.className = 'metric-value';
-    metricValue.innerHTML =
-      `${steps.toLocaleString('en-US')} ` +
-      `<span class="metric-unit">/ ${target_steps.toLocaleString('en-US')} steps</span>`;
-    metricRow.appendChild(metricValue);
+    metricValue.appendChild(
+      doc.createTextNode(`${steps.toLocaleString('en-US')} `)
+    );
 
-    const metricSub = doc.createElement('div');
-    metricSub.className = 'metric-sub';
-    metricSub.textContent =
-      `${distance_km.toFixed(2)} / ${target_km.toFixed(2)} km`;
-    metricRow.appendChild(metricSub);
+    const metricUnit = doc.createElement('span');
+    metricUnit.className = 'metric-unit';
+    metricUnit.textContent = `/ ${target_steps.toLocaleString('en-US')} steps`;
+    metricValue.appendChild(metricUnit);
+
+    metricRow.appendChild(metricValue);
 
     card.appendChild(metricRow);
 
@@ -109,7 +101,7 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
       const hint = doc.createElement('div');
       hint.className = 'remaining-hint';
       hint.textContent =
-        `⏱️ ${remaining_steps.toLocaleString('en-US')} steps remaining to fulfill daily target (~${distanceStr})`;
+        `⏱️ ${remaining_steps.toLocaleString('en-US')} steps remaining to fulfill daily target`;
       card.appendChild(hint);
     }
 
@@ -131,11 +123,11 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
 
     let progress;
     try {
-      const [todayRecord, activeGoal] = await Promise.all([
+      const [todayRecord, activeStepGoal] = await Promise.all([
         getTodayRecord(db),
-        goal.getActiveGoal(),
+        goal.getActiveStepGoal(),
       ]);
-      progress = computeProgress(todayRecord, activeGoal);
+      progress = computeProgress(todayRecord, activeStepGoal);
     } catch (err) {
       console.error('[progress]', err);
       reporter.db('❌ Progress load failed');
@@ -150,93 +142,55 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     const card = _buildCard(progress);
     dashboard.appendChild(card);
 
-    const selector = _buildSelector();
+    const selector = _buildSelector(progress);
     dashboard.appendChild(selector);
   }
 
   /**
-   * Build the goal selector element and attach delegated listeners.
+   * Build the goal selector element (a Step Target <select>) and attach its
+   * change listener.
+   *
+   * @param {{ target_steps: number }} progress - current render's resolved progress state
    * @returns {HTMLElement}
    */
-  function _buildSelector() {
-    const ERROR_MSG = '⚠️ Enter a distance greater than 0';
+  function _buildSelector(progress) {
     const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';
 
     const container = doc.createElement('div');
     container.className = 'goal-selector';
     container.id = 'goal-selector';
 
-    // Preset buttons
-    const presets = GOAL_PRESETS_KM;
-    for (const km of presets) {
-      const btn = doc.createElement('button');
-      btn.className = 'goal-preset';
-      btn.dataset.goalPreset = String(km);
-      btn.textContent = `${km} km`;
-      container.appendChild(btn);
+    const select = doc.createElement('select');
+    select.id = 'goal-select';
+    select.className = 'goal-select';
+
+    for (const steps of STEP_GOAL_OPTIONS) {
+      const option = doc.createElement('option');
+      option.value = String(steps);
+      option.textContent = `${steps.toLocaleString('en-US')} steps`;
+      select.appendChild(option);
     }
 
-    // Custom input
-    const input = doc.createElement('input');
-    input.className = 'goal-input';
-    input.id = 'goal-input';
-    input.type = 'number';
-    input.placeholder = 'Custom km';
-    container.appendChild(input);
-
-    // Apply button
-    const applyBtn = doc.createElement('button');
-    applyBtn.className = 'goal-apply';
-    applyBtn.dataset.goalApply = '';
-    applyBtn.textContent = 'Apply';
-    container.appendChild(applyBtn);
+    select.value = String(progress.target_steps);
+    container.appendChild(select);
 
     // Error span
     const errorSpan = doc.createElement('span');
     errorSpan.id = 'goal-error';
     container.appendChild(errorSpan);
 
-    // Delegated click listener on the container (kills stale listeners when container replaced)
-    container.addEventListener('click', async (e) => {
-      const preset = e.target.dataset.goalPreset;
-      if (preset != null) {
-        await _applyPreset(Number(preset));
-        return;
-      }
-      if ('goalApply' in e.target.dataset) {
-        const v = Number(input.value);
+    // Listener attached to the freshly-created <select> each render — the
+    // stale-container-replaced-on-re-render pattern kills stale listeners.
+    select.addEventListener('change', async (e) => {
+      try {
+        await goal.setActiveStepGoal(Number(e.target.value));
+        await render();
+        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
+      } catch (_err) {
         const errEl = doc.getElementById('goal-error');
-        if (!Number.isFinite(v) || v <= 0) {
-          if (errEl) errEl.textContent = ERROR_MSG;
-          return;
-        }
-        if (errEl) errEl.textContent = '';
-        await _applyCustom(v);
+        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
       }
     });
-
-    // Shared goal-apply logic for both preset and custom paths.
-    async function _applyPreset(km) {
-      try {
-        await goal.setActiveGoal(km);
-        await render();
-        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
-      } catch (_err) {
-        const errEl = doc.getElementById('goal-error');
-        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-      }
-    }
-
-    async function _applyCustom(km) {
-      try {
-        await goal.setActiveGoal(km);
-        await render();
-        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
-      } catch (_err) {
-        const errEl = doc.getElementById('goal-error');
-        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-      }
-    }
 
     return container;
   }

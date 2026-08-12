@@ -169,7 +169,7 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
   }
 
   function _commitmentHitRate(payload) {
-    return computeCommitmentHitRate(payload.days, payload.today, payload.activeGoalKm);
+    return computeCommitmentHitRate(payload.days, payload.today, payload.activeStepGoal);
   }
 
   /**

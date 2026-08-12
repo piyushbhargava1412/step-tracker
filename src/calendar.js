@@ -6,8 +6,8 @@
  * `month` is 0-based throughout (matches Date's getMonth()).
  */
 
-import { DEFAULT_GOAL_KM, _localDate } from './goal.js';
-import { resolveGoalForDate, buildEffectiveGoalHistory, _prepareGoalHistory, _resolvePreparedGoalForDate } from './goal-history.js';
+import { DEFAULT_STEP_GOAL } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 // Classification constants (SF-2 precedence ladder)
 export const CLASSIFICATION_NO_DATA = 0;
@@ -16,26 +16,27 @@ export const CLASSIFICATION_MET = 2;
 export const CLASSIFICATION_EXCEEDED = 3;
 
 export const MET_RATIO = 1.0;
-export const EXCEEDED_RATIO = 2.0;
+export const EXCEEDED_RATIO = 1.5;
 export const DAYS_PER_WEEK = 7;
 
 /**
  * Computes commitment hit rate over every elapsed day in a month.
  * Today is intentionally excluded; missing records count as missed days.
  *
- * @param {Array<{ date: string, classification?: { state: number } }>} days
+ * @param {Array<{ date: string, record?: { effective_steps?: number } | null }>} days
  * @param {string} today - YYYY-MM-DD
- * @param {number} [targetDistanceKm] - current commitment applied to elapsed days
+ * @param {number} stepGoal - current active step goal
  * @returns {number|null}
  */
-export function computeCommitmentHitRate(days, today, targetDistanceKm) {
+export function computeCommitmentHitRate(days, today, stepGoal) {
   const elapsed = Array.isArray(days) ? days.filter((day) => day.date < today) : [];
   if (elapsed.length === 0) return null;
-  const hasCurrentGoal = Number.isFinite(targetDistanceKm) && targetDistanceKm > 0;
+  const target = Number.isFinite(stepGoal) && stepGoal > 0 ? stepGoal : DEFAULT_STEP_GOAL;
   const met = elapsed.filter((day) => {
-    if (!hasCurrentGoal) return day.classification?.state >= CLASSIFICATION_MET;
-    return Number.isFinite(day.record?.effective_distance_km)
-      && day.record.effective_distance_km >= targetDistanceKm;
+    const steps = day.record && Number.isFinite(day.record.effective_steps)
+      ? day.record.effective_steps
+      : 0;
+    return steps >= target;
   }).length;
   return Math.round((met / elapsed.length) * 100);
 }
@@ -92,7 +93,7 @@ export function buildMonthGrid(year, month, today) {
 }
 
 /**
- * Classifies a single day based on its record, target distance, and whether it's in the future.
+ * Classifies a single day based on its record, step goal, and whether it's in the future.
  *
  * Ladder (top-down):
  *   1. Future → NO_DATA
@@ -101,12 +102,12 @@ export function buildMonthGrid(year, month, today) {
  *   4. ratio >= MET_RATIO → MET
  *   5. otherwise → MISSED
  *
- * @param {{ effective_distance_km?: number, is_overridden?: boolean } | null | undefined} record
- * @param {number} targetDistanceKm
+ * @param {{ effective_steps?: number, is_overridden?: boolean } | null | undefined} record
+ * @param {number} stepGoal
  * @param {boolean} isFuture
  * @returns {{ state: number, isOverridden: boolean }}
  */
-export function classifyDay(record, targetDistanceKm, isFuture) {
+export function classifyDay(record, stepGoal, isFuture) {
   // Future days are always no-data regardless of record
   if (isFuture) {
     return { state: CLASSIFICATION_NO_DATA, isOverridden: false };
@@ -117,15 +118,15 @@ export function classifyDay(record, targetDistanceKm, isFuture) {
     return { state: CLASSIFICATION_NO_DATA, isOverridden: false };
   }
 
-  // Non-finite effective_distance_km treated as 0
-  const km = Number.isFinite(record.effective_distance_km) ? record.effective_distance_km : 0;
+  // Non-finite effective_steps treated as 0
+  const steps = Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
 
-  // Non-finite or non-positive target → fall back to DEFAULT_GOAL_KM
-  const target = Number.isFinite(targetDistanceKm) && targetDistanceKm > 0
-    ? targetDistanceKm
-    : DEFAULT_GOAL_KM;
+  // Non-finite or non-positive stepGoal → fall back to DEFAULT_STEP_GOAL
+  const target = Number.isFinite(stepGoal) && stepGoal > 0
+    ? stepGoal
+    : DEFAULT_STEP_GOAL;
 
-  const ratio = target > 0 ? km / target : 0;
+  const ratio = target > 0 ? steps / target : 0;
 
   // is_overridden is orthogonal to the state
   const isOverridden = record.is_overridden === true;
@@ -248,8 +249,8 @@ export function computeNavBounds(earliestRecordDate, today, year, month) {
  * Calendar data factory — orchestrates Dexie reads and delegates to
  * pure functions above. Zero DOM writes.
  *
- * @param {{ daily_records: { where: Function, orderBy: Function }, goal_history: { toArray: Function }, settings: { get: Function } }} db
- * @param {{ getActiveGoal: Function }} goal
+ * @param {{ daily_records: { where: Function, orderBy: Function }, settings: { get: Function } }} db
+ * @param {{ getActiveStepGoal: Function }} goal
  * @returns {{ loadMonth: Function, buildZeroState: Function }}
  */
 export function createCalendar(db, goal) {
@@ -261,21 +262,17 @@ export function createCalendar(db, goal) {
    *
    * @param {number} year
    * @param {number} month - 0-based
-   * @returns {Promise<{ year: number, month: number, leadingPad: number, trailingPad: number, today: string, days: Array, aggregates: object, navBounds: object }>}
+   * @returns {Promise<{ year: number, month: number, leadingPad: number, trailingPad: number, today: string, days: Array, aggregates: object, navBounds: object, activeStepGoal: number }>}
    */
   async function loadMonth(year, month) {
     const bounds = monthBounds(year, month);
     const today = _localDate();
 
-    const [records, history, activeGoal, earliestRecord] = await Promise.all([
+    const [records, activeStepGoal, earliestRecord] = await Promise.all([
       db.daily_records.where('date').between(bounds.start, bounds.endExclusive, true, false).toArray(),
-      db.goal_history.toArray(),
-      goal.getActiveGoal(),
+      goal.getActiveStepGoal(),
       db.daily_records.orderBy('date').first(),
     ]);
-
-    const goalHistory = buildEffectiveGoalHistory(history, activeGoal);
-    const prepared = _prepareGoalHistory(goalHistory);
 
     const grid = buildMonthGrid(year, month, today);
 
@@ -285,13 +282,12 @@ export function createCalendar(db, goal) {
       recordMap.set(r.date, r);
     }
 
-    // Enrich each day with record, target, and classification
+    // Enrich each day with record and classification (no per-day targetDistanceKm)
     const days = grid.days.map((day) => {
       const record = recordMap.get(day.date) || null;
-      const targetDistanceKm = _resolvePreparedGoalForDate(prepared, day.date);
-      const classification = classifyDay(record, targetDistanceKm, day.isFuture);
+      const classification = classifyDay(record, activeStepGoal, day.isFuture);
 
-      return { ...day, record, targetDistanceKm, classification };
+      return { ...day, record, classification };
     });
 
     const aggregates = computeMonthlyAggregates(days);
@@ -307,7 +303,7 @@ export function createCalendar(db, goal) {
       today,
       days,
       aggregates,
-      activeGoalKm: activeGoal?.target_distance_km ?? DEFAULT_GOAL_KM,
+      activeStepGoal,
       navBounds,
     };
   }
@@ -317,7 +313,7 @@ export function createCalendar(db, goal) {
    *
    * @param {number} year
    * @param {number} month - 0-based
-   * @returns {{ year: number, month: number, leadingPad: number, trailingPad: number, today: string, days: Array, aggregates: object, navBounds: object }}
+   * @returns {{ year: number, month: number, leadingPad: number, trailingPad: number, today: string, days: Array, aggregates: object, navBounds: object, activeStepGoal: number }}
    */
   function buildZeroState(year, month) {
     const today = _localDate();
@@ -326,7 +322,6 @@ export function createCalendar(db, goal) {
     const days = grid.days.map((day) => ({
       ...day,
       record: null,
-      targetDistanceKm: DEFAULT_GOAL_KM,
       classification: { state: CLASSIFICATION_NO_DATA, isOverridden: false },
     }));
 
@@ -341,7 +336,7 @@ export function createCalendar(db, goal) {
       today,
       days,
       aggregates,
-      activeGoalKm: DEFAULT_GOAL_KM,
+      activeStepGoal: DEFAULT_STEP_GOAL,
       navBounds,
     };
   }

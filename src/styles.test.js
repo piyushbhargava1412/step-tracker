@@ -159,19 +159,21 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
 
   // ── Goal selector classes ─────────────────────────────────────────────────
 
-  it('should contain all 4 goal-selector class selectors', () => {
-    const selectorClasses = ['.goal-selector', '.goal-preset', '.goal-input', '.goal-apply'];
-    for (const cls of selectorClasses) {
-      expect(cssContent).toContain(cls);
-    }
+  it('should contain .goal-selector and .goal-select class selectors (ST-007a)', () => {
+    expect(cssContent).toContain('.goal-selector');
+    expect(cssContent).toContain('.goal-select');
   });
 
-  it('.goal-preset has a :hover override (prevents global button:hover bleed)', () => {
-    expect(cssContent).toContain('.goal-preset:hover');
+  it('.goal-preset is absent from styles.css (ST-007a removed)', () => {
+    expect(cssContent).not.toContain('.goal-preset');
   });
 
-  it('.goal-apply has a :hover override', () => {
-    expect(cssContent).toContain('.goal-apply:hover');
+  it('.goal-input is absent from styles.css (ST-007a removed)', () => {
+    expect(cssContent).not.toContain('.goal-input');
+  });
+
+  it('.goal-apply is absent from styles.css (ST-007a removed)', () => {
+    expect(cssContent).not.toContain('.goal-apply');
   });
 
   // ── Restyle-boundary locks ────────────────────────────────────────────────
@@ -197,11 +199,10 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
 
   // ── ST-004 Selectors present ──────────────────────────────────────────────
 
-  it('should contain all eight ST-004 selectors', () => {
+  it('should contain all seven ST-004 selectors (ST-007a: lock-badge removed)', () => {
     const st004Selectors = [
       '.streak-card',
       '.streak-number',
-      '.lock-badge',
       '.tier-badges',
       '.tier-chip',
       '.tier-chip--active',
@@ -263,14 +264,10 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     expect(/\.streak-unit\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
   });
 
-  // ── .lock-badge ──────────────────────────────────────────────────────────
+  // ── .lock-badge absent (ST-007a removed) ─────────────────────────────────
 
-  it('.lock-badge should have color: var(--accent-amber)', () => {
-    expect(/\.lock-badge\s*{[^}]*color:\s*var\(--accent-amber\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.lock-badge should use var(--font-mono)', () => {
-    expect(/\.lock-badge\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  it('.lock-badge is absent from styles.css (ST-007a removed)', () => {
+    expect(cssContent).not.toContain('.lock-badge');
   });
 
   // ── .tier-badges ─────────────────────────────────────────────────────────
@@ -545,6 +542,97 @@ describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
   });
 
   // ── Restyle-boundary locks (existing tests remain green) ──────────────────
+
+  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
+    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  });
+
+  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
+    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  });
+});
+
+
+// ─── Task 16: ST-007a tolerance metrics, hall-of-fame, near-miss-panel ──────
+
+describe('styles.css — ST-007a new selectors (Task 16)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  // ── New selectors present ─────────────────────────────────────────────────
+
+  it('should contain .tolerance-metrics selector', () => {
+    expect(cssContent).toContain('.tolerance-metrics');
+  });
+
+  it('should contain .tolerance-metric selector', () => {
+    expect(cssContent).toContain('.tolerance-metric');
+  });
+
+  it('should contain .hall-of-fame selector', () => {
+    expect(cssContent).toContain('.hall-of-fame');
+  });
+
+  it('should contain .hof-title selector', () => {
+    expect(cssContent).toContain('.hof-title');
+  });
+
+  it('should contain .hof-entry selector', () => {
+    expect(cssContent).toContain('.hof-entry');
+  });
+
+  it('should contain .hof-rank selector', () => {
+    expect(cssContent).toContain('.hof-rank');
+  });
+
+  it('should contain .hof-days selector', () => {
+    expect(cssContent).toContain('.hof-days');
+  });
+
+  it('should contain .hof-range selector', () => {
+    expect(cssContent).toContain('.hof-range');
+  });
+
+  it('should contain .hof-empty selector', () => {
+    expect(cssContent).toContain('.hof-empty');
+  });
+
+  it('should contain .near-miss-panel selector', () => {
+    expect(cssContent).toContain('.near-miss-panel');
+  });
+
+  it('should contain .tolerance-value selector', () => {
+    expect(cssContent).toContain('.tolerance-value');
+  });
+
+  it('.tolerance-value should have color using a CSS variable', () => {
+    expect(/\.tolerance-value\s*{[^}]*color:\s*var\(--/.test(cssContent)).toBe(true);
+  });
+
+
+  // ── Removed selectors absent ──────────────────────────────────────────────
+
+  it('.goal-preset is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.goal-preset');
+  });
+
+  it('.goal-input is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.goal-input');
+  });
+
+  it('.goal-apply is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.goal-apply');
+  });
+
+  it('.lock-badge is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.lock-badge');
+  });
+
+  // ── Restyle-boundary locks unchanged ─────────────────────────────────────
 
   it('restyle-boundary lock: .container still contains #1e1e1e', () => {
     expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);

@@ -17,7 +17,7 @@ import { createCalendarUI } from './calendar-ui.js'
 import { createMonthOverview } from './month-overview.js'
 import { createRecords } from './records.js'
 import { processImage } from './image-processor.js'
-import { createSearch } from './search.js'
+import { createSearch, computeNearMisses } from './search.js'
 import { createSearchUI } from './search-ui.js'
 import { createExporter } from './exporter.js'  
 
@@ -52,18 +52,31 @@ export async function bootstrap(doc = document) {
 
   // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
-  const streak = createStreak(db)
+  const streak = createStreak(db, goal)
   const streakUI = createStreakUI(doc, streak, reporter)
   const calendar = createCalendar(db, goal)
   const records = createRecords(db)
   const monthOverview = createMonthOverview(doc, calendar, reporter)
-  const search = createSearch(db, goal)
+  const search = createSearch(db)
   const exporter = createExporter(doc)
-  const searchUI = createSearchUI(doc, search, exporter, reporter)
+  const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
-  const progressUI = createProgressUI(doc, goal, db, reporter, () => {
-    streakUI.render()
-    monthOverview.render()
+  const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
+    try {
+      await streakUI.render()
+    } catch (err) {
+      console.error('[main] streakUI.render failed after goal change, continuing', err)
+    }
+    try {
+      await calendarUI.render()
+    } catch (err) {
+      console.error('[main] calendarUI.render failed after goal change, continuing', err)
+    }
+    try {
+      await monthOverview.render()
+    } catch (err) {
+      console.error('[main] monthOverview.render failed after goal change, continuing', err)
+    }
   })
 
   // 7. Bind auth button

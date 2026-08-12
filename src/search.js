@@ -1,10 +1,6 @@
-import {
-  buildEffectiveGoalHistory,
-  _prepareGoalHistory,
-  _resolvePreparedGoalForDate,
-} from './goal-history.js';
+export const NEAR_MISS_BAND_PCT = 10;
 
-export function createSearch(db, goal) {
+export function createSearch(db) {
   async function executeQuery(filters) {
     const f = filters != null ? filters : {};
     const hasRange =
@@ -17,37 +13,24 @@ export function createSearch(db, goal) {
       ? await db.daily_records.where('date').between(f.startDate, f.endDate, true, true).toArray()
       : await db.daily_records.toArray();
 
-    const history = await db.goal_history.toArray();
-    const activeGoal = await goal.getActiveGoal();
-    const effectiveHistory = buildEffectiveGoalHistory(history, activeGoal);
-    const prepared = _prepareGoalHistory(effectiveHistory);
-
     const minSteps = Number.isFinite(f.minSteps) ? f.minSteps : null;
     const maxSteps = Number.isFinite(f.maxSteps) ? f.maxSteps : null;
-    const minDistance = Number.isFinite(f.minDistance) ? f.minDistance : null;
     const overrideStatus = f.overrideStatus ?? 'all';
     const targetOutcome = f.targetOutcome ?? 'all';
+    const stepTarget = Number.isFinite(f.stepTarget) && f.stepTarget > 0 ? f.stepTarget : null;
 
     const records = raw.filter((record) => {
       if (minSteps !== null && record.effective_steps < minSteps) return false;
       if (maxSteps !== null && record.effective_steps > maxSteps) return false;
-      if (minDistance !== null && record.effective_distance_km < minDistance) return false;
       if (overrideStatus === 'overridden' && record.is_overridden !== true) return false;
       if (overrideStatus === 'not-overridden' && record.is_overridden !== false) return false;
-      if (targetOutcome === 'met') {
-        if (
-          !Number.isFinite(record.effective_distance_km) ||
-          record.effective_distance_km < _resolvePreparedGoalForDate(prepared, record.date)
-        )
-          return false;
+      if (targetOutcome === 'met' && stepTarget !== null) {
+        if (!Number.isFinite(record.effective_steps)) return false;
+        if (record.effective_steps < stepTarget) return false;
       }
-      if (targetOutcome === 'missed') {
-        if (!Number.isFinite(record.effective_distance_km)) return false;
-        if (
-          record.effective_distance_km >=
-          _resolvePreparedGoalForDate(prepared, record.date)
-        )
-          return false;
+      if (targetOutcome === 'missed' && stepTarget !== null) {
+        if (!Number.isFinite(record.effective_steps)) return false;
+        if (record.effective_steps >= stepTarget) return false;
       }
       return true;
     });
@@ -81,4 +64,25 @@ export function createSearch(db, goal) {
   }
 
   return { executeQuery, computeResultSummary };
+}
+
+export function computeNearMisses(records, stepTarget) {
+  if (!Array.isArray(records)) return { count: 0, days: [] };
+  if (!Number.isFinite(stepTarget) || stepTarget <= 0) return { count: 0, days: [] };
+
+  const lowerBound = stepTarget * (1 - NEAR_MISS_BAND_PCT / 100);
+
+  const days = records
+    .filter((record) => {
+      const steps = Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
+      return steps >= lowerBound && steps < stepTarget;
+    })
+    .map((record) => ({
+      date: record.date,
+      effective_steps: record.effective_steps,
+      shortfall: stepTarget - record.effective_steps,
+    }))
+    .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
+
+  return { count: days.length, days };
 }

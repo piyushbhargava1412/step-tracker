@@ -1,4 +1,4 @@
-import { _localDate } from './goal.js';
+import { _localDate } from './date-utils.js';
 
 export const CSV_HEADERS =
   'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note';
