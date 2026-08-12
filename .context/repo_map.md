@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `a4e9d6fd1aeaab215e9ad706d637b8816f346474`
-- generated-at: `2026-08-12T06:00:00Z`
+- verification-commit: `774e287`
+- generated-at: `2026-08-12T10:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -36,9 +36,9 @@
   - `#sync-btn` click → `stepSync.sync()` then `progressUI.render()` (from `src/steps.js` + `src/progress-ui.js`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-select` `change` event → `goal.setActiveStepGoal()` then three-renderer fan-out: `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()` (from `src/goal.js` + `src/main.js`)
-  - `data:records:mutated` custom event → `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()` (fail-open, registered in `src/main.js`)
+  - `data:records:mutated` custom event → `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `challengeUI.render()` (fail-open, registered in `src/main.js`)
   - `#tab-search` delegated click (`data-action`) → execute/reset/export-csv/export-json actions (from `src/search-ui.js`)
-- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, and `searchUI.render()` on load
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `searchUI.render()`, and `challengeUI.render()` on load
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
@@ -64,12 +64,14 @@
 - Search / filter engine: `src/search.js` (`createSearch(db)` factory — no `goal` collaborator; `executeQuery(filters)` — date-range / all-time Dexie query with AND-combined filters (steps, override status, target outcome vs. step target); `computeResultSummary(records, preFilterSet)`; pure export: `computeNearMisses(records, stepTarget)`, `NEAR_MISS_BAND_PCT = 10`)
 - Search UI renderer: `src/search-ui.js` (`createSearchUI(doc, search, exporter, reporter, computeNearMisses)` factory; `render()` builds filter form, results grid, summary card, Near-Miss panel, and export controls into `#tab-search`; delegated `data-action` click dispatcher for execute/reset/export-csv/export-json)
 - CSV/JSON exporter: `src/exporter.js` (`createExporter(doc)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and trigger a `<a download>` click; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
+- Challenge engine: `src/challenge.js` (`createChallenge(db)` factory; `getActiveChallenge()` — reads `active_challenge` key from Dexie `settings` store; `setActiveChallenge(options)` — persists with `RangeError` guard when `end_date < start_date`, fail-open on DB write errors; `computeChallengeMetrics(challenge, records)` — pure function computing day-by-day per-member and group step summation; `formatChallengeUpdate(metrics, name)` — formats clipboard export text; `ACTIVE_CHALLENGE_KEY = 'active_challenge'`)
+- Challenge UI renderer: `src/challenge-ui.js` (`createChallengeUI(doc, challenge, db, reporter)` factory; idempotent `render()` inserts `#challenge-card` into `#tab-dashboard`; AbortController-scoped delegated listener per render; configure state for unconfigured challenge, metric state for active challenge; Save handler persists via `challenge.setActiveChallenge()`; Copy handler writes formatted update to clipboard via `navigator.clipboard.writeText()`; fail-open on missing container)
 - UI structure: `index.html` (tab-bar + tab-panel layout; includes calendar skeleton with nav/summary/grid containers and day-detail drawer)
-- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls)
+- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls, challenge-card at CSS grid row 4 with month-overview-card shifted to row 5)
 - DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 4`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, search, search-ui, exporter, date-utils, units
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, search, search-ui, exporter, date-utils, units, challenge, challenge-ui
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

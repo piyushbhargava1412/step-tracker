@@ -71,6 +71,17 @@ vi.mock('./search-ui.js', () => ({
   createSearchUI: vi.fn(() => mockSearchUIInstance)
 }))
 
+// Task 6 (ST-006b): mock challenge.js and challenge-ui.js
+const mockChallengeInstance = { getActiveChallenge: vi.fn(), setActiveChallenge: vi.fn() }
+vi.mock('./challenge.js', () => ({
+  createChallenge: vi.fn(() => mockChallengeInstance)
+}))
+
+const mockChallengeUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./challenge-ui.js', () => ({
+  createChallengeUI: vi.fn(() => mockChallengeUIInstance)
+}))
+
 const mockReporter = { db: vi.fn(), auth: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
@@ -124,6 +135,8 @@ import { createMonthOverview } from './month-overview.js'
 import { createSearch } from './search.js'
 import { createExporter } from './exporter.js'
 import { createSearchUI } from './search-ui.js'
+import { createChallenge } from './challenge.js'
+import { createChallengeUI } from './challenge-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -977,5 +990,101 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
     expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
     // The mocked db object has no daily_records.put call
     expect(mockDb.daily_records).toBeUndefined()
+  })
+
+  describe('ST-006b Task 6: challengeUI wiring', () => {
+    let isolatedDoc2
+
+    beforeEach(() => {
+      isolatedDoc2 = document.cloneNode(true)
+      isolatedDoc2.body.innerHTML = `
+        <button id="auth-btn">Connect</button>
+        <button id="sync-btn">Sync Steps</button>
+        <nav class="tab-bar"></nav>
+        <div id="db-status"></div>
+        <div id="auth-status"></div>
+        <span id="sync-status"></span>
+        <div id="tab-dashboard"></div>
+      `
+    })
+
+    it('createChallenge is instantiated with db at composition', async () => {
+      await bootstrap(isolatedDoc2)
+      expect(createChallenge).toHaveBeenCalledWith(mockDb)
+    })
+
+    it('createChallengeUI is instantiated with doc, challenge, db, reporter', async () => {
+      await bootstrap(isolatedDoc2)
+      expect(createChallengeUI).toHaveBeenCalledWith(
+        isolatedDoc2,
+        mockChallengeInstance,
+        mockDb,
+        mockReporter
+      )
+    })
+
+    it('challengeUI.render is called on bootstrap load', async () => {
+      await bootstrap(isolatedDoc2)
+      expect(mockChallengeUIInstance.render).toHaveBeenCalled()
+    })
+
+    it('challengeUI.render is called after sync button click', async () => {
+      await bootstrap(isolatedDoc2)
+      vi.clearAllMocks()
+      mockChallengeUIInstance.render.mockResolvedValue(undefined)
+      const syncBtn = isolatedDoc2.getElementById('sync-btn')
+      syncBtn.click()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    })
+
+    it('challengeUI.render is called when data:records:mutated fires', async () => {
+      await bootstrap(isolatedDoc2)
+      vi.clearAllMocks()
+      mockChallengeUIInstance.render.mockResolvedValue(undefined)
+      isolatedDoc2.dispatchEvent(new Event('data:records:mutated'))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    })
+
+    it('challengeUI.render failure on bootstrap does not prevent other renders', async () => {
+      mockChallengeUIInstance.render.mockRejectedValueOnce(new Error('challenge fail'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      await bootstrap(isolatedDoc2)
+      expect(mockStreakUIInstance.render).toHaveBeenCalled()
+      expect(mockSearchUIInstance.render).toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[main] challengeUI.render failed'),
+        expect.any(Error)
+      )
+      errorSpy.mockRestore()
+    })
+
+    it('challengeUI.render failure on sync does not prevent other renders', async () => {
+      await bootstrap(isolatedDoc2)
+      vi.clearAllMocks()
+      mockChallengeUIInstance.render.mockRejectedValueOnce(new Error('challenge sync fail'))
+      mockStreakUIInstance.render.mockResolvedValue(undefined)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const syncBtn = isolatedDoc2.getElementById('sync-btn')
+      syncBtn.click()
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+      expect(errorSpy).toHaveBeenCalled()
+      errorSpy.mockRestore()
+    })
+
+    it('challengeUI.render failure on data:records:mutated does not prevent other renders', async () => {
+      await bootstrap(isolatedDoc2)
+      vi.clearAllMocks()
+      mockChallengeUIInstance.render.mockRejectedValueOnce(new Error('challenge mutation fail'))
+      mockStreakUIInstance.render.mockResolvedValue(undefined)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      isolatedDoc2.dispatchEvent(new Event('data:records:mutated'))
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+      expect(errorSpy).toHaveBeenCalled()
+      errorSpy.mockRestore()
+    })
   })
 })

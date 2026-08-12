@@ -19,7 +19,9 @@ import { createRecords } from './records.js'
 import { processImage } from './image-processor.js'
 import { createSearch, computeNearMisses } from './search.js'
 import { createSearchUI } from './search-ui.js'
-import { createExporter } from './exporter.js'  
+import { createExporter } from './exporter.js'
+import { createChallenge } from './challenge.js'
+import { createChallengeUI } from './challenge-ui.js'
 
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
@@ -61,6 +63,8 @@ export async function bootstrap(doc = document) {
   const exporter = createExporter(doc)
   const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
+  const challenge = createChallenge(db)
+  const challengeUI = createChallengeUI(doc, challenge, db, reporter)
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
@@ -106,6 +110,11 @@ export async function bootstrap(doc = document) {
       } catch (err) {
         console.error('[main] monthOverview.render failed after sync, continuing', err)
       }
+      try {
+        await challengeUI.render()
+      } catch (err) {
+        console.error('[main] challengeUI.render failed after sync, continuing', err)
+      }
     })
   }
 
@@ -130,6 +139,11 @@ export async function bootstrap(doc = document) {
       await monthOverview.render()
     } catch (err) {
       console.error('[main] monthOverview.render failed after mutation, continuing', err)
+    }
+    try {
+      await challengeUI.render()
+    } catch (err) {
+      console.error('[main] challengeUI.render failed after mutation, continuing', err)
     }
   })
 
@@ -172,6 +186,13 @@ export async function bootstrap(doc = document) {
     await searchUI.render()
   } catch (err) {
     console.error('[main] searchUI.render failed, continuing', err)
+  }
+
+  // 15. Render challenge card on page load (fail-open)
+  try {
+    await challengeUI.render()
+  } catch (err) {
+    console.error('[main] challengeUI.render failed, continuing', err)
   }
 }
 
