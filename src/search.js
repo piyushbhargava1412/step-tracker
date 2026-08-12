@@ -1,3 +1,5 @@
+export const NEAR_MISS_BAND_PCT = 10;
+
 export function createSearch(db) {
   async function executeQuery(filters) {
     const f = filters != null ? filters : {};
@@ -62,4 +64,25 @@ export function createSearch(db) {
   }
 
   return { executeQuery, computeResultSummary };
+}
+
+export function computeNearMisses(records, stepTarget) {
+  if (!Array.isArray(records)) return { count: 0, days: [] };
+  if (!Number.isFinite(stepTarget) || stepTarget <= 0) return { count: 0, days: [] };
+
+  const lowerBound = stepTarget * (1 - NEAR_MISS_BAND_PCT / 100);
+
+  const days = records
+    .filter((record) => {
+      const steps = Number.isFinite(record.effective_steps) ? record.effective_steps : 0;
+      return steps >= lowerBound && steps < stepTarget;
+    })
+    .map((record) => ({
+      date: record.date,
+      effective_steps: record.effective_steps,
+      shortfall: stepTarget - record.effective_steps,
+    }))
+    .sort((a, b) => (a.date > b.date ? -1 : a.date < b.date ? 1 : 0));
+
+  return { count: days.length, days };
 }

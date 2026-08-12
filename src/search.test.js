@@ -496,3 +496,140 @@ describe('createSearch — computeResultSummary', () => {
     expect(result.avgSteps).toBe(8000);
   });
 });
+
+// ── Task 13: computeNearMisses ────────────────────────────────────────────────
+
+describe('computeNearMisses', () => {
+  // Band boundary tests at stepTarget = 10000
+  it('9000 qualifies (lower bound inclusive, 10% band)', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: 9000 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(1);
+    expect(result.days).toHaveLength(1);
+    expect(result.days[0].date).toBe('2026-01-01');
+    expect(result.days[0].shortfall).toBe(1000);
+  });
+
+  it('8999 does NOT qualify (below lower bound)', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: 8999 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(0);
+    expect(result.days).toHaveLength(0);
+  });
+
+  it('9999 qualifies (upper bound exclusive, below stepTarget)', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: 9999 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(1);
+    expect(result.days[0].shortfall).toBe(1);
+  });
+
+  it('10000 does NOT qualify (upper bound exclusive — a met day is not a near miss)', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: 10000 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(0);
+    expect(result.days).toHaveLength(0);
+  });
+
+  it('shortfall is exact for a qualifying day', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-06-15', effective_steps: 9500 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.days[0].effective_steps).toBe(9500);
+    expect(result.days[0].shortfall).toBe(500);
+  });
+
+  it('days are sorted newest→oldest', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [
+      { date: '2026-01-01', effective_steps: 9100 },
+      { date: '2026-01-03', effective_steps: 9300 },
+      { date: '2026-01-02', effective_steps: 9200 },
+    ];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(3);
+    expect(result.days[0].date).toBe('2026-01-03');
+    expect(result.days[1].date).toBe('2026-01-02');
+    expect(result.days[2].date).toBe('2026-01-01');
+  });
+
+  it('count === days.length on every path (non-empty)', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [
+      { date: '2026-01-01', effective_steps: 9000 },
+      { date: '2026-01-02', effective_steps: 9500 },
+    ];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(result.days.length);
+  });
+
+  it('count === days.length when no records qualify', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: 5000 }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(result.days.length);
+    expect(result.count).toBe(0);
+  });
+
+  // Guard: null/non-array records
+  it('null records → { count: 0, days: [] }', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const result = computeNearMisses(null, 10000);
+    expect(result).toEqual({ count: 0, days: [] });
+  });
+
+  it('non-array records (object) → { count: 0, days: [] }', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const result = computeNearMisses({}, 10000);
+    expect(result).toEqual({ count: 0, days: [] });
+  });
+
+  // Guard: invalid stepTarget
+  it('stepTarget of 0 → { count: 0, days: [] }', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const result = computeNearMisses([{ date: '2026-01-01', effective_steps: 9000 }], 0);
+    expect(result).toEqual({ count: 0, days: [] });
+  });
+
+  it('stepTarget of NaN → { count: 0, days: [] }', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const result = computeNearMisses([{ date: '2026-01-01', effective_steps: 9000 }], NaN);
+    expect(result).toEqual({ count: 0, days: [] });
+  });
+
+  it('negative stepTarget → { count: 0, days: [] }', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const result = computeNearMisses([{ date: '2026-01-01', effective_steps: 9000 }], -5000);
+    expect(result).toEqual({ count: 0, days: [] });
+  });
+
+  // Guard: record with effective_steps undefined treated as 0 (never qualifies)
+  it('record with effective_steps: undefined treated as 0 — does not qualify', async () => {
+    const { computeNearMisses } = await import('./search.js');
+    const records = [{ date: '2026-01-01', effective_steps: undefined }];
+    const result = computeNearMisses(records, 10000);
+    expect(result.count).toBe(0);
+    expect(result.days).toHaveLength(0);
+  });
+
+  // Structural: no computeWeekdaySlump export and no analytics.js
+  it('computeWeekdaySlump is NOT exported from search.js', async () => {
+    const mod = await import('./search.js');
+    expect(mod.computeWeekdaySlump).toBeUndefined();
+  });
+
+  it('src/analytics.js does NOT exist', () => {
+    const fs = require('node:fs');
+    expect(fs.existsSync('src/analytics.js')).toBe(false);
+  });
+
+  // NEAR_MISS_BAND_PCT is exported
+  it('NEAR_MISS_BAND_PCT is exported and equals 10', async () => {
+    const { NEAR_MISS_BAND_PCT } = await import('./search.js');
+    expect(NEAR_MISS_BAND_PCT).toBe(10);
+  });
+});
