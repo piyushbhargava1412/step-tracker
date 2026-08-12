@@ -19,7 +19,7 @@ export const HALL_OF_FAME_SIZE = 3; // podium entries
 // Parameterized Tolerance Streak Engine — one allowed miss per N calendar days.
 export const ALLOWANCE_WINDOW_95 = 20; // 95% tier: floor(d / 20) misses allowed
 export const ALLOWANCE_WINDOW_90 = 10; // 90% tier: floor(d / 10) misses allowed
-const ZERO_TIER_STREAKS = TIER_STEP_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 }));
+function _zeroTierStreaks() { return TIER_STEP_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 })); }
 
 /**
  * Builds a stable ascending comparator over a string key. Stability keeps
@@ -96,15 +96,15 @@ function _resolveStepGoal(stepGoal) {
  * @returns {Array<{ threshold: number, active: number, best: number }>}
  */
 export function computeTierStreaks(records, today) {
-  if (!Array.isArray(records) || records.length === 0) return ZERO_TIER_STREAKS;
-  if (typeof today !== 'string' || today === '') return ZERO_TIER_STREAKS;
+  if (!Array.isArray(records) || records.length === 0) return _zeroTierStreaks();
+  if (typeof today !== 'string' || today === '') return _zeroTierStreaks();
 
   const usable = _sortByDate(records.filter(_isValidRecord));
   return _computeTierStreaksPrepared(usable, today);
 }
 
 function _computeTierStreaksPrepared(usable, today) {
-  if (usable.length === 0) return ZERO_TIER_STREAKS;
+  if (usable.length === 0) return _zeroTierStreaks();
 
   const byDate = new Map(usable.map((r) => [r.date, r]));
   const earliest = usable[0].date;

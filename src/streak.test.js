@@ -407,6 +407,46 @@ describe('computeTierStreaks — zero-state and guards', () => {
       expect(best).toBe(0);
     });
   });
+
+  // Task 23: fresh-object contract — ZERO_TIER_STREAKS must not be shared
+  it('returns distinct array references on successive guard-path calls (Task 23)', () => {
+    const r1 = computeTierStreaks([], '2026-08-10');
+    const r2 = computeTierStreaks([], '2026-08-10');
+    expect(r1).not.toBe(r2);
+    expect(r1[0]).not.toBe(r2[0]);
+  });
+
+  it('mutating a returned guard-path entry does not corrupt a subsequent call (Task 23)', () => {
+    const r1 = computeTierStreaks([], '2026-08-10');
+    r1[0].active = 999;
+    const r2 = computeTierStreaks([], '2026-08-10');
+    expect(r2[0].active).toBe(0);
+  });
+
+  it('returns distinct array references on successive null-records guard calls (Task 23)', () => {
+    const r1 = computeTierStreaks(null, '2026-08-10');
+    const r2 = computeTierStreaks(null, '2026-08-10');
+    expect(r1).not.toBe(r2);
+    expect(r1[0]).not.toBe(r2[0]);
+  });
+
+  it('returns distinct array references on empty-usable guard path (Task 23)', () => {
+    // All invalid records → _computeTierStreaksPrepared returns ZERO on usable.length === 0
+    const badRecords = [null, { effective_steps: 5000 }];
+    const r1 = computeTierStreaks(badRecords, '2026-08-10');
+    const r2 = computeTierStreaks(badRecords, '2026-08-10');
+    expect(r1).not.toBe(r2);
+    expect(r1[0]).not.toBe(r2[0]);
+  });
+
+  it('mutating entry from empty-usable path does not corrupt subsequent call (Task 23)', () => {
+    const badRecords = [null, { effective_steps: 5000 }];
+    const r1 = computeTierStreaks(badRecords, '2026-08-10');
+    r1[0].best = 42;
+    const r2 = computeTierStreaks(badRecords, '2026-08-10');
+    expect(r2[0].best).toBe(0);
+  });
+
 });
 
 // ---------------------------------------------------------------------------
