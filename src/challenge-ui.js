@@ -9,12 +9,12 @@
  * - Idempotent render: removes existing #challenge-card before inserting
  * - Fail-open guard on missing #tab-dashboard
  * - createElement / textContent / appendChild only (no innerHTML)
- * - AbortController-scoped delegated listener per render (Task 5 wires the handlers)
+ * - AbortController-scoped delegated listener per render (one per render, stale aborted)
  * - try/catch around all async data operations → reporter.db('❌ …') + zero-state card
  */
 
 import { _localDate, _addDaysUtc } from './date-utils.js';
-import { computeChallengeMetrics } from './challenge.js';
+import { computeChallengeMetrics, formatChallengeUpdate } from './challenge.js';
 
 /**
  * Returns the first day of the current month as a YYYY-MM-DD string.
@@ -52,7 +52,6 @@ function _lastOfMonth() {
  */
 export function createChallengeUI(doc, challenge, db, reporter) {
   // AbortController for the current render's delegated listener.
-  // Stored in closure so Task 5 can access / abort it.
   let controller = null;
 
   /**
@@ -123,7 +122,7 @@ export function createChallengeUI(doc, challenge, db, reporter) {
    * Build the metric view card for when a challenge is active/completed.
    * @param {object} challengeData
    * @param {Array} records
-   * @returns {HTMLElement}
+   * @returns {{ card: HTMLElement, metrics: object, name: string }}
    */
   function _buildMetricCard(challengeData, records) {
     const metrics = computeChallengeMetrics(challengeData, records);
@@ -187,7 +186,7 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     copyBtn.textContent = '📋 Copy Group Update';
     card.appendChild(copyBtn);
 
-    return card;
+    return { card, metrics, name: challengeData.name ?? null };
   }
 
   /**
@@ -230,12 +229,17 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     if (controller) {
       controller.abort();
     }
-    controller = new AbortController();
+    controller = new (doc.defaultView?.AbortController ?? AbortController)();
+    const { signal } = controller;
 
     // Idempotent: remove stale card before inserting a fresh one.
     doc.getElementById('challenge-card')?.remove();
 
     let card;
+    // Capture metrics + name for use in the delegated Copy handler
+    let currentMetrics = null;
+    let currentName = null;
+
     try {
       const activeChallenge = await challenge.getActiveChallenge();
 
@@ -248,7 +252,10 @@ export function createChallengeUI(doc, challenge, db, reporter) {
           .where('date')
           .between(activeChallenge.start_date, activeChallenge.end_date, true, true)
           .toArray();
-        card = _buildMetricCard(activeChallenge, records);
+        const result = _buildMetricCard(activeChallenge, records);
+        card = result.card;
+        currentMetrics = result.metrics;
+        currentName = result.name;
       }
     } catch (err) {
       console.error('[challenge]', err);
@@ -258,8 +265,41 @@ export function createChallengeUI(doc, challenge, db, reporter) {
 
     dashboard.appendChild(card);
 
-    // Task 5 will attach the delegated click listener here using controller.signal.
-    // The AbortController is stored in the closure for Task 5's use.
+    // Attach ONE delegated click listener scoped to this render via AbortController.
+    card.addEventListener('click', async (event) => {
+      const action = event.target.closest('[data-action]')?.dataset.action;
+      if (!action) return;
+
+      if (action === 'save-challenge') {
+        const nameVal = card.querySelector('[data-field="challenge-name"]')?.value ?? '';
+        const startVal = card.querySelector('[data-field="start-date"]')?.value ?? '';
+        const endVal = card.querySelector('[data-field="end-date"]')?.value ?? '';
+        try {
+          await challenge.setActiveChallenge({ name: nameVal, start_date: startVal, end_date: endVal });
+          await render();
+        } catch (err) {
+          console.error('[challenge]', err);
+          reporter.db('❌ Failed to save challenge: ' + err.message);
+        }
+      }
+
+      if (action === 'copy-challenge') {
+        if (!currentMetrics) return;
+        const text = formatChallengeUpdate(currentMetrics, currentName);
+        try {
+          await navigator.clipboard.writeText(text);
+          // Show "Copied to Clipboard!" badge for 2 seconds
+          const badge = doc.createElement('span');
+          badge.className = 'copied-badge';
+          badge.textContent = '✅ Copied to Clipboard!';
+          card.appendChild(badge);
+          setTimeout(() => badge.remove(), 2000);
+        } catch (err) {
+          console.error('[challenge]', err);
+          reporter.db('⚠️ Copy to clipboard failed');
+        }
+      }
+    }, { signal });
   }
 
   return { render };

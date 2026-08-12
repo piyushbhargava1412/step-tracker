@@ -370,3 +370,175 @@ describe('AbortController — stored after render', () => {
     expect(doc.querySelectorAll('#challenge-card').length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 5: Delegated Save handler
+// ---------------------------------------------------------------------------
+describe('delegated Save handler (data-action="save-challenge")', () => {
+  const CHALLENGE_ENGINE_WITH_SAVE = () => {
+    let saved = null;
+    const engine = {
+      getActiveChallenge: vi.fn(async () => saved),
+      setActiveChallenge: vi.fn(async (data) => { saved = { ...data, key: 'active_challenge', created_at: '' }; }),
+    };
+    return engine;
+  };
+
+  it('calls setActiveChallenge with name/start_date/end_date from inputs on Save click', async () => {
+    const doc = makeDoc();
+    const engine = CHALLENGE_ENGINE_WITH_SAVE();
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+
+    // Fill in inputs
+    doc.querySelector('[data-field="challenge-name"]').value = 'Office Challenge';
+    doc.querySelector('[data-field="start-date"]').value = '2026-08-01';
+    doc.querySelector('[data-field="end-date"]').value = '2026-08-31';
+
+    // Click Save
+    const saveBtn = doc.querySelector('[data-action="save-challenge"]');
+    saveBtn.click();
+
+    // Wait for async handler
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(engine.setActiveChallenge).toHaveBeenCalledWith({
+      name: 'Office Challenge',
+      start_date: '2026-08-01',
+      end_date: '2026-08-31',
+    });
+  });
+
+  it('re-renders after successful Save (switches to metric state)', async () => {
+    const doc = makeDoc();
+    const engine = CHALLENGE_ENGINE_WITH_SAVE();
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+
+    doc.querySelector('[data-field="challenge-name"]').value = 'My Challenge';
+    doc.querySelector('[data-field="start-date"]').value = '2026-08-01';
+    doc.querySelector('[data-field="end-date"]').value = '2099-12-31';
+
+    doc.querySelector('[data-action="save-challenge"]').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    // After re-render, metric state should be shown (Copy button present)
+    expect(doc.querySelector('[data-action="copy-challenge"]')).not.toBeNull();
+    expect(doc.querySelector('[data-action="save-challenge"]')).toBeNull();
+  });
+
+  it('catches RangeError from setActiveChallenge, surfaces via reporter.db, does not throw', async () => {
+    const doc = makeDoc();
+    const engine = {
+      getActiveChallenge: vi.fn(async () => null),
+      setActiveChallenge: vi.fn(async () => { throw new RangeError('end before start'); }),
+    };
+    const reporter = makeReporter();
+    const ui = createChallengeUI(doc, engine, makeDb(), reporter);
+    await ui.render();
+
+    doc.querySelector('[data-field="start-date"]').value = '2026-08-31';
+    doc.querySelector('[data-field="end-date"]').value = '2026-08-01';
+    doc.querySelector('[data-action="save-challenge"]').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(reporter.db).toHaveBeenCalledWith(expect.stringMatching(/❌|⚠️/));
+  });
+
+  it('attaches exactly ONE listener per render (AbortController aborts prior on re-render)', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine();
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+
+    await ui.render();
+    await ui.render(); // second render should abort the first
+
+    // Two renders → still only one #challenge-card
+    expect(doc.querySelectorAll('#challenge-card').length).toBe(1);
+    // The original engine.getActiveChallenge was called twice (once per render)
+    expect(engine.getActiveChallenge).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 5: Delegated Copy handler
+// ---------------------------------------------------------------------------
+describe('delegated Copy handler (data-action="copy-challenge")', () => {
+  const ACTIVE_CHALLENGE = {
+    key: 'active_challenge',
+    name: 'Team Steps',
+    start_date: '2026-08-01',
+    end_date: '2099-12-31',
+    created_at: '2026-08-01T00:00:00.000Z',
+  };
+
+  let writeTextMock;
+
+  beforeEach(() => {
+    writeTextMock = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText: writeTextMock } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('calls navigator.clipboard.writeText with formatted text on Copy click', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+
+    doc.querySelector('[data-action="copy-challenge"]').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(writeTextMock).toHaveBeenCalledTimes(1);
+    const text = writeTextMock.mock.calls[0][0];
+    expect(text).toContain('Team Steps Update');
+    expect(text).toContain("Yesterday's Steps");
+    expect(text).toContain('Cumulative Total');
+    expect(text).toContain('Average Pace');
+  });
+
+  it('shows "Copied to Clipboard!" badge for ~2s after successful copy', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+
+    doc.querySelector('[data-action="copy-challenge"]').click();
+    // Flush microtasks/promises so async click handler runs (writeText resolves)
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const badge = doc.querySelector('.copied-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toContain('Copied to Clipboard!');
+
+    // After 2s timer fires, badge should be gone
+    vi.advanceTimersByTime(2000);
+    expect(doc.querySelector('.copied-badge')).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('does NOT throw on clipboard failure; calls reporter.db and console.error', async () => {
+    writeTextMock.mockRejectedValue(new Error('Permission denied'));
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const reporter = makeReporter();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ui = createChallengeUI(doc, engine, makeDb(), reporter);
+    await ui.render();
+
+    doc.querySelector('[data-action="copy-challenge"]').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Copy to clipboard failed');
+    expect(errSpy).toHaveBeenCalledWith('[challenge]', expect.any(Error));
+    errSpy.mockRestore();
+  });
+});
