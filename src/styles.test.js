@@ -54,15 +54,14 @@ describe('styles.css — structural layout (Task 10)', () => {
   });
 
   // Test 3: Dark-theme background color variable or selector still present
-  it('should preserve dark-theme background colors', () => {
-    // Check for dark-theme background declarations
-    // body { background-color: #121212; }
-    // .container { background: #1e1e1e; }
+  it('should preserve the deep-blue dark-theme background', () => {
+    // Check for the deep-blue dark background declarations
+    // body { background: radial-gradient(...); background-color: var(--bg-body); }
     const darkThemePatterns = [
-      /body\s*{[^}]*background(-color)?:\s*#121212/,
-      /\.container\s*{[^}]*background:\s*#1e1e1e/,
+      /body\s*{[^}]*background(-color)?:\s*var\(--bg-body\)/,
+      /body\s*{[^}]*radial-gradient/,
     ];
-    
+
     const hasDarkTheme = darkThemePatterns.some(pattern => pattern.test(cssContent));
     expect(hasDarkTheme).toBe(true);
   });
@@ -111,13 +110,13 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
 
   it('should contain all 10 :root CSS custom properties', () => {
     const tokens = [
-      '--bg-dark',
+      '--bg-body',
       '--bg-card',
       '--bg-card-border',
       '--text-primary',
       '--text-muted',
-      '--accent-emerald',
-      '--accent-emerald-glow',
+      '--accent-sky',
+      '--accent-sky-glow',
       '--accent-cyan',
       '--accent-amber',
       '--font-mono',
@@ -127,12 +126,12 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
     }
   });
 
-  it('--accent-emerald-glow value is rgba(16, 185, 129, 0.25)', () => {
-    expect(cssContent).toContain('rgba(16, 185, 129, 0.25)');
+  it('--accent-sky-glow value is rgba(56, 189, 248, 0.25)', () => {
+    expect(cssContent).toContain('rgba(56, 189, 248, 0.25)');
   });
 
-  it('body rule contains var(--bg-dark) for background-color', () => {
-    expect(/body\s*{[^}]*background-color:\s*var\(--bg-dark\)/.test(cssContent)).toBe(true);
+  it('body rule contains var(--bg-body) for background-color', () => {
+    expect(/body\s*{[^}]*background-color:\s*var\(--bg-body\)/.test(cssContent)).toBe(true);
   });
 
   // ── Card anatomy classes ──────────────────────────────────────────────────
@@ -178,12 +177,12 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
 
   // ── Restyle-boundary locks ────────────────────────────────────────────────
 
-  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
-    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
   });
 
-  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
-    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
+    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 });
 
@@ -230,8 +229,8 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
 
   // ── .streak-number mockup values ──────────────────────────────────────────
 
-  it('.streak-number should have color: var(--accent-emerald)', () => {
-    expect(/\.streak-number\s*{[^}]*color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  it('.streak-number should have color: var(--accent-sky)', () => {
+    expect(/\.streak-number\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 
   it('.streak-number should have 2.8rem font size', () => {
@@ -320,12 +319,12 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
 
   // ── .tier-chip--active modifier ───────────────────────────────────────────
 
-  it('.tier-chip--active should use var(--accent-emerald) color', () => {
-    expect(/\.tier-chip--active\s*{[^}]*color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  it('.tier-chip--active should use var(--accent-sky) color', () => {
+    expect(/\.tier-chip--active\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-chip--active should have border-color: var(--accent-emerald)', () => {
-    expect(/\.tier-chip--active\s*{[^}]*border-color:\s*var\(--accent-emerald\)/.test(cssContent)).toBe(true);
+  it('.tier-chip--active should have border-color: var(--accent-sky)', () => {
+    expect(/\.tier-chip--active\s*{[^}]*border-color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 
   // ── .streak-goal ─────────────────────────────────────────────────────────
@@ -360,13 +359,13 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     expect(/#lifetime-banner\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
   });
 
-  // ── Verify --accent-emerald in .tier-chip--active (no per-tier colors) ─────
+  // ── Verify --accent-sky in .tier-chip--active (no per-tier colors) ─────
 
-  it('.tier-chip--active should contain --accent-emerald (no cyan/amber accents)', () => {
+  it('.tier-chip--active should contain --accent-sky (no cyan/amber accents)', () => {
     // Extract the .tier-chip--active rule
     const tierChipActiveMatch = cssContent.match(/\.tier-chip--active\s*{[^}]+}/);
     if (tierChipActiveMatch) {
-      expect(tierChipActiveMatch[0]).toContain('--accent-emerald');
+      expect(tierChipActiveMatch[0]).toContain('--accent-sky');
       // Verify no per-tier cyan or amber overrides
       expect(tierChipActiveMatch[0]).not.toContain('--accent-cyan');
       expect(tierChipActiveMatch[0]).not.toContain('--accent-amber');
@@ -376,12 +375,12 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
 
   // ── ST-003 Restyle-boundary locks ─────────────────────────────────────────
 
-  it('ST-003 restyle-boundary lock: .container still contains #1e1e1e', () => {
-    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  it('ST-003 restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
   });
 
-  it('ST-003 restyle-boundary lock: global button rule still contains #ff4757', () => {
-    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  it('ST-003 restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
+    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 
   // ── No new CSS variables introduced ──────────────────────────────────────
@@ -543,12 +542,12 @@ describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
 
   // ── Restyle-boundary locks (existing tests remain green) ──────────────────
 
-  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
-    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
   });
 
-  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
-    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
+    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 });
 
@@ -634,12 +633,12 @@ describe('styles.css — ST-007a new selectors (Task 16)', () => {
 
   // ── Restyle-boundary locks unchanged ─────────────────────────────────────
 
-  it('restyle-boundary lock: .container still contains #1e1e1e', () => {
-    expect(/\.container\s*{[^}]*#1e1e1e/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
   });
 
-  it('restyle-boundary lock: global button rule still contains #ff4757', () => {
-    expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
+  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
+    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 });
 
@@ -664,5 +663,101 @@ describe('styles.css — ST-006b challenge widget copied-badge animation', () =>
     const opacityValues = [...keyframes.matchAll(/opacity:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
     expect(opacityValues.length).toBeGreaterThan(0);
     expect(Math.min(...opacityValues)).toBe(0);
+  });
+});
+
+describe('styles.css — challenge mockup card + dashboard stacking', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('challenge card stacks in the left column below progress (grid-column: 1)', () => {
+    expect(/\.dashboard-panel\s+#challenge-card\s*\{[^}]*grid-column:\s*1\b/.test(cssContent)).toBe(true);
+  });
+
+  it('challenge card is placed on grid-row 3 (below #progress-card)', () => {
+    expect(/\.dashboard-panel\s+#challenge-card\s*\{[^}]*grid-row:\s*3\b/.test(cssContent)).toBe(true);
+  });
+
+  it('streak card spans the progress+challenge stack (grid-row: 2 / 4)', () => {
+    expect(/\.dashboard-panel\s+#streak-card\s*\{[^}]*grid-row:\s*2\s*\/\s*4\b/.test(cssContent)).toBe(true);
+  });
+
+  it('defines the mockup metric grid (.challenge-metrics display: grid)', () => {
+    expect(cssContent).toMatch(/\.challenge-metrics\s*\{[^}]*display:\s*grid/);
+  });
+
+  it('defines the metric tile selector (.challenge-metric)', () => {
+    expect(cssContent).toMatch(/\.challenge-metric\s*\{/);
+  });
+
+  it('defines the gear button (.challenge-icon-btn)', () => {
+    expect(cssContent).toMatch(/\.challenge-icon-btn\s*\{/);
+  });
+
+  it('defines the copy button (.challenge-copy-btn)', () => {
+    expect(cssContent).toMatch(/\.challenge-copy-btn\s*\{/);
+  });
+
+  it('hides the collapsible date config when [hidden] is applied', () => {
+    expect(cssContent).toMatch(/\.challenge-config\[hidden\]\s*\{\s*display:\s*none/);
+  });
+
+  it('challenge card uses an accent-sky left border (mockup border-left)', () => {
+    expect(/\.challenge-card\s*\{[^}]*border-left:\s*4px\s+solid\s+var\(--accent-sky\)/.test(cssContent)).toBe(true);
+  });
+});
+
+describe('styles.css — mobile dashboard ordering', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  /** Extract the ≤760px media query block (ends before the 640px block). */
+  function mobileBlock() {
+    return (
+      cssContent.match(/@media \(max-width: 760px\)[\s\S]*?(?=@media \(max-width: 640px\))/)?.[0] ?? ''
+    );
+  }
+
+  it('mobile: all dashboard cards reset to single-column auto-flow', () => {
+    const block = mobileBlock();
+    expect(block).not.toBe('');
+    for (const sel of [
+      '#lifetime-banner',
+      '#progress-card',
+      '#streak-card',
+      '#challenge-card',
+      '#month-overview-card',
+    ]) {
+      expect(block).toMatch(
+        new RegExp(`\\.dashboard-panel\\s+${sel}\\b[^{]*\\{[^}]*grid-column:\\s*1\\b`)
+      );
+      expect(block).toMatch(
+        new RegExp(`\\.dashboard-panel\\s+${sel}\\b[^{]*\\{[^}]*grid-row:\\s*auto\\b`)
+      );
+    }
+  });
+
+  it('mobile: order is lifetime-banner(1), progress(2), streak(3), challenge(4), calendar(5)', () => {
+    const block = mobileBlock();
+    const expected = [
+      ['#lifetime-banner', 1],
+      ['#progress-card', 2],
+      ['#streak-card', 3],
+      ['#challenge-card', 4],
+      ['#month-overview-card', 5],
+    ];
+    for (const [sel, order] of expected) {
+      expect(block).toMatch(
+        new RegExp(`\\.dashboard-panel\\s+${sel}\\s*\\{[^}]*order:\\s*${order}\\b`)
+      );
+    }
   });
 });

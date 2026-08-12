@@ -105,12 +105,16 @@ import { _localDate, _addDaysUtc } from './date-utils.js';
  * Computes the four challenge metrics from a challenge object and a set of
  * daily records. Pure — no DOM, no Dexie. Records are passed by the caller.
  *
+ * "Latest Day" = the most recent completed day inside the challenge range:
+ *   - Active challenge (end_date >= today): today - 1
+ *   - Completed challenge (end_date < today): end_date
+ *
  * Mirrors `computeNearMisses` in search.js as a module-level export.
  *
  * @param {{ start_date: string, end_date: string }} challenge
  * @param {Array<{ date: string, effective_steps: number }>} records
  * @returns {{
- *   yesterdaySteps: number,
+ *   latestDaySteps: number,
  *   cumulativeTotal: number,
  *   elapsedDays: number,
  *   totalDays: number,
@@ -120,18 +124,20 @@ import { _localDate, _addDaysUtc } from './date-utils.js';
  */
 export function computeChallengeMetrics(challenge, records) {
   const today = _localDate();
-  const yesterday = _addDaysUtc(today, -1);
   const { start_date, end_date } = challenge;
 
   // SF-1 decision A: completed = end_date strictly before today
   const completed = end_date < today;
 
-  // Cumulative date range boundary (inclusive on both ends)
-  const rangeEnd = completed ? end_date : yesterday;
+  // Latest completed day: today-1 while active, end_date once finished.
+  const latestDate = completed ? end_date : _addDaysUtc(today, -1);
 
-  // Yesterday's Steps: always today-1, regardless of completion state (SF-1)
-  const yesterdayRecord = records.find(r => r.date === yesterday);
-  const yesterdaySteps = yesterdayRecord ? yesterdayRecord.effective_steps : 0;
+  // Cumulative date range boundary (inclusive on both ends)
+  const rangeEnd = completed ? end_date : latestDate;
+
+  // Latest Day: steps for the most recent completed day in the range.
+  const latestRecord = records.find(r => r.date === latestDate);
+  const latestDaySteps = latestRecord ? latestRecord.effective_steps : 0;
 
   // Cumulative Total: records within [start_date, rangeEnd]
   let cumulativeTotal = 0;
@@ -142,13 +148,13 @@ export function computeChallengeMetrics(challenge, records) {
   }
 
   // Elapsed-day counter
-  // Active: (yesterday - start_date) + 1, floored at 0
+  // Active: (latestDate - start_date) + 1, floored at 0
   // Completed: full duration
   let elapsedDays;
   if (completed) {
     elapsedDays = _daysBetween(start_date, end_date) + 1;
   } else {
-    const raw = _daysBetween(start_date, yesterday) + 1;
+    const raw = _daysBetween(start_date, latestDate) + 1;
     elapsedDays = Math.max(0, raw);
   }
 
@@ -158,7 +164,7 @@ export function computeChallengeMetrics(challenge, records) {
   // Average pace — guarded against divide-by-zero
   const avgPace = elapsedDays === 0 ? 0 : cumulativeTotal / elapsedDays;
 
-  return { yesterdaySteps, cumulativeTotal, elapsedDays, totalDays, avgPace, completed };
+  return { latestDaySteps, cumulativeTotal, elapsedDays, totalDays, avgPace, completed };
 }
 
 /**
@@ -184,22 +190,22 @@ function _daysBetween(dateA, dateB) {
  *
  * Template (single trailing newline):
  *   🚶 {name} Update
- *   📅 Yesterday's Steps: {yesterday}
- *   📊 Cumulative Total: {cumulative} steps (Day {elapsedDays})
+ *   📅 Latest Day: {latestDaySteps}
+ *   📊 Cumulative Total: {cumulativeTotal} steps (Day {elapsedDays})
  *   📈 Average Pace: {avgPace} steps/day
  *
- * @param {{ yesterdaySteps: number, cumulativeTotal: number, elapsedDays: number, avgPace: number }} metrics
+ * @param {{ latestDaySteps: number, cumulativeTotal: number, elapsedDays: number, avgPace: number }} metrics
  * @param {string|null|undefined} name - Challenge name; falls back to 'Step Challenge' when null/empty.
  * @returns {string}
  */
 export function formatChallengeUpdate(metrics, name) {
   const displayName = (name && name.trim()) ? name : 'Step Challenge';
-  const { yesterdaySteps, cumulativeTotal, elapsedDays, avgPace } = metrics;
+  const { latestDaySteps, cumulativeTotal, elapsedDays, avgPace } = metrics;
   const fmt = n => Number(n).toLocaleString('en-US');
   const avgPaceFormatted = fmt(Math.round(avgPace));
   return (
     `🚶 ${displayName} Update\n` +
-    `📅 Yesterday's Steps: ${fmt(yesterdaySteps)}\n` +
+    `📅 Latest Day: ${fmt(latestDaySteps)}\n` +
     `📊 Cumulative Total: ${fmt(cumulativeTotal)} steps (Day ${elapsedDays})\n` +
     `📈 Average Pace: ${avgPaceFormatted} steps/day\n`
   );

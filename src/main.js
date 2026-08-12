@@ -23,6 +23,30 @@ import { createExporter } from './exporter.js'
 import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
 
+const MS_PER_DAY = 86_400_000
+
+/**
+ * Render the header's "Sync: X days ago" label from the most recently synced
+ * record. Fully fail-open: a missing element or store read leaves the label at
+ * its placeholder text and never throws or rejects.
+ *
+ * @param {object} db  - Dexie database exposing `daily_records`.
+ * @param {Document} doc - The DOM document (injected for testability).
+ * @returns {Promise<void>}
+ */
+export async function _renderLastSyncLabel(db, doc = document) {
+  const el = doc?.getElementById?.('last-sync')
+  if (!el) return
+
+  const latest = await db?.daily_records?.orderBy?.('date')?.last?.()
+  if (!latest?.synced_at) return
+
+  const elapsed = Date.now() - new Date(latest.synced_at).getTime()
+  const days = Math.max(0, Math.round(elapsed / MS_PER_DAY))
+  el.textContent =
+    days === 0 ? 'Sync: just now' : `Sync: ${days} day${days === 1 ? '' : 's'} ago`
+}
+
 export async function bootstrap(doc = document) {
   // 1. Build shared reporter
   const reporter = createStatusReporter(doc)
@@ -146,6 +170,13 @@ export async function bootstrap(doc = document) {
       console.error('[main] challengeUI.render failed after mutation, continuing', err)
     }
   })
+
+  // 8b. Populate the header "Sync: …" label from the newest record (fail-open)
+  try {
+    await _renderLastSyncLabel(db, doc)
+  } catch (err) {
+    console.error('[main] last-sync label update failed, continuing', err)
+  }
 
   // 9. Init tab navigation
   const tabBar = doc.querySelector('.tab-bar')

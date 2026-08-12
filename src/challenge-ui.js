@@ -4,6 +4,13 @@
  *
  * Factory: createChallengeUI(doc, challenge, db, reporter) → { render(): Promise<void> }
  *
+ * The card always renders the mockup metric layout:
+ *   - Header: title + date-range subtitle, gear (⚙️) + Copy Update actions
+ *   - Four metric tiles: Latest Day / Cumulative / Day Progress / Avg. Pace
+ *   - A collapsible date-config section driven by the gear icon
+ * The date config is visible by default when no challenge is configured and
+ * hidden when one exists; clicking the gear toggles it.
+ *
  * Design patterns:
  * - Factory-with-DI (no direct document/Dexie imports)
  * - Idempotent render: removes existing #challenge-card before inserting
@@ -13,8 +20,13 @@
  * - try/catch around all async data operations → reporter.db('❌ …') + zero-state card
  */
 
-import { _localDate, _addDaysUtc } from './date-utils.js';
+import { _localDate } from './date-utils.js';
 import { computeChallengeMetrics, formatChallengeUpdate } from './challenge.js';
+
+const MONTH_ABBR = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
 
 /**
  * Returns the first day of the current month as a YYYY-MM-DD string.
@@ -42,6 +54,46 @@ function _lastOfMonth() {
 }
 
 /**
+ * Formats a YYYY-MM-DD date as "Aug 01" or "Oct 01, 2026".
+ * @param {string} ymd
+ * @param {boolean} withYear
+ * @returns {string}
+ */
+function _fmtDay(ymd, withYear) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const mon = MONTH_ABBR[m - 1];
+  const dd = String(d).padStart(2, '0');
+  return withYear ? `${mon} ${dd}, ${y}` : `${mon} ${dd}`;
+}
+
+/**
+ * Formats a challenge date range as "Aug 01 — Aug 31, 2026".
+ * Falls back to "Not configured" for empty dates.
+ * @param {string|null|undefined} start
+ * @param {string|null|undefined} end
+ * @returns {string}
+ */
+function _formatRange(start, end) {
+  if (!start || !end) return 'Not configured';
+  return `${_fmtDay(start, false)} — ${_fmtDay(end, true)}`;
+}
+
+/**
+ * Zero-value metrics used when no challenge is configured.
+ * @returns {object}
+ */
+function _zeroMetrics() {
+  return {
+    latestDaySteps: 0,
+    cumulativeTotal: 0,
+    elapsedDays: 0,
+    totalDays: 0,
+    avgPace: 0,
+    completed: false,
+  };
+}
+
+/**
  * Factory: Challenge UI renderer.
  *
  * @param {Document} doc
@@ -55,21 +107,60 @@ export function createChallengeUI(doc, challenge, db, reporter) {
   let controller = null;
 
   /**
-   * Build the "configure" card for when no challenge is set.
+   * Build a metric tile used in the mockup grid.
+   * @param {string} metricKey
+   * @param {string} label
+   * @param {string} value
+   * @param {string} sub
+   * @param {number} [progressPct] - 0-100 fill width for the Day Progress tile
    * @returns {HTMLElement}
    */
-  function _buildConfigureCard() {
-    const card = doc.createElement('div');
-    card.className = 'card';
-    card.id = 'challenge-card';
+  function _buildMetricTile(metricKey, label, value, sub, progressPct = null) {
+    const tile = doc.createElement('div');
+    tile.className = 'challenge-metric';
+    tile.dataset.metric = metricKey;
 
-    // Header
-    const header = doc.createElement('div');
-    header.className = 'card-title';
-    const title = doc.createElement('span');
-    title.textContent = 'Group Challenge';
-    header.appendChild(title);
-    card.appendChild(header);
+    const labelEl = doc.createElement('span');
+    labelEl.className = 'challenge-metric-label';
+    labelEl.textContent = label;
+
+    const valueEl = doc.createElement('span');
+    valueEl.className = 'challenge-metric-value';
+    valueEl.textContent = value;
+
+    tile.appendChild(labelEl);
+    tile.appendChild(valueEl);
+
+    if (progressPct !== null) {
+      const track = doc.createElement('div');
+      track.className = 'challenge-progress-track';
+      const fill = doc.createElement('div');
+      fill.className = 'challenge-progress-fill';
+      fill.style.width = `${progressPct}%`;
+      track.appendChild(fill);
+      tile.appendChild(track);
+    }
+
+    const subEl = doc.createElement('span');
+    subEl.className = 'challenge-metric-sub';
+    subEl.textContent = sub;
+    tile.appendChild(subEl);
+
+    return tile;
+  }
+
+  /**
+   * Build the collapsible start/end date config section.
+   * Highlighted (visible) by default when no challenge exists; hidden by the
+   * card builder once a challenge is configured.
+   *
+   * @param {object|null} challengeData
+   * @returns {HTMLElement}
+   */
+  function _buildConfigSection(challengeData) {
+    const config = doc.createElement('div');
+    config.className = 'challenge-config';
+    config.id = 'challenge-config';
 
     // Name input row
     const nameLabel = doc.createElement('label');
@@ -79,9 +170,12 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     nameInput.type = 'text';
     nameInput.placeholder = 'Step Challenge';
     nameInput.dataset.field = 'challenge-name';
+    if (challengeData && challengeData.name) {
+      nameInput.value = challengeData.name;
+    }
     nameLabel.appendChild(nameLabelText);
     nameLabel.appendChild(nameInput);
-    card.appendChild(nameLabel);
+    config.appendChild(nameLabel);
 
     // Start date picker
     const startLabel = doc.createElement('label');
@@ -90,10 +184,10 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     const startInput = doc.createElement('input');
     startInput.type = 'date';
     startInput.dataset.field = 'start-date';
-    startInput.value = _firstOfMonth();
+    startInput.value = challengeData ? challengeData.start_date : _firstOfMonth();
     startLabel.appendChild(startLabelText);
     startLabel.appendChild(startInput);
-    card.appendChild(startLabel);
+    config.appendChild(startLabel);
 
     // End date picker
     const endLabel = doc.createElement('label');
@@ -102,10 +196,10 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     const endInput = doc.createElement('input');
     endInput.type = 'date';
     endInput.dataset.field = 'end-date';
-    endInput.value = _lastOfMonth();
+    endInput.value = challengeData ? challengeData.end_date : _lastOfMonth();
     endLabel.appendChild(endLabelText);
     endLabel.appendChild(endInput);
-    card.appendChild(endLabel);
+    config.appendChild(endLabel);
 
     // Save button
     const saveBtn = doc.createElement('button');
@@ -113,80 +207,118 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     saveBtn.className = 'btn btn-primary';
     saveBtn.dataset.action = 'save-challenge';
     saveBtn.textContent = 'Save Challenge';
-    card.appendChild(saveBtn);
+    config.appendChild(saveBtn);
 
-    return card;
+    return config;
   }
 
   /**
-   * Build the metric view card for when a challenge is active/completed.
-   * @param {object} challengeData
-   * @param {Array} records
-   * @returns {{ card: HTMLElement, metrics: object, name: string }}
+   * Build the mockup metric card.
+   *
+   * @param {object|null} challengeData
+   * @param {object} metrics - result of computeChallengeMetrics (or zero-metrics)
+   * @param {string} rangeText - formatted date range subtitle
+   * @param {boolean} configVisible - whether the date config starts open
+   * @returns {{ card: HTMLElement, name: string|null }}
    */
-  function _buildMetricCard(challengeData, records) {
-    const metrics = computeChallengeMetrics(challengeData, records);
-    const { yesterdaySteps, cumulativeTotal, elapsedDays, totalDays, avgPace, completed } = metrics;
+  function _buildCard(challengeData, metrics, rangeText, configVisible) {
+    const { latestDaySteps, cumulativeTotal, elapsedDays, totalDays, avgPace, completed } = metrics;
     const fmt = n => Number(n).toLocaleString('en-US');
 
+    const name =
+      challengeData && challengeData.name && challengeData.name.trim()
+        ? challengeData.name
+        : 'Active Group Challenge';
+
     const card = doc.createElement('div');
-    card.className = 'card';
+    card.className = 'card challenge-card';
     card.id = 'challenge-card';
 
-    // Header
+    // Header: heading + actions
     const header = doc.createElement('div');
-    header.className = 'card-title';
-    const title = doc.createElement('span');
-    const displayName = (challengeData.name && challengeData.name.trim())
-      ? challengeData.name
-      : 'Step Challenge';
-    title.textContent = displayName;
-    header.appendChild(title);
+    header.className = 'challenge-header';
+
+    const heading = doc.createElement('div');
+    heading.className = 'challenge-heading';
+
+    const title = doc.createElement('h2');
+    title.className = 'challenge-title';
+    title.textContent = name;
+
+    const range = doc.createElement('p');
+    range.className = 'challenge-range';
+    range.textContent = rangeText;
+
+    heading.appendChild(title);
+    heading.appendChild(range);
+
+    const actions = doc.createElement('div');
+    actions.className = 'challenge-actions';
+
+    const gear = doc.createElement('button');
+    gear.type = 'button';
+    gear.className = 'challenge-icon-btn';
+    gear.dataset.action = 'toggle-challenge-config';
+    gear.title = 'Challenge Settings';
+    gear.setAttribute('aria-label', 'Challenge Settings');
+    gear.textContent = '⚙️';
+
+    const copyBtn = doc.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'challenge-copy-btn';
+    copyBtn.dataset.action = 'copy-challenge';
+    copyBtn.textContent = '📋 Copy Update';
+
+    actions.appendChild(gear);
+    actions.appendChild(copyBtn);
+
+    header.appendChild(heading);
+    header.appendChild(actions);
+    card.appendChild(header);
 
     // "Challenge Finished" badge when completed
     if (completed) {
       const badge = doc.createElement('span');
       badge.className = 'challenge-finished-badge';
       badge.textContent = '🏁 Challenge Finished';
-      header.appendChild(badge);
+      card.appendChild(badge);
     }
 
-    card.appendChild(header);
+    // Four metric tiles (mockup grid)
+    const metricsGrid = doc.createElement('div');
+    metricsGrid.className = 'challenge-metrics';
 
-    // Four metric rows
-    const metricDefs = [
-      { label: "Yesterday's Steps", value: fmt(yesterdaySteps) },
-      { label: 'Cumulative Total', value: `${fmt(cumulativeTotal)} steps` },
-      { label: 'Day Progress', value: `Day ${elapsedDays} of ${totalDays}` },
-      { label: 'Average Pace', value: `${fmt(Math.round(avgPace))} steps/day` },
-    ];
+    const dayPct = totalDays === 0 ? 0 : Math.min(100, Math.round((elapsedDays / totalDays) * 100));
 
-    for (const def of metricDefs) {
-      const row = doc.createElement('div');
-      row.className = 'metric-row';
+    metricsGrid.appendChild(
+      _buildMetricTile('latest', 'Latest Day', fmt(latestDaySteps), 'Steps')
+    );
+    metricsGrid.appendChild(
+      _buildMetricTile('cumulative', 'Cumulative', fmt(cumulativeTotal), 'Total Steps')
+    );
+    metricsGrid.appendChild(
+      _buildMetricTile(
+        'day-progress',
+        'Day Progress',
+        `Day ${elapsedDays} of ${totalDays}`,
+        'Days',
+        dayPct
+      )
+    );
+    metricsGrid.appendChild(
+      _buildMetricTile('pace', 'Avg. Pace', fmt(Math.round(avgPace)), 'Steps/Day')
+    );
 
-      const labelSpan = doc.createElement('span');
-      labelSpan.className = 'metric-label';
-      labelSpan.textContent = def.label;
+    card.appendChild(metricsGrid);
 
-      const valueSpan = doc.createElement('span');
-      valueSpan.className = 'metric-value';
-      valueSpan.textContent = def.value;
-
-      row.appendChild(labelSpan);
-      row.appendChild(valueSpan);
-      card.appendChild(row);
+    // Collapsible date config
+    const config = _buildConfigSection(challengeData);
+    if (!configVisible) {
+      config.hidden = true;
     }
+    card.appendChild(config);
 
-    // Copy button
-    const copyBtn = doc.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'btn btn-primary';
-    copyBtn.dataset.action = 'copy-challenge';
-    copyBtn.textContent = '📋 Copy Group Update';
-    card.appendChild(copyBtn);
-
-    return { card, metrics, name: challengeData.name ?? null };
+    return { card, name: challengeData ? challengeData.name : null };
   }
 
   /**
@@ -244,17 +376,25 @@ export function createChallengeUI(doc, challenge, db, reporter) {
       const activeChallenge = await challenge.getActiveChallenge();
 
       if (!activeChallenge) {
-        // No challenge configured → configure state
-        card = _buildConfigureCard();
+        // No challenge configured → mockup card with zero metrics, config open
+        card = _buildCard(null, _zeroMetrics(), 'Not configured', true).card;
+        currentMetrics = _zeroMetrics();
+        currentName = null;
       } else {
         // Challenge present → query records + metric state
         const records = await db.daily_records
           .where('date')
           .between(activeChallenge.start_date, activeChallenge.end_date, true, true)
           .toArray();
-        const result = _buildMetricCard(activeChallenge, records);
+        const metrics = computeChallengeMetrics(activeChallenge, records);
+        const result = _buildCard(
+          activeChallenge,
+          metrics,
+          _formatRange(activeChallenge.start_date, activeChallenge.end_date),
+          false
+        );
         card = result.card;
-        currentMetrics = result.metrics;
+        currentMetrics = metrics;
         currentName = result.name;
       }
     } catch (err) {
@@ -269,6 +409,14 @@ export function createChallengeUI(doc, challenge, db, reporter) {
     card.addEventListener('click', async (event) => {
       const action = event.target.closest('[data-action]')?.dataset.action;
       if (!action) return;
+
+      if (action === 'toggle-challenge-config') {
+        const config = card.querySelector('.challenge-config');
+        if (config) {
+          config.hidden = !config.hidden;
+        }
+        return;
+      }
 
       if (action === 'save-challenge') {
         const nameVal = card.querySelector('[data-field="challenge-name"]')?.value ?? '';
