@@ -35,6 +35,23 @@ function makeMockReporter() {
   return { db: vi.fn() };
 }
 
+function makeRecord(overrides = {}) {
+  return {
+    date: '2026-01-15',
+    effective_steps: 8000,
+    effective_distance_km: 6.5,
+    is_overridden: false,
+    override: null,
+    ...overrides,
+  };
+}
+
+async function clickAction(doc, action) {
+  const btn = doc.querySelector(`[data-action="${action}"]`);
+  btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 0));
+}
+
 describe('createSearchUI — render skeleton', () => {
   it('render() mounts children inside #tab-search', () => {
     const doc = buildDoc(makeSearchTab());
@@ -181,23 +198,6 @@ describe('createSearchUI — render skeleton', () => {
 });
 
 describe('createSearchUI — behaviour', () => {
-  function makeRecord(overrides = {}) {
-    return {
-      date: '2026-01-15',
-      effective_steps: 8000,
-      effective_distance_km: 6.5,
-      is_overridden: false,
-      override: null,
-      ...overrides,
-    };
-  }
-
-  async function clickAction(doc, action) {
-    const btn = doc.querySelector(`[data-action="${action}"]`);
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
   it('clicking Execute calls search.executeQuery with filters object from form values', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();
@@ -427,23 +427,6 @@ describe('createSearchUI — behaviour', () => {
 });
 
 describe('createSearchUI — stale data guard after query error', () => {
-  function makeRecord(overrides = {}) {
-    return {
-      date: '2026-01-15',
-      effective_steps: 8000,
-      effective_distance_km: 6.5,
-      is_overridden: false,
-      override: null,
-      ...overrides,
-    };
-  }
-
-  async function clickAction(doc, action) {
-    const btn = doc.querySelector(`[data-action="${action}"]`);
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
   it('succeed → fail → Export CSV is no-op (stale records cleared on error)', async () => {
     const doc = buildDoc(makeSearchTab());
     const records = [makeRecord()];
@@ -482,12 +465,6 @@ describe('createSearchUI — stale data guard after query error', () => {
 });
 
 describe('Task 14 — remove min-distance, add step-target', () => {
-  async function clickAction(doc, action) {
-    const btn = doc.querySelector(`[data-action="${action}"]`);
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
   it('field list does NOT contain min-distance', () => {
     const doc = buildDoc(makeSearchTab());
     const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
@@ -573,23 +550,6 @@ describe('Task 14 — remove min-distance, add step-target', () => {
 });
 
 describe('Task 15 — Near-Miss panel', () => {
-  async function clickAction(doc, action) {
-    const btn = doc.querySelector(`[data-action="${action}"]`);
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
-  function makeRecord(overrides = {}) {
-    return {
-      date: '2026-01-15',
-      effective_steps: 8000,
-      effective_distance_km: 6.5,
-      is_overridden: false,
-      override: null,
-      ...overrides,
-    };
-  }
-
   it('computeNearMisses is invoked with result.preFilterSet (not result.records)', async () => {
     const doc = buildDoc(makeSearchTab());
     const search = makeMockSearch();

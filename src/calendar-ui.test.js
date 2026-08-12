@@ -971,8 +971,8 @@ describe('Task 4 — Revert button', () => {
     expect(revertBtn).not.toBeNull();
   });
 
-  it('window.confirm returns true → revertRecord called + data:records:mutated dispatched', async () => {
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+  it('confirmFn returns true → revertRecord called + data:records:mutated dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
 
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord({ note: 'Override', proof_image_base64: null, updated_at: '2026-08-05T12:00:00Z' });
@@ -980,7 +980,7 @@ describe('Task 4 — Revert button', () => {
     const reporter = makeMockReporter();
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage, undefined, confirmFn);
     await render();
 
     const events = [];
@@ -992,12 +992,13 @@ describe('Task 4 — Revert button', () => {
 
     await vi.waitFor(() => expect(records.revertRecord).toHaveBeenCalled());
     expect(records.revertRecord).toHaveBeenCalledWith('2026-08-05');
+    expect(confirmFn).toHaveBeenCalledWith(expect.stringContaining('revert'));
     await vi.waitFor(() => expect(events.length).toBeGreaterThan(0));
     expect(events[0].detail.date).toBe('2026-08-05');
   });
 
-  it('window.confirm returns false → revertRecord not called; no event dispatched', async () => {
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false));
+  it('confirmFn returns false → revertRecord not called; no event dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(false);
 
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord({ note: 'Override', proof_image_base64: null, updated_at: '2026-08-05T12:00:00Z' });
@@ -1005,7 +1006,7 @@ describe('Task 4 — Revert button', () => {
     const reporter = makeMockReporter();
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage, undefined, confirmFn);
     await render();
 
     const events = [];
@@ -1022,7 +1023,7 @@ describe('Task 4 — Revert button', () => {
   });
 
   it('records.revertRecord rejection surfaces ❌ reporter; event NOT dispatched', async () => {
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    const confirmFn = vi.fn().mockReturnValue(true);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const doc = buildDoc(getBaseHTML());
@@ -1034,7 +1035,7 @@ describe('Task 4 — Revert button', () => {
       revertRecord: vi.fn().mockRejectedValue(new Error('Revert failed')),
     };
     const processImage = makeMockProcessImage();
-    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage, undefined, confirmFn);
     await render();
 
     const events = [];

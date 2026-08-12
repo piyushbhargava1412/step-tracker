@@ -1815,45 +1815,6 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     vi.useRealTimers();
   });
 
-  // ── Pre-flight token guard (decision 14) ──────────────────────────────────
-
-  it('getAccessToken() returning null → the connect guard fires and fetch is never called', async () => {
-    const fetchMock = stubFetch();
-    auth.getAccessToken.mockReturnValue(null);
-    db = {};
-
-    const engine = createStepSync(auth, db, reporter, document);
-    await engine.sync();
-
-    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('getAccessToken() returning an empty string → the same guard fires', async () => {
-    const fetchMock = stubFetch();
-    auth.getAccessToken.mockReturnValue('');
-    db = {};
-
-    const engine = createStepSync(auth, db, reporter, document);
-    await engine.sync();
-
-    expect(reporter.sync).toHaveBeenCalledWith('🔑 Connect your Google Account first');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('the token guard fires before the button is touched — sync-btn stays enabled', async () => {
-    stubFetch();
-    auth.getAccessToken.mockReturnValue(null);
-    db = {};
-
-    const engine = createStepSync(auth, db, reporter, document);
-    await engine.sync();
-
-    expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
-    expect(auth.getAccessToken).toHaveBeenCalledTimes(1);
-  });
-
   // ── Re-entrancy guard (decision 13) ───────────────────────────────────────
 
   it('a second sync() while the first is in flight returns immediately and issues no fetch', async () => {
@@ -2524,6 +2485,19 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(fetchMock).not.toHaveBeenCalled();
     expect(syncBtn().disabled).toBe(false);
     expect(syncBtn().textContent).toBe('Sync Steps');
+  });
+
+  it('empty-string token is treated the same as missing — guard fires before any fetch', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    auth.getAccessToken.mockReturnValue('');
+    db = {};
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    expect(lastSyncMessage()).toBe('🔑 Connect your Google Account first');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   // ── Non-fatal settings latch write failure ────────────────────────────────

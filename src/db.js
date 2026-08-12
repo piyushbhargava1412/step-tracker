@@ -76,13 +76,21 @@ export function createDb() {
   // The legacy km goal is NOT converted — reset to 10000 (SF-3 Option A, owner-confirmed).
   // The delete+put pair is wrapped in a table-scoped transaction to make the operation atomic:
   // a process kill between delete and put would otherwise silently discard the prior goal.
-  db.version(4)
+  // The current schema version is driven by the DB_VERSION constant — bump it here when a new
+  // migration is added so the constant and the head of the chain cannot drift.
+  db.version(DB_VERSION)
     .stores({
       daily_records: DAILY_RECORDS_STORES,
       settings: SETTINGS_STORES,
       goal_history: null, // drop the table
     })
     .upgrade(async (_tx) => {
+      // Note: unlike the v2/v3 upgrades, this handler deliberately opens its own
+      // table-scoped transaction instead of operating on the injected `_tx`.
+      // Dexie reuses the parent upgrade transaction for nested db.transaction()
+      // calls, so the delete+put pair is atomic — a process kill cannot leave the
+      // store without an active_goal row. Kept self-managed for clarity of the
+      // two-step intent; `_tx` is intentionally unused.
       try {
         await db.transaction('rw', db.settings, async () => {
           await db.settings.delete('active_goal');
