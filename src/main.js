@@ -61,9 +61,22 @@ export async function bootstrap(doc = document) {
   const exporter = createExporter(doc)
   const searchUI = createSearchUI(doc, search, exporter, reporter)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
-  const progressUI = createProgressUI(doc, goal, db, reporter, () => {
-    streakUI.render()
-    monthOverview.render()
+  const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
+    try {
+      await streakUI.render()
+    } catch (err) {
+      console.error('[main] streakUI.render failed after goal change, continuing', err)
+    }
+    try {
+      await calendarUI.render()
+    } catch (err) {
+      console.error('[main] calendarUI.render failed after goal change, continuing', err)
+    }
+    try {
+      await monthOverview.render()
+    } catch (err) {
+      console.error('[main] monthOverview.render failed after goal change, continuing', err)
+    }
   })
 
   // 7. Bind auth button
