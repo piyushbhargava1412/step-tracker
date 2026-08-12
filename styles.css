@@ -954,6 +954,21 @@ button:hover {
     text-align: center;
 }
 
+.tolerance-value {
+    display: block;
+    color: var(--text-primary);
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.tolerance-value.streak-number {
+    color: var(--accent-emerald);
+    font-size: 2.8rem;
+    font-weight: 900;
+}
+
 /* Hall of Fame block */
 .hall-of-fame {
     margin-top: 16px;

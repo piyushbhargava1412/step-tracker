@@ -605,6 +605,15 @@ describe('styles.css — ST-007a new selectors (Task 16)', () => {
     expect(cssContent).toContain('.near-miss-panel');
   });
 
+  it('should contain .tolerance-value selector', () => {
+    expect(cssContent).toContain('.tolerance-value');
+  });
+
+  it('.tolerance-value should have color using a CSS variable', () => {
+    expect(/\.tolerance-value\s*{[^}]*color:\s*var\(--/.test(cssContent)).toBe(true);
+  });
+
+
   // ── Removed selectors absent ──────────────────────────────────────────────
 
   it('.goal-preset is absent from styles.css', () => {
