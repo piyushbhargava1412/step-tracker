@@ -1,10 +1,10 @@
 # Flow: Calendar Heatmap Grid and Day Detail Drawer
 
-> Added: ST-005 — 2026-08-11 | Updated: ST-006 — 2026-08-11
+> Added: ST-005 — 2026-08-11 | Updated: ST-007a — 2026-08-12
 
 <!-- context-meta
-verification-commit: 371dc5b8d87197e66eefafc8e977b8b58211fda9
-generated-at: 2026-08-11T00:00:00Z
+verification-commit: 5b8eb0c5d614769c18de8433d4ce0b29857eafdd
+generated-at: 2026-08-12T00:00:00Z
 confidence: high
 -->
 
@@ -14,6 +14,7 @@ confidence: high
 - `#sync-btn` click handler — `calendarUI.render()` called after `streakUI.render()`
 - Calendar navigation (Prev/Next buttons, month/year selects) — re-render within the `calendar-ui.js` closure
 - `data:records:mutated` custom DOM event (dispatched by override form submit / revert button) → `calendarUI.render()` (plus `progressUI.render()` + `streakUI.render()`, all fail-open via `src/main.js`)
+- Goal `<select>` `change` event → `goal.setActiveStepGoal()` → fan-out in `main.js` includes `calendarUI.render()`
 
 ## Data Flow
 
@@ -24,17 +25,12 @@ calendarUI.render(year, month)          [src/calendar-ui.js — createCalendarUI
   │    ├─ monthBounds(year, month)  →   { start: 'YYYY-MM-01', endExclusive }
   │    └─ Promise.all([
   │         db.daily_records.where('date').between(start, endExclusive, true, false).toArray(),
-  │         db.goal_history.toArray(),
-  │         goal.getActiveGoal(),
+  │         goal.getActiveStepGoal(),                  ← scalar integer (no goal_history)
   │         db.daily_records.orderBy('date').first()   ← SF-6 lower nav bound
   │       ])
-  │    ├─ buildEffectiveGoalHistory(history, activeGoal)   [src/goal-history.js]
-  │    │    → populated history | synthetic [{ effective_from, target_distance_km }] | []
-  │    ├─ _prepareGoalHistory(goalHistory)                  [src/goal-history.js]
   │    ├─ buildMonthGrid(year, month, today)
   │    │    → { leadingPad, trailingPad, days: [{ date, dayOfMonth, isFuture }] }
-  │    ├─ per day: _resolvePreparedGoalForDate(prepared, date) → targetDistanceKm
-  │    ├─ per day: classifyDay(record, targetDistanceKm, isFuture) → { state, isOverridden }
+  │    ├─ per day: classifyDay(record, activeStepGoal, isFuture) → { state, isOverridden }
   │    ├─ computeMonthlyAggregates(days) → { daysEvaluated, targetMetDays, totalSteps, ... }
   │    └─ computeNavBounds(earliestRecordDate, today, year, month)
   │         → { canGoPrev, canGoNext, minYear, maxYear }
@@ -92,12 +88,12 @@ _closeDrawer(tile)
 
 | Module | Role |
 |---|---|
-| `src/calendar.js` | Pure engine: grid arithmetic, classification, aggregates, nav clamping, I/O surface |
+| `src/calendar.js` | Pure engine: grid arithmetic, step-based classification, aggregates, nav clamping, I/O surface |
 | `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts override form |
 | `src/records.js` | Override/revert capability: `createRecords(db)` → `{ overrideRecord, revertRecord }` |
 | `src/image-processor.js` | Proof-image resize: `processImage(file)` → JPEG base64 data URL ≤1024 px |
-| `src/goal-history.js` | Shared: per-date goal resolution and synthetic fallback (shared with streak.js) |
-| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage)`; registers `data:records:mutated` listener |
+| `src/month-overview.js` | Reusable month overview renderer: heatmap tiles + commitment hit-rate card for both dashboard and calendar tabs |
+| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)`; registers `data:records:mutated` listener |
 
 ## Classification Ladder (SF-2)
 
@@ -105,10 +101,21 @@ _closeDrawer(tile)
 |---|---|---|
 | Future date OR no record | `CLASSIFICATION_NO_DATA` (0) | `tile--empty` |
 | `ratio < 1.0` | `CLASSIFICATION_MISSED` (1) | `tile--missed` |
-| `1.0 ≤ ratio < 2.0` | `CLASSIFICATION_MET` (2) | `tile--met` |
-| `ratio ≥ 2.0` | `CLASSIFICATION_EXCEEDED` (3) | `tile--exceeded` |
+| `1.0 ≤ ratio < EXCEEDED_RATIO` | `CLASSIFICATION_MET` (2) | `tile--met` |
+| `ratio ≥ EXCEEDED_RATIO` | `CLASSIFICATION_EXCEEDED` (3) | `tile--exceeded` |
 
-`ratio = effective_distance_km / targetDistanceKm`. `isOverridden` is orthogonal — adds `tile__override-badge` regardless of state.
+`ratio = effective_steps / stepGoal` (step-only; no km division).
+`EXCEEDED_RATIO = 1.5` (exported constant in `src/calendar.js`).
+`isOverridden` is orthogonal — adds `tile__override-badge` regardless of state.
+
+## Goal Change → Re-render Path
+
+When the user changes the active step goal via the `<select>`:
+1. `goal.setActiveStepGoal(steps)` persists the new scalar to `settings.active_step_goal`.
+2. The `onGoalApplied` callback in `src/main.js` triggers a fail-open fan-out:
+   `streakUI.render()` → `calendarUI.render()` → `monthOverview.render()`.
+3. `calendarUI.render()` re-reads `goal.getActiveStepGoal()` via `calendar.loadMonth()` — the new
+   goal takes effect immediately for all months.
 
 ## Security Boundary
 
@@ -117,6 +124,6 @@ All drawer content is written with `textContent` — no `innerHTML` assignment a
 ## Navigation Bounds (SF-6)
 
 - Lower: parsed from `daily_records.orderBy('date').first()` — the earliest stored record date.
-- Upper: current local month (`_localDate()` from `goal.js`).
+- Upper: current local month (`_localDate()` from `src/date-utils.js`).
 - `null` earliest (empty store or load failure): both `canGoPrev` and `canGoNext` forced to `false`.
 - Navigation state lives in the `calendar-ui.js` render closure; the engine is stateless.
