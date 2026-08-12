@@ -14,7 +14,7 @@ vi.mock('./image-processor.js', () => ({
 }))
 
 // Task 6: mock goal.js and progress-ui.js
-const mockGoalInstance = { getActiveGoal: vi.fn(), setActiveGoal: vi.fn() }
+const mockGoalInstance = { getActiveStepGoal: vi.fn(), setActiveStepGoal: vi.fn() }
 vi.mock('./goal.js', () => ({
   createGoal: vi.fn(() => mockGoalInstance)
 }))
