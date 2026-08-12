@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-  - verification-commit: `6265017b37bb8c1814caae37c1598b42ea75c380`
-  - generated-at: `2026-08-11T08:00:00Z`
+  - verification-commit: `a4e9d6fd1aeaab215e9ad706d637b8816f346474`
+  - generated-at: `2026-08-12T06:00:00Z`
   - confidence: `high`
 
 ## Purpose
@@ -13,16 +13,17 @@ This repository is a client-side step streak tracker web app that connects to Go
 - Google OAuth token acquisition in-browser (`src/auth.js`, `src/config.js`)
 - Client-side tab navigation (`src/tabs.js`)
 - UI status reporting abstraction (`src/ui-status.js`)
-- IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`) — v2 adds `goal_history` migration and goal-history writes from `src/goal.js`; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows
+- IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`) — v2 adds `goal_history` migration; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history` table and seeds `active_step_goal` in `settings` (`DB_VERSION = 4`)
 - Application bootstrap / composition root (`src/main.js`)
 - Google Fitness aggregate step/distance fetch and incremental sync engine (`src/steps.js`) — chunked requests, normalisation, Dexie `daily_records` persistence, retry/error contract, backfill latch
-- Goal Commitment management (`src/goal.js`) — read/write active daily distance goal (`active_goal` key) in Dexie `settings` store; preset (1/3/5/10 km) and custom km input
+- Goal Commitment management (`src/goal.js`) — read/write active daily step goal (`active_step_goal` key) in Dexie `settings` store; preset options `STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`; scalar step-only lens (no km, no `goal_history` write)
 - Today's Progress computation and card rendering (`src/progress.js`, `src/progress-ui.js`) — pure computation of steps/distance vs. goal, progress-bar + goal-met/remaining-hint card injected into `#tab-dashboard` on load and after each sync
 - Streak computation and output rendering (`src/streak.js`, `src/streak-ui.js`) — effective-date unified streak, fixed tier streaks, Hall of Fame metrics, and lifetime 10k-day banner
 - Record override/revert (`src/records.js`) — `createRecords(db)` factory; `overrideRecord` writes corrected `effective_steps`/`effective_distance_km`/`is_overridden`/`override`; `revertRecord` restores original synced values; never mutates `original_steps`/`original_distance_km`/`synced_at`
 - Proof-image processing (`src/image-processor.js`) — `createImageProcessor(deps)` factory; validates MIME type/size, resizes to ≤1024 px, returns JPEG base64 data URL for storage in `override.proof_image_base64`
-- Search / filter lab (`src/search.js`, `src/search-ui.js`) — `createSearch(db, goal)` executes AND-combined multi-filter Dexie queries (date range, steps, distance, override status, goal-target outcome); `createSearchUI` renders filter form, results grid, summary card, and export controls into `#tab-search`
+- Search / filter lab (`src/search.js`, `src/search-ui.js`) — `createSearch(db)` executes AND-combined multi-filter Dexie queries (date range, step bounds, override status, goal-target outcome vs. step target); Near-Miss analysis via `computeNearMisses`; `createSearchUI` renders filter form, results grid, summary card, Near-Miss panel, and export controls into `#tab-search`
 - CSV/JSON export (`src/exporter.js`) — `createExporter(doc)` factory; serialises filtered `daily_records` to RFC-4180 CSV or pretty-printed JSON and triggers a `<a download>` click; timezone-safe filename with `_localDate()`
+- Pure shared utilities — `src/date-utils.js` (`_localDate`, `_addDaysUtc`; no DOM, no Dexie; shared by `goal.js`, `streak.js`, `steps.js`, `exporter.js`); `src/units.js` (`KM_TO_STEPS = 1312.33`; no imports; shared by `progress.js`, `records.js`)
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
 - Environment-based configuration (`.env.example`, `import.meta.env.VITE_CLIENT_ID`)

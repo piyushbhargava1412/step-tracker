@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: 6265017b37bb8c1814caae37c1598b42ea75c380
-generated-at: 2026-08-11T08:00:00Z
+verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
+generated-at: 2026-08-12T06:00:00Z
 confidence: high
 -->
 
@@ -23,7 +23,7 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/storage.test.js`, `src/tabs.test.js`, `src/ui-status.test.js`, `src/main.test.js`,
 `src/steps.test.js`, `src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`,
 `src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
-`src/streak.test.js`, `src/streak-ui.test.js`, `src/goal-history.test.js`,
+`src/streak.test.js`, `src/streak-ui.test.js`, `src/date-utils.test.js`, `src/units.test.js`,
 `src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
 `src/image-processor.test.js`, `src/search.test.js`, `src/search-ui.test.js`,
 `src/exporter.test.js`.
@@ -58,12 +58,13 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createStatusReporter`         | `#db-status` / `#auth-status` DOM mutation                      |
 | ✅ DONE  | `bootstrap()` (`src/main.js`)  | Composition root integration — module wiring                    |
 | ✅ DONE  | Step sync (`createStepSync`, `src/steps.js`) | Sync orchestrator — guards, window resolution, chunking, normalisation, retry/error contract, transactional upsert, backfill latch (`src/steps.test.js`, 158 tests) |
-| ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveGoal` (valid row, absent, corrupt, DB error), `setActiveGoal` (valid km, invalid km throws, DB write error graceful), `_localDate` helper |
+| ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveStepGoal` (valid row, absent, corrupt, DB error), `setActiveStepGoal` (valid steps from `STEP_GOAL_OPTIONS`, invalid steps throws `TypeError`, DB write error graceful) |
 | ✅ DONE  | `computeProgress` / `getTodayRecord` (`src/progress.js`) | Pure computation: zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard |
 | ✅ DONE  | `createProgressUI` (`src/progress-ui.js`)    | Render with data, render zero-state, idempotent re-render, goal preset click, custom apply click, validation error, DB error path |
 | ✅ DONE  | `createStreak` (`src/streak.js`)             | Unified streak, tier streaks, HoF, lifetime10k, compute orchestration, goal history integration |
 | ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime banner and streak card, fail-open zero-state |
-| ✅ DONE  | `resolveGoalForDate` / `buildEffectiveGoalHistory` (`src/goal-history.js`) | Goal-history walk, synthetic-history fallback, guard clauses |
+| ✅ DONE  | `_localDate` / `_addDaysUtc` (`src/date-utils.js`) | Timezone-safe date formatting, calendar arithmetic, zero-delta, negative-delta, month-boundary cases |
+| ✅ DONE  | `KM_TO_STEPS` (`src/units.js`)              | Pure constant module: exported value assertion, no side effects |
 | ✅ DONE  | `createCalendar` (`src/calendar.js`)         | `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `loadMonth`, `buildZeroState` |
 | ✅ DONE  | `createCalendarUI` (`src/calendar-ui.js`)    | Grid/summary/nav/drawer render, fail-open, idempotent re-render, drawer dismissal (close btn / overlay / Escape), focus restoration, override form mount, revert button, `data:records:mutated` dispatch |
 | ✅ DONE  | `createRecords` (`src/records.js`)           | `overrideRecord` — guard clauses (invalid steps/distance/note), Dexie put, immutability of original fields; `revertRecord` — missing original guard, field restoration (`src/records.test.js`) |

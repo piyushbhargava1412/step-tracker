@@ -3,8 +3,8 @@
 > Added: ST-005 — 2026-08-11 | Updated: ST-007a — 2026-08-12
 
 <!-- context-meta
-verification-commit: 5b8eb0c5d614769c18de8433d4ce0b29857eafdd
-generated-at: 2026-08-12T00:00:00Z
+verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
+generated-at: 2026-08-12T06:00:00Z
 confidence: high
 -->
 
