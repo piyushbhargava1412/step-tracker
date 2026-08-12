@@ -468,3 +468,100 @@ describe('computeChallengeMetrics', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// formatChallengeUpdate — pure copy-text formatter (Task 3)
+// ---------------------------------------------------------------------------
+import { formatChallengeUpdate } from './challenge.js';
+
+describe('formatChallengeUpdate', () => {
+  it('is a named module-level export', () => {
+    expect(typeof formatChallengeUpdate).toBe('function');
+  });
+
+  it('formats a representative update with all numbers locale-formatted', () => {
+    const metrics = {
+      yesterdaySteps: 9420,
+      cumulativeTotal: 84500,
+      elapsedDays: 9,
+      avgPace: 9388.888,
+    };
+    const result = formatChallengeUpdate(metrics, 'Team Sprint');
+    const expected =
+      '🚶 Team Sprint Update\n' +
+      '📅 Yesterday\'s Steps: 9,420\n' +
+      '📊 Cumulative Total: 84,500 steps (Day 9)\n' +
+      '📈 Average Pace: 9,389 steps/day\n';
+    expect(result).toBe(expected);
+  });
+
+  it('uses toLocaleString("en-US") for thousands grouping (9420 → "9,420")', () => {
+    const metrics = { yesterdaySteps: 9420, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result).toContain('9,420');
+  });
+
+  it('uses toLocaleString("en-US") for cumulative (84500 → "84,500")', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 84500, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result).toContain('84,500');
+  });
+
+  it('rounds avgPace to integer before formatting (9388.888 → 9,389)', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 9388.888 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result).toContain('9,389');
+  });
+
+  it('rounds avgPace down when fractional part < 0.5 (1234.4 → 1,234)', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 1234.4 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result).toContain('1,234 steps/day');
+  });
+
+  it('falls back to "Step Challenge" when name is null', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, null);
+    expect(result).toMatch(/^🚶 Step Challenge Update\n/);
+  });
+
+  it('falls back to "Step Challenge" when name is empty string', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, '');
+    expect(result).toMatch(/^🚶 Step Challenge Update\n/);
+  });
+
+  it('falls back to "Step Challenge" when name is undefined', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics);
+    expect(result).toMatch(/^🚶 Step Challenge Update\n/);
+  });
+
+  it('uses the provided name when non-empty', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, 'My Challenge');
+    expect(result).toMatch(/^🚶 My Challenge Update\n/);
+  });
+
+  it('output has exactly one trailing newline', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 1, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result.endsWith('\n')).toBe(true);
+    expect(result.endsWith('\n\n')).toBe(false);
+  });
+
+  it('includes elapsedDays in (Day N) portion', () => {
+    const metrics = { yesterdaySteps: 0, cumulativeTotal: 0, elapsedDays: 42, avgPace: 0 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    expect(result).toContain('(Day 42)');
+  });
+
+  it('output has exactly 4 lines (3 newlines internal + 1 trailing)', () => {
+    const metrics = { yesterdaySteps: 100, cumulativeTotal: 200, elapsedDays: 1, avgPace: 200 };
+    const result = formatChallengeUpdate(metrics, 'X');
+    const lines = result.split('\n');
+    // 4 content lines + 1 empty string from trailing newline = 5 items
+    expect(lines.length).toBe(5);
+    expect(lines[4]).toBe('');
+  });
+});

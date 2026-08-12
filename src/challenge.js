@@ -174,3 +174,33 @@ function _daysBetween(dateA, dateB) {
   const [by, bm, bd] = dateB.split('-').map(Number);
   return (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / MS_PER_DAY;
 }
+
+// ---------------------------------------------------------------------------
+// Copy-text formatter
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats a human-readable challenge update string suitable for sharing.
+ *
+ * Template (single trailing newline):
+ *   🚶 {name} Update
+ *   📅 Yesterday's Steps: {yesterday}
+ *   📊 Cumulative Total: {cumulative} steps (Day {elapsedDays})
+ *   📈 Average Pace: {avgPace} steps/day
+ *
+ * @param {{ yesterdaySteps: number, cumulativeTotal: number, elapsedDays: number, avgPace: number }} metrics
+ * @param {string|null|undefined} name - Challenge name; falls back to 'Step Challenge' when null/empty.
+ * @returns {string}
+ */
+export function formatChallengeUpdate(metrics, name) {
+  const displayName = (name && name.trim()) ? name : 'Step Challenge';
+  const { yesterdaySteps, cumulativeTotal, elapsedDays, avgPace } = metrics;
+  const fmt = n => Number(n).toLocaleString('en-US');
+  const avgPaceFormatted = fmt(Math.round(avgPace));
+  return (
+    `🚶 ${displayName} Update\n` +
+    `📅 Yesterday's Steps: ${fmt(yesterdaySteps)}\n` +
+    `📊 Cumulative Total: ${fmt(cumulativeTotal)} steps (Day ${elapsedDays})\n` +
+    `📈 Average Pace: ${avgPaceFormatted} steps/day\n`
+  );
+}
