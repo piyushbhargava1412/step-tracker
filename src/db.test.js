@@ -17,6 +17,10 @@ vi.mock('dexie', async () => {
       });
       this.open = vi.fn().mockResolvedValue(undefined);
       this.daily_records = { count: vi.fn().mockResolvedValue(0) };
+      // settings table stub — tests override delete/put per-case
+      this.settings = { delete: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined) };
+      // transaction stub: executes the callback immediately with db.settings
+      this.transaction = vi.fn().mockImplementation(async (_mode, _table, cb) => cb());
       MockDexie._lastInstance = this;
     }
   }
@@ -377,63 +381,60 @@ describe('createDb() — v4 version chain', () => {
   });
 });
 
-describe('createDb() — v4 upgrade handler', () => {
+// ─── Task 25: v4 upgrade atomicity ────────────────────────────────────────────
+
+describe('createDb() — v4 upgrade handler (atomic transaction)', () => {
   function getV4Handler(db) {
     return db.version.mock.results[2].value.upgrade.mock.calls[0][0];
   }
 
-  function makeV4Tx({ deleteRejects = false, putRejects = false } = {}) {
-    const deleteFn = deleteRejects
-      ? vi.fn().mockRejectedValue(new Error('delete failed'))
-      : vi.fn().mockResolvedValue(undefined);
-    const putFn = putRejects
-      ? vi.fn().mockRejectedValue(new Error('put failed'))
-      : vi.fn().mockResolvedValue(undefined);
-    const tx = {
-      table: (name) => {
-        if (name === 'settings') {
-          return { delete: deleteFn, put: putFn };
-        }
-        throw new Error(`unexpected table: ${name}`);
-      },
-    };
-    return { tx, deleteFn, putFn };
-  }
+  it('wraps delete+put in db.transaction called with "rw" mode', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const tx = {}; // v4 handler no longer uses tx directly
+    await handler(tx);
+    expect(db.transaction).toHaveBeenCalledWith('rw', db.settings, expect.any(Function));
+  });
+
+  it('wraps delete+put in db.transaction scoped to db.settings table', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    await handler({});
+    const [_mode, tableArg] = db.transaction.mock.calls[0];
+    expect(tableArg).toBe(db.settings);
+  });
 
   it('deletes settings["active_goal"] during upgrade', async () => {
     const db = createDb();
     const handler = getV4Handler(db);
-    const { tx, deleteFn } = makeV4Tx();
-    await handler(tx);
-    expect(deleteFn).toHaveBeenCalledWith('active_goal');
+    await handler({});
+    expect(db.settings.delete).toHaveBeenCalledWith('active_goal');
   });
 
   it('puts { key: "active_step_goal", target_steps: 10000 } during upgrade', async () => {
     const db = createDb();
     const handler = getV4Handler(db);
-    const { tx, putFn } = makeV4Tx();
-    await handler(tx);
-    expect(putFn).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
+    await handler({});
+    expect(db.settings.put).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
   });
 
   it('written row contains no effective_from / valid_from / date-scoping key', async () => {
     const db = createDb();
     const handler = getV4Handler(db);
-    const { tx, putFn } = makeV4Tx();
-    await handler(tx);
-    const written = putFn.mock.calls[0][0];
+    await handler({});
+    const written = db.settings.put.mock.calls[0][0];
     expect(written).not.toHaveProperty('effective_from');
     expect(written).not.toHaveProperty('valid_from');
     expect(Object.keys(written)).toEqual(['key', 'target_steps']);
   });
 
-  it('catches a throwing tx.table() and logs [db] without rethrowing', async () => {
+  it('catches a rejecting transaction and logs [db] without rethrowing', async () => {
     const db = createDb();
     const handler = getV4Handler(db);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const error = new Error('table boom');
-    const tx = { table: () => { throw error; } };
-    await expect(handler(tx)).resolves.toBeUndefined();
+    const error = new Error('transaction failed');
+    db.transaction.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
     expect(spy).toHaveBeenCalledWith('[db]', error);
   });
 
@@ -442,8 +443,8 @@ describe('createDb() — v4 upgrade handler', () => {
     const handler = getV4Handler(db);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const error = new Error('delete failed');
-    const tx = { table: () => ({ delete: vi.fn().mockRejectedValue(error), put: vi.fn() }) };
-    await expect(handler(tx)).resolves.toBeUndefined();
+    db.settings.delete.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
     expect(spy).toHaveBeenCalledWith('[db]', error);
   });
 
@@ -452,21 +453,19 @@ describe('createDb() — v4 upgrade handler', () => {
     const handler = getV4Handler(db);
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const error = new Error('put failed');
-    const tx = { table: () => ({ delete: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockRejectedValue(error) }) };
-    await expect(handler(tx)).resolves.toBeUndefined();
+    db.settings.put.mockRejectedValueOnce(error);
+    await expect(handler({})).resolves.toBeUndefined();
     expect(spy).toHaveBeenCalledWith('[db]', error);
   });
 
   it('running the upgrade twice yields the same end state (idempotent)', async () => {
     const db = createDb();
     const handler = getV4Handler(db);
-    const { tx, deleteFn, putFn } = makeV4Tx();
-    await handler(tx);
-    await handler(tx);
-    // Both calls must have completed; final state is the same
-    expect(deleteFn).toHaveBeenCalledTimes(2);
-    expect(deleteFn).toHaveBeenCalledWith('active_goal');
-    expect(putFn).toHaveBeenCalledTimes(2);
-    expect(putFn).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
+    await handler({});
+    await handler({});
+    expect(db.settings.delete).toHaveBeenCalledTimes(2);
+    expect(db.settings.delete).toHaveBeenCalledWith('active_goal');
+    expect(db.settings.put).toHaveBeenCalledTimes(2);
+    expect(db.settings.put).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
   });
 });

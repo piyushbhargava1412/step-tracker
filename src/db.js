@@ -74,17 +74,20 @@ export function createDb() {
 
   // v4: drop goal_history table; seed active_step_goal in settings
   // The legacy km goal is NOT converted — reset to 10000 (SF-3 Option A, owner-confirmed).
+  // The delete+put pair is wrapped in a table-scoped transaction to make the operation atomic:
+  // a process kill between delete and put would otherwise silently discard the prior goal.
   db.version(4)
     .stores({
       daily_records: DAILY_RECORDS_STORES,
       settings: SETTINGS_STORES,
       goal_history: null, // drop the table
     })
-    .upgrade(async (tx) => {
+    .upgrade(async (_tx) => {
       try {
-        const settings = tx.table('settings');
-        await settings.delete('active_goal');
-        await settings.put({ key: 'active_step_goal', target_steps: 10000 });
+        await db.transaction('rw', db.settings, async () => {
+          await db.settings.delete('active_goal');
+          await db.settings.put({ key: 'active_step_goal', target_steps: 10000 });
+        });
       } catch (err) {
         // Never rethrow — a throwing upgrade blocks db.open()
         console.error('[db]', err);
