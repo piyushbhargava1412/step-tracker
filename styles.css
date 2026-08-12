@@ -451,47 +451,15 @@ button:hover {
     flex-wrap: wrap;
 }
 
-.goal-preset {
-    background: rgba(16, 185, 129, 0.1);
-    color: var(--accent-emerald);
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-    margin: 0;
-}
-
-.goal-preset:hover {
-    background: rgba(16, 185, 129, 0.25);
-    color: var(--accent-emerald);
-    border-color: var(--accent-emerald);
-}
-
-.goal-input {
+.goal-select {
     background: var(--bg-card);
     border: 1px solid var(--bg-card-border);
-    color: var(--text-muted);
-    padding: 6px 10px;
+    color: var(--text-primary);
     border-radius: 6px;
+    padding: 6px 10px;
     font-size: 0.9rem;
 }
 
-.goal-apply {
-    background: var(--accent-emerald);
-    color: #ffffff;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-    margin: 0;
-}
-
-.goal-apply:hover {
-    background: #059669;
-    color: #ffffff;
-}
 
 /* ─── ST-004 Streak Card & Lifetime Banner ────────────────────────────────── */
 
@@ -517,10 +485,7 @@ button:hover {
     color: var(--text-muted);
 }
 
-.lock-badge {
-    color: var(--accent-amber);
-    font-family: var(--font-mono);
-}
+
 
 .tier-badges {
     display: flex;
@@ -964,4 +929,92 @@ button:hover {
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
+}
+
+/* ─── ST-007a Tolerance Metrics, Hall of Fame, Near-Miss Panel ──────────────── */
+
+/* Tolerance streak metrics block */
+.tolerance-metrics {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.tolerance-metric {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    flex: 1;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Hall of Fame block */
+.hall-of-fame {
+    margin-top: 16px;
+    border-top: 1px solid var(--bg-card-border);
+    padding-top: 12px;
+}
+
+.hof-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.hof-entry {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--bg-card-border);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.hof-entry:last-child {
+    border-bottom: none;
+}
+
+.hof-rank {
+    color: var(--accent-amber);
+    font-weight: 700;
+    min-width: 24px;
+}
+
+.hof-days {
+    color: var(--accent-emerald);
+    font-weight: 700;
+}
+
+.hof-range {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    flex: 1;
+}
+
+.hof-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+    padding: 4px 0;
+}
+
+/* Near-miss panel — Search Lab */
+.near-miss-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
 }
