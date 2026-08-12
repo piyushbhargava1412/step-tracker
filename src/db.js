@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import { _localDate } from './date-utils.js';
 
 export const DB_NAME = 'StepTrackerDB';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 const DAILY_RECORDS_STORES = 'date,effective_steps,effective_distance_km,is_overridden,synced_at';
 const SETTINGS_STORES = 'key';
@@ -41,7 +41,7 @@ export function createDb() {
     });
 
   // v3: backfill effective_* / is_overridden / override for legacy daily_records rows
-  db.version(DB_VERSION)
+  db.version(3)
     .stores({
       daily_records: DAILY_RECORDS_STORES,
       settings: SETTINGS_STORES,
@@ -66,6 +66,25 @@ export function createDb() {
             override: null,
           });
         });
+      } catch (err) {
+        // Never rethrow — a throwing upgrade blocks db.open()
+        console.error('[db]', err);
+      }
+    });
+
+  // v4: drop goal_history table; seed active_step_goal in settings
+  // The legacy km goal is NOT converted — reset to 10000 (SF-3 Option A, owner-confirmed).
+  db.version(4)
+    .stores({
+      daily_records: DAILY_RECORDS_STORES,
+      settings: SETTINGS_STORES,
+      goal_history: null, // drop the table
+    })
+    .upgrade(async (tx) => {
+      try {
+        const settings = tx.table('settings');
+        await settings.delete('active_goal');
+        await settings.put({ key: 'active_step_goal', target_steps: 10000 });
       } catch (err) {
         // Never rethrow — a throwing upgrade blocks db.open()
         console.error('[db]', err);

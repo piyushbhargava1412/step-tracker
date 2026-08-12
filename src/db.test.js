@@ -46,8 +46,8 @@ describe('DB constants', () => {
   it('DB_NAME equals StepTrackerDB', () => {
     expect(DB_NAME).toBe('StepTrackerDB');
   });
-  it('DB_VERSION equals 3', () => {
-    expect(DB_VERSION).toBe(3);
+  it('DB_VERSION equals 4', () => {
+    expect(DB_VERSION).toBe(4);
   });
 });
 
@@ -335,5 +335,138 @@ describe('initDB() - edge case', () => {
     const reporter = makeReporter();
     await expect(initDB(db, reporter)).resolves.toBeUndefined();
     expect(reporter.db).toHaveBeenCalled();
+  });
+});
+
+// ─── Task 18: Dexie v4 migration ─────────────────────────────────────────────
+
+describe('DB constants — v4', () => {
+  it('DB_VERSION equals 4', () => {
+    expect(DB_VERSION).toBe(4);
+  });
+});
+
+describe('createDb() — v4 version chain', () => {
+  it('calls version(4) in addition to v2 and v3', async () => {
+    const db = createDb();
+    const calls = db.version.mock.calls.map(([v]) => v);
+    expect(calls).toContain(4);
+  });
+
+  it('v4 .stores() passes goal_history: null (table-drop directive)', async () => {
+    const db = createDb();
+    // version() is called: v2 at index 0, v3 at index 1, v4 at index 2
+    const v4Chain = db.version.mock.results[2].value;
+    expect(v4Chain.stores).toHaveBeenCalledWith(
+      expect.objectContaining({ goal_history: null })
+    );
+  });
+
+  it('v4 DAILY_RECORDS_STORES is byte-identical to v3', async () => {
+    const db = createDb();
+    const v3Arg = db.version.mock.results[1].value.stores.mock.calls[0][0].daily_records;
+    const v4Arg = db.version.mock.results[2].value.stores.mock.calls[0][0].daily_records;
+    expect(v4Arg).toBe(v3Arg);
+  });
+
+  it('v4 registers an upgrade function', async () => {
+    const db = createDb();
+    const v4Upgrade = db.version.mock.results[2].value.upgrade;
+    expect(v4Upgrade).toHaveBeenCalled();
+    expect(typeof v4Upgrade.mock.calls[0][0]).toBe('function');
+  });
+});
+
+describe('createDb() — v4 upgrade handler', () => {
+  function getV4Handler(db) {
+    return db.version.mock.results[2].value.upgrade.mock.calls[0][0];
+  }
+
+  function makeV4Tx({ deleteRejects = false, putRejects = false } = {}) {
+    const deleteFn = deleteRejects
+      ? vi.fn().mockRejectedValue(new Error('delete failed'))
+      : vi.fn().mockResolvedValue(undefined);
+    const putFn = putRejects
+      ? vi.fn().mockRejectedValue(new Error('put failed'))
+      : vi.fn().mockResolvedValue(undefined);
+    const tx = {
+      table: (name) => {
+        if (name === 'settings') {
+          return { delete: deleteFn, put: putFn };
+        }
+        throw new Error(`unexpected table: ${name}`);
+      },
+    };
+    return { tx, deleteFn, putFn };
+  }
+
+  it('deletes settings["active_goal"] during upgrade', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const { tx, deleteFn } = makeV4Tx();
+    await handler(tx);
+    expect(deleteFn).toHaveBeenCalledWith('active_goal');
+  });
+
+  it('puts { key: "active_step_goal", target_steps: 10000 } during upgrade', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const { tx, putFn } = makeV4Tx();
+    await handler(tx);
+    expect(putFn).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
+  });
+
+  it('written row contains no effective_from / valid_from / date-scoping key', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const { tx, putFn } = makeV4Tx();
+    await handler(tx);
+    const written = putFn.mock.calls[0][0];
+    expect(written).not.toHaveProperty('effective_from');
+    expect(written).not.toHaveProperty('valid_from');
+    expect(Object.keys(written)).toEqual(['key', 'target_steps']);
+  });
+
+  it('catches a throwing tx.table() and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('table boom');
+    const tx = { table: () => { throw error; } };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('catches a rejecting settings.delete() and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('delete failed');
+    const tx = { table: () => ({ delete: vi.fn().mockRejectedValue(error), put: vi.fn() }) };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('catches a rejecting settings.put() and logs [db] without rethrowing', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('put failed');
+    const tx = { table: () => ({ delete: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockRejectedValue(error) }) };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('running the upgrade twice yields the same end state (idempotent)', async () => {
+    const db = createDb();
+    const handler = getV4Handler(db);
+    const { tx, deleteFn, putFn } = makeV4Tx();
+    await handler(tx);
+    await handler(tx);
+    // Both calls must have completed; final state is the same
+    expect(deleteFn).toHaveBeenCalledTimes(2);
+    expect(deleteFn).toHaveBeenCalledWith('active_goal');
+    expect(putFn).toHaveBeenCalledTimes(2);
+    expect(putFn).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
   });
 });
