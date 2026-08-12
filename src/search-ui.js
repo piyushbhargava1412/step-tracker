@@ -37,6 +37,12 @@ export function createSearchUI(doc, search, exporter, reporter) {
 
   async function _handleExecute(panel) {
     const filters = _readFilters(panel);
+
+    // Warn when outcome filter is set but no step target provided
+    if (filters.targetOutcome && filters.targetOutcome !== 'all' && !Number.isFinite(filters.stepTarget)) {
+      reporter.db('⚠️ Enter a step target to filter by outcome');
+    }
+
     try {
       const result = await search.executeQuery(filters);
       currentRecords = result.records;
@@ -84,9 +90,9 @@ export function createSearchUI(doc, search, exporter, reporter) {
       } else if (field === 'max-steps') {
         const n = Number(val);
         if (Number.isFinite(n)) filters.maxSteps = n;
-      } else if (field === 'min-distance') {
+      } else if (field === 'step-target') {
         const n = Number(val);
-        if (Number.isFinite(n)) filters.minDistance = n;
+        if (Number.isFinite(n) && n > 0) filters.stepTarget = n;
       } else if (field === 'override-status' && val !== 'all') {
         filters.overrideStatus = val;
       } else if (field === 'target-outcome' && val !== 'all') {
@@ -163,7 +169,7 @@ export function createSearchUI(doc, search, exporter, reporter) {
       { field: 'end-date', label: 'End Date', type: 'date' },
       { field: 'min-steps', label: 'Min Steps', type: 'number' },
       { field: 'max-steps', label: 'Max Steps', type: 'number' },
-      { field: 'min-distance', label: 'Min Distance (km)', type: 'number' },
+      { field: 'step-target', label: 'Step Target', type: 'number' },
     ];
 
     for (const def of fieldDefs) {

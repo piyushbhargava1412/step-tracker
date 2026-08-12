@@ -55,7 +55,7 @@ describe('createSearchUI — render skeleton', () => {
     expect(fields).toContain('end-date');
     expect(fields).toContain('min-steps');
     expect(fields).toContain('max-steps');
-    expect(fields).toContain('min-distance');
+    expect(fields).not.toContain('min-distance');
     expect(fields).toContain('override-status');
     expect(fields).toContain('target-outcome');
     expect(fields.length).toBe(7);
@@ -478,5 +478,96 @@ describe('createSearchUI — stale data guard after query error', () => {
     await clickAction(doc, 'execute');
     await clickAction(doc, 'export-json');
     expect(exporter.exportJson).not.toHaveBeenCalled();
+  });
+});
+
+describe('Task 14 — remove min-distance, add step-target', () => {
+  async function clickAction(doc, action) {
+    const btn = doc.querySelector(`[data-action="${action}"]`);
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('field list does NOT contain min-distance', () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    render();
+    const fields = Array.from(doc.querySelectorAll('[data-field]')).map(el => el.dataset.field);
+    expect(fields).not.toContain('min-distance');
+  });
+
+  it('field list contains step-target', () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    render();
+    const fields = Array.from(doc.querySelectorAll('[data-field]')).map(el => el.dataset.field);
+    expect(fields).toContain('step-target');
+  });
+
+  it('rendered panel exposes exactly 7 [data-field] controls', () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    render();
+    const fields = doc.querySelectorAll('[data-field]');
+    expect(fields.length).toBe(7);
+  });
+
+  it('entering 5000 in step-target calls executeQuery with filters.stepTarget === 5000 (number) and no minDistance key', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+    const filters = search.executeQuery.mock.calls[0][0];
+    expect(filters.stepTarget).toBe(5000);
+    expect(filters).not.toHaveProperty('minDistance');
+  });
+
+  it('targetOutcome=met with empty step-target shows warning status AND still invokes executeQuery', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
+    const reporter = makeMockReporter();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), reporter);
+    render();
+    const outcomeSelect = doc.querySelector('[data-field="target-outcome"]');
+    outcomeSelect.value = 'met';
+    // step-target intentionally left empty
+    await clickAction(doc, 'execute');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Enter a step target to filter by outcome');
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('Cumulative Distance summary cell is still rendered', () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    render();
+    const summaryLabels = Array.from(doc.querySelectorAll('.summary-cell span:first-child')).map(s => s.textContent);
+    expect(summaryLabels).toContain('Cumulative Distance');
+  });
+
+  it('effective-distance result column is still rendered per record', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const record = { date: '2026-01-15', effective_steps: 8000, effective_distance_km: 6.5, is_overridden: false, override: null };
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], preFilterSet: [{}] });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+    await clickAction(doc, 'execute');
+    const distCell = doc.querySelector('[data-cell="effective-distance"]');
+    expect(distCell).not.toBeNull();
+    expect(distCell.textContent).toBe('6.5');
+  });
+
+  it('Reset clears step-target along with every other field', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '7500';
+    await clickAction(doc, 'reset');
+    expect(doc.querySelector('[data-field="step-target"]').value).toBe('');
   });
 });
