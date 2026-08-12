@@ -1,4 +1,4 @@
-export function createSearchUI(doc, search, exporter, reporter) {
+export function createSearchUI(doc, search, exporter, reporter, computeNearMisses) {
   let controller = null;
   let currentRecords = null;
 
@@ -22,6 +22,7 @@ export function createSearchUI(doc, search, exporter, reporter) {
     panel.appendChild(_buildFilters());
     panel.appendChild(_buildResultsGrid());
     panel.appendChild(_buildSummary());
+    panel.appendChild(_buildNearMissPanel());
     panel.appendChild(_buildExportControls());
 
     panel.addEventListener('click', async (event) => {
@@ -49,11 +50,20 @@ export function createSearchUI(doc, search, exporter, reporter) {
       _renderGrid(panel, result.records);
       const summary = search.computeResultSummary(result.records, result.preFilterSet);
       _renderSummary(panel, summary);
+
+      // Near-miss panel: computed over preFilterSet, not result.records
+      if (typeof computeNearMisses === 'function' && Number.isFinite(filters.stepTarget)) {
+        const nearMisses = computeNearMisses(result.preFilterSet, filters.stepTarget);
+        _renderNearMissPanel(panel, nearMisses);
+      } else {
+        _renderNearMissPanel(panel, { count: 0, days: [] });
+      }
     } catch (err) {
       currentRecords = null;
       console.error('[search]', err);
       reporter.db('❌ Search query failed');
       _renderGrid(panel, []);
+      _renderNearMissPanel(panel, { count: 0, days: [] });
     }
   }
 
@@ -64,6 +74,7 @@ export function createSearchUI(doc, search, exporter, reporter) {
     });
     _renderGrid(panel, []);
     _renderSummary(panel, { count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
+    _renderNearMissPanel(panel, { count: 0, days: [] });
   }
 
   function _handleExportCsv() {
@@ -157,6 +168,63 @@ export function createSearchUI(doc, search, exporter, reporter) {
       div.appendChild(labelSpan);
       div.appendChild(valueSpan);
       summaryEl.appendChild(div);
+    }
+  }
+
+  function _buildNearMissPanel() {
+    const panel = doc.createElement('div');
+    panel.className = 'card near-miss-panel';
+
+    const header = doc.createElement('div');
+    header.className = 'near-miss-header';
+    header.textContent = 'Near Misses: 0';
+    panel.appendChild(header);
+
+    const emptyEl = doc.createElement('div');
+    emptyEl.className = 'near-miss-empty';
+    emptyEl.textContent = 'No near-miss days';
+    panel.appendChild(emptyEl);
+
+    return panel;
+  }
+
+  function _renderNearMissPanel(panel, nearMisses) {
+    const nmPanel = panel.querySelector('.near-miss-panel');
+    while (nmPanel.firstChild) nmPanel.removeChild(nmPanel.firstChild);
+
+    const header = doc.createElement('div');
+    header.className = 'near-miss-header';
+    header.textContent = `Near Misses: ${nearMisses.count}`;
+    nmPanel.appendChild(header);
+
+    if (!nearMisses.days || nearMisses.days.length === 0) {
+      const emptyEl = doc.createElement('div');
+      emptyEl.className = 'near-miss-empty';
+      emptyEl.textContent = 'No near-miss days';
+      nmPanel.appendChild(emptyEl);
+      return;
+    }
+
+    for (const day of nearMisses.days) {
+      const row = doc.createElement('div');
+      row.className = 'near-miss-row';
+
+      const dateCell = doc.createElement('span');
+      dateCell.dataset.cell = 'nm-date';
+      dateCell.textContent = day.date;
+      row.appendChild(dateCell);
+
+      const stepsCell = doc.createElement('span');
+      stepsCell.dataset.cell = 'nm-steps';
+      stepsCell.textContent = String(day.effective_steps);
+      row.appendChild(stepsCell);
+
+      const shortfallCell = doc.createElement('span');
+      shortfallCell.dataset.cell = 'nm-shortfall';
+      shortfallCell.textContent = String(day.shortfall);
+      row.appendChild(shortfallCell);
+
+      nmPanel.appendChild(row);
     }
   }
 

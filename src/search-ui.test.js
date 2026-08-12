@@ -571,3 +571,126 @@ describe('Task 14 — remove min-distance, add step-target', () => {
     expect(doc.querySelector('[data-field="step-target"]').value).toBe('');
   });
 });
+
+describe('Task 15 — Near-Miss panel', () => {
+  async function clickAction(doc, action) {
+    const btn = doc.querySelector(`[data-action="${action}"]`);
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  function makeRecord(overrides = {}) {
+    return {
+      date: '2026-01-15',
+      effective_steps: 8000,
+      effective_distance_km: 6.5,
+      is_overridden: false,
+      override: null,
+      ...overrides,
+    };
+  }
+
+  it('computeNearMisses is invoked with result.preFilterSet (not result.records)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    const preFilterSet = [makeRecord({ date: '2026-01-10', effective_steps: 9500 })];
+    const records = [];
+    search.executeQuery = vi.fn().mockResolvedValue({ records, preFilterSet });
+    const nearMissesSpy = vi.fn().mockReturnValue({ count: 0, days: [] });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), nearMissesSpy);
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '10000';
+    await clickAction(doc, 'execute');
+    expect(nearMissesSpy).toHaveBeenCalledWith(preFilterSet, 10000);
+    expect(nearMissesSpy).not.toHaveBeenCalledWith(records, expect.anything());
+  });
+
+  it('2-near-miss-day fixture renders 2 rows with correct date/steps/shortfall and count in header', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
+    const nearMisses = {
+      count: 2,
+      days: [
+        { date: '2026-01-15', effective_steps: 9500, shortfall: 500 },
+        { date: '2026-01-14', effective_steps: 9100, shortfall: 900 },
+      ],
+    };
+    const nearMissesSpy = vi.fn().mockReturnValue(nearMisses);
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), nearMissesSpy);
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '10000';
+    await clickAction(doc, 'execute');
+    const panel = doc.querySelector('.near-miss-panel');
+    expect(panel).not.toBeNull();
+    // Header should mention the count
+    const header = panel.querySelector('.near-miss-header');
+    expect(header).not.toBeNull();
+    expect(header.textContent).toContain('2');
+    // 2 rows
+    const rows = panel.querySelectorAll('.near-miss-row');
+    expect(rows.length).toBe(2);
+    // First row
+    expect(rows[0].querySelector('[data-cell="nm-date"]').textContent).toBe('2026-01-15');
+    expect(rows[0].querySelector('[data-cell="nm-steps"]').textContent).toContain('9500');
+    expect(rows[0].querySelector('[data-cell="nm-shortfall"]').textContent).toContain('500');
+  });
+
+  it('no stepTarget → panel renders empty state and query still succeeds', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
+    const nearMissesSpy = vi.fn().mockReturnValue({ count: 0, days: [] });
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), nearMissesSpy);
+    render();
+    // step-target intentionally left blank
+    await clickAction(doc, 'execute');
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+    const panel = doc.querySelector('.near-miss-panel');
+    expect(panel).not.toBeNull();
+    const empty = panel.querySelector('.near-miss-empty');
+    expect(empty).not.toBeNull();
+    expect(panel.querySelectorAll('.near-miss-row').length).toBe(0);
+  });
+
+  it('Reset returns the near-miss panel to its empty state', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [], preFilterSet: [] });
+    const nearMisses = { count: 1, days: [{ date: '2026-01-10', effective_steps: 9000, shortfall: 1000 }] };
+    const nearMissesSpy = vi.fn().mockReturnValue(nearMisses);
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), nearMissesSpy);
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '10000';
+    await clickAction(doc, 'execute');
+    expect(doc.querySelector('.near-miss-panel .near-miss-row')).not.toBeNull();
+    await clickAction(doc, 'reset');
+    const panel = doc.querySelector('.near-miss-panel');
+    expect(panel).not.toBeNull();
+    expect(panel.querySelectorAll('.near-miss-row').length).toBe(0);
+    expect(panel.querySelector('.near-miss-empty')).not.toBeNull();
+  });
+
+  it('executeQuery rejection → ❌ Search query failed and panel stays empty (no stale rows)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockRejectedValue(new Error('fail'));
+    const nearMissesSpy = vi.fn().mockReturnValue({ count: 2, days: [{ date: '2026-01-01', effective_steps: 9000, shortfall: 1000 }] });
+    const reporter = makeMockReporter();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), reporter, nearMissesSpy);
+    render();
+    doc.querySelector('[data-field="step-target"]').value = '10000';
+    await clickAction(doc, 'execute');
+    expect(reporter.db).toHaveBeenCalledWith('❌ Search query failed');
+    // nearMissesSpy should NOT have been called since executeQuery threw
+    expect(nearMissesSpy).not.toHaveBeenCalled();
+    const panel = doc.querySelector('.near-miss-panel');
+    expect(panel).not.toBeNull();
+    expect(panel.querySelectorAll('.near-miss-row').length).toBe(0);
+    expect(panel.querySelector('.near-miss-empty')).not.toBeNull();
+  });
+
+  it('no innerHTML in search-ui.js source (extended check covers near-miss panel)', () => {
+    expect(searchUiSource).not.toMatch(/innerHTML/);
+  });
+});
