@@ -284,7 +284,26 @@ button:hover {
     border: 1px solid var(--accent-emerald);
     border-radius: 20px;
     padding: 3px 12px;
-    animation: fade-in 0.15s ease;
+    animation: copied-badge-lifecycle 2s ease forwards;
+}
+
+@keyframes copied-badge-lifecycle {
+    0% {
+        opacity: 0;
+        transform: translateY(3px);
+    }
+    8% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    88% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-3px);
+    }
 }
 
 

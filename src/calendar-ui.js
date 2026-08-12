@@ -17,9 +17,10 @@ import { computeCommitmentHitRate } from './calendar.js';
  * @param {{ overrideRecord: Function, revertRecord: Function }} [records] — injected override capability
  * @param {Function} [processImage] — injected image processor
  * @param {{ render: Function }} [monthOverview] — reusable month overview renderer
+ * @param {Function} [confirmFn] — injected confirmation dialog (defaults to window.confirm)
  * @returns {{ render: Function }}
  */
-export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview) {
+export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview, confirmFn = window.confirm) {
   // Selected month (0-based), defaults to current local month (SF-9)
   let state = { year: new Date().getFullYear(), month: new Date().getMonth() };
   let controller = null;
@@ -411,7 +412,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         revertBtn.dataset.action = 'revert-day';
         revertBtn.textContent = 'Revert to Synced';
         revertBtn.addEventListener('click', async () => {
-          const confirmed = window.confirm('Are you sure you want to revert to the original synced values? This will undo your manual override.');
+          const confirmed = confirmFn('Are you sure you want to revert to the original synced values? This will undo your manual override.');
           if (!confirmed) return;
           try {
             await records.revertRecord(day.date);

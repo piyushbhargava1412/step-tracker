@@ -408,7 +408,7 @@ describe('computeTierStreaks — zero-state and guards', () => {
     });
   });
 
-  // Task 23: fresh-object contract — ZERO_TIER_STREAKS must not be shared
+  // Task 23: fresh-object contract — _zeroTierStreaks() must not be shared
   it('returns distinct array references on successive guard-path calls (Task 23)', () => {
     const r1 = computeTierStreaks([], '2026-08-10');
     const r2 = computeTierStreaks([], '2026-08-10');

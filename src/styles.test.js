@@ -642,3 +642,27 @@ describe('styles.css — ST-007a new selectors (Task 16)', () => {
     expect(/button\s*{[^}]*#ff4757/.test(cssContent)).toBe(true);
   });
 });
+
+describe('styles.css — ST-006b challenge widget copied-badge animation', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('.copied-badge animation references a defined @keyframes rule', () => {
+    const animationName = cssContent.match(/\.copied-badge\s*{[^}]*animation:\s*([a-z-]+)/);
+    expect(animationName).not.toBeNull();
+    const name = animationName[1];
+    expect(cssContent).toMatch(new RegExp(`@keyframes\\s+${name}\\s*{`));
+  });
+
+  it('.copied-badge animation includes a fade-out phase (opacity falls back to 0)', () => {
+    const name = cssContent.match(/\.copied-badge\s*{[^}]*animation:\s*([a-z-]+)/)?.[1];
+    const keyframes = cssContent.match(new RegExp(`@keyframes\\s+${name}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+    const opacityValues = [...keyframes.matchAll(/opacity:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
+    expect(opacityValues.length).toBeGreaterThan(0);
+    expect(Math.min(...opacityValues)).toBe(0);
+  });
+});

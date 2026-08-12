@@ -19,17 +19,6 @@ afterEach(() => {
 });
 
 describe('createExporter — serialisers', () => {
-  // --- Constants ---
-  it('CSV_HEADERS has the exact value', () => {
-    expect(CSV_HEADERS).toBe(
-      'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note'
-    );
-  });
-
-  it('EXPORT_FILENAME_PREFIX has the exact value', () => {
-    expect(EXPORT_FILENAME_PREFIX).toBe('step-tracker-export-');
-  });
-
   // --- _toExportRow ---
   it('maps all 7 fields with exact header casing for overridden record', () => {
     const record = {
@@ -138,7 +127,7 @@ describe('createExporter — serialisers', () => {
   });
 
   // --- _toCsv ---
-  it('_toCsv first line equals CSV_HEADERS verbatim', () => {
+  it('_toCsv first line is the exact export header', () => {
     const record = {
       date: '2026-01-15',
       original_steps: 8000,
@@ -149,7 +138,9 @@ describe('createExporter — serialisers', () => {
       override: null,
     };
     const output = _toCsv([record]);
-    expect(output.split('\r\n')[0]).toBe(CSV_HEADERS);
+    expect(output.split('\r\n')[0]).toBe(
+      'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note'
+    );
   });
 
   it('_toCsv with 2 records → 3 lines (header + 2 rows)', () => {
@@ -332,7 +323,7 @@ describe('createExporter — _triggerDownload / exportCsv / exportJson', () => {
     const { exportCsv } = createExporter(doc);
     exportCsv(SAMPLE_RECORDS);
     const expectedDate = _localDate();
-    expect(anchorSpy.download).toBe(`${EXPORT_FILENAME_PREFIX}${expectedDate}.csv`);
+    expect(anchorSpy.download).toBe(`step-tracker-export-${expectedDate}.csv`);
   });
 
   it('exportCsv: anchor.href is the objectURL returned by createObjectURL', () => {
