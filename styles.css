@@ -230,10 +230,67 @@ button:hover {
 .dashboard-panel #goal-selector {
     grid-row: 3;
 }
+.dashboard-panel #challenge-card {
+    grid-column: 1 / -1;
+    grid-row: 4;
+}
+
+/* ─── Challenge widget sub-elements ─────────────────────────────────────── */
+.challenge-config-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 12px;
+}
+
+.challenge-config-header label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.challenge-config-header input[type='text'],
+.challenge-config-header input[type='date'] {
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 6px 10px;
+}
+
+.challenge-finished-badge {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent-emerald);
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid var(--accent-emerald);
+    border-radius: 20px;
+    padding: 2px 10px;
+    letter-spacing: 0.4px;
+}
+
+.copied-badge {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent-emerald);
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid var(--accent-emerald);
+    border-radius: 20px;
+    padding: 3px 12px;
+    animation: fade-in 0.15s ease;
+}
+
 
 .dashboard-panel #month-overview-card {
     grid-column: 1 / -1;
-    grid-row: 4;
+    grid-row: 5;
     width: 100%;
 }
 
