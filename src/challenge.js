@@ -94,3 +94,83 @@ export function createChallenge(db) {
 
   return { getActiveChallenge, setActiveChallenge };
 }
+
+// ---------------------------------------------------------------------------
+// Pure metric helpers
+// ---------------------------------------------------------------------------
+
+import { _localDate, _addDaysUtc } from './date-utils.js';
+
+/**
+ * Computes the four challenge metrics from a challenge object and a set of
+ * daily records. Pure — no DOM, no Dexie. Records are passed by the caller.
+ *
+ * Mirrors `computeNearMisses` in search.js as a module-level export.
+ *
+ * @param {{ start_date: string, end_date: string }} challenge
+ * @param {Array<{ date: string, effective_steps: number }>} records
+ * @returns {{
+ *   yesterdaySteps: number,
+ *   cumulativeTotal: number,
+ *   elapsedDays: number,
+ *   totalDays: number,
+ *   avgPace: number,
+ *   completed: boolean,
+ * }}
+ */
+export function computeChallengeMetrics(challenge, records) {
+  const today = _localDate();
+  const yesterday = _addDaysUtc(today, -1);
+  const { start_date, end_date } = challenge;
+
+  // SF-1 decision A: completed = end_date strictly before today
+  const completed = end_date < today;
+
+  // Cumulative date range boundary (inclusive on both ends)
+  const rangeEnd = completed ? end_date : yesterday;
+
+  // Yesterday's Steps: always today-1, regardless of completion state (SF-1)
+  const yesterdayRecord = records.find(r => r.date === yesterday);
+  const yesterdaySteps = yesterdayRecord ? yesterdayRecord.effective_steps : 0;
+
+  // Cumulative Total: records within [start_date, rangeEnd]
+  let cumulativeTotal = 0;
+  for (const r of records) {
+    if (r.date >= start_date && r.date <= rangeEnd) {
+      cumulativeTotal += r.effective_steps;
+    }
+  }
+
+  // Elapsed-day counter
+  // Active: (yesterday - start_date) + 1, floored at 0
+  // Completed: full duration
+  let elapsedDays;
+  if (completed) {
+    elapsedDays = _daysBetween(start_date, end_date) + 1;
+  } else {
+    const raw = _daysBetween(start_date, yesterday) + 1;
+    elapsedDays = Math.max(0, raw);
+  }
+
+  // Total duration M for "Day N of M" label
+  const totalDays = _daysBetween(start_date, end_date) + 1;
+
+  // Average pace — guarded against divide-by-zero
+  const avgPace = elapsedDays === 0 ? 0 : cumulativeTotal / elapsedDays;
+
+  return { yesterdaySteps, cumulativeTotal, elapsedDays, totalDays, avgPace, completed };
+}
+
+/**
+ * Returns the number of calendar days between two YYYY-MM-DD strings.
+ * Result is negative when dateA > dateB.
+ * @param {string} dateA
+ * @param {string} dateB
+ * @returns {number}
+ */
+function _daysBetween(dateA, dateB) {
+  const MS_PER_DAY = 86_400_000;
+  const [ay, am, ad] = dateA.split('-').map(Number);
+  const [by, bm, bd] = dateB.split('-').map(Number);
+  return (Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / MS_PER_DAY;
+}

@@ -257,3 +257,214 @@ describe('createChallenge', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// computeChallengeMetrics — module-level pure export
+// ---------------------------------------------------------------------------
+import { computeChallengeMetrics } from './challenge.js';
+import { _localDate, _addDaysUtc } from './date-utils.js';
+
+describe('computeChallengeMetrics', () => {
+  // Verify it is a module-level export, not closure-nested
+  it('is a named module-level export (not closure-nested)', () => {
+    expect(typeof computeChallengeMetrics).toBe('function');
+  });
+
+  // Helper: build a record
+  function rec(date, steps) {
+    return { date, effective_steps: steps };
+  }
+
+  // Fix "today" to a known date so tests are deterministic
+  // We'll use vi.setSystemTime to freeze time
+  beforeEach(() => {
+    // Freeze to 2026-08-12 (a Wednesday)
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-12T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // today = '2026-08-12', yesterday = '2026-08-11'
+
+  describe('active challenge (end_date >= today)', () => {
+    // Challenge: 2026-08-01 to 2026-08-31 (active, since end_date=2026-08-31 >= 2026-08-12)
+    const challenge = {
+      name: 'Team Sprint',
+      start_date: '2026-08-01',
+      end_date: '2026-08-31',
+    };
+
+    it('returns correct yesterday steps from records', () => {
+      const records = [
+        rec('2026-08-11', 9420),  // yesterday
+        rec('2026-08-10', 8000),
+        rec('2026-08-09', 7500),
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.yesterdaySteps).toBe(9420);
+    });
+
+    it('returns 0 for yesterday steps when no record on yesterday', () => {
+      const records = [
+        rec('2026-08-10', 8000),
+        rec('2026-08-09', 7500),
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.yesterdaySteps).toBe(0);
+    });
+
+    it('computes cumulative total from start_date to yesterday (inclusive)', () => {
+      // window: 2026-08-01 to 2026-08-11
+      const records = [
+        rec('2026-08-01', 5000),
+        rec('2026-08-05', 6000),
+        rec('2026-08-11', 9420),  // yesterday
+        rec('2026-08-12', 3000),  // today — excluded from cumulative
+        rec('2026-07-31', 1000),  // before start — excluded
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.cumulativeTotal).toBe(5000 + 6000 + 9420);
+    });
+
+    it('returns elapsed days = (yesterday - start_date) + 1 for active challenge', () => {
+      // yesterday = 2026-08-11, start_date = 2026-08-01 → 10 + 1 = 11
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.elapsedDays).toBe(11);
+    });
+
+    it('returns total duration M = (end_date - start_date) + 1', () => {
+      // end_date=2026-08-31, start_date=2026-08-01 → 30 + 1 = 31
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.totalDays).toBe(31);
+    });
+
+    it('computes average pace = cumulative / elapsed_days', () => {
+      const records = [
+        rec('2026-08-01', 5000),
+        rec('2026-08-11', 9420),
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      // cumulative = 14420, elapsed = 11
+      expect(m.avgPace).toBeCloseTo(14420 / 11, 5);
+    });
+
+    it('flags completed = false for an active challenge', () => {
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.completed).toBe(false);
+    });
+  });
+
+  describe('completed challenge (end_date < today)', () => {
+    // Challenge ended in the past: 2026-07-01 to 2026-07-31
+    const challenge = {
+      name: 'July Sprint',
+      start_date: '2026-07-01',
+      end_date: '2026-07-31',
+    };
+
+    it('cumulative window is start_date to end_date (not yesterday)', () => {
+      const records = [
+        rec('2026-07-01', 4000),
+        rec('2026-07-15', 8000),
+        rec('2026-07-31', 12000),
+        rec('2026-08-11', 5000),  // yesterday — excluded (outside window)
+        rec('2026-06-30', 3000),  // before start — excluded
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.cumulativeTotal).toBe(4000 + 8000 + 12000);
+    });
+
+    it('elapsed days = full duration (end_date - start_date) + 1', () => {
+      // end_date=2026-07-31, start_date=2026-07-01 → 30 + 1 = 31
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.elapsedDays).toBe(31);
+    });
+
+    it('yesterday steps is always today-1 (even for completed challenges, typically 0)', () => {
+      // yesterday = 2026-08-11, no record on that date in the challenge window
+      const records = [rec('2026-07-31', 12000)];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.yesterdaySteps).toBe(0);
+    });
+
+    it('flags completed = true', () => {
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.completed).toBe(true);
+    });
+
+    it('average pace = cumulative / elapsed_days for completed challenge', () => {
+      const records = [
+        rec('2026-07-01', 4000),
+        rec('2026-07-31', 12000),
+      ];
+      const m = computeChallengeMetrics(challenge, records);
+      // cumulative = 16000, elapsed = 31
+      expect(m.avgPace).toBeCloseTo(16000 / 31, 5);
+    });
+  });
+
+  describe('edge cases and guard paths', () => {
+    it('empty records → all zeros', () => {
+      const challenge = {
+        start_date: '2026-08-01',
+        end_date: '2026-08-31',
+      };
+      const m = computeChallengeMetrics(challenge, []);
+      expect(m.yesterdaySteps).toBe(0);
+      expect(m.cumulativeTotal).toBe(0);
+      expect(m.avgPace).toBe(0);
+    });
+
+    it('start_date > yesterday → elapsed = 0 and avgPace = 0 (divide-by-zero guard)', () => {
+      // today = 2026-08-12, yesterday = 2026-08-11
+      // start_date = 2026-08-12 (today) → start_date > yesterday
+      const challenge = {
+        start_date: '2026-08-12',
+        end_date: '2026-08-31',
+      };
+      const records = [rec('2026-08-12', 5000)];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.elapsedDays).toBe(0);
+      expect(m.avgPace).toBe(0);
+    });
+
+    it('start_date === yesterday → elapsed = 1 (just started)', () => {
+      // start_date = 2026-08-11 = yesterday
+      const challenge = {
+        start_date: '2026-08-11',
+        end_date: '2026-08-31',
+      };
+      const records = [rec('2026-08-11', 8000)];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.elapsedDays).toBe(1);
+      expect(m.avgPace).toBeCloseTo(8000 / 1, 5);
+    });
+
+    it('single-day completed challenge: elapsed = 1, avgPace = cumulative', () => {
+      // Challenge: 2026-07-15 to 2026-07-15 (completed)
+      const challenge = {
+        start_date: '2026-07-15',
+        end_date: '2026-07-15',
+      };
+      const records = [rec('2026-07-15', 10000)];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.elapsedDays).toBe(1);
+      expect(m.cumulativeTotal).toBe(10000);
+      expect(m.avgPace).toBeCloseTo(10000, 5);
+      expect(m.totalDays).toBe(1);
+    });
+
+    it('missing yesterday record → yesterdaySteps = 0', () => {
+      const challenge = {
+        start_date: '2026-08-01',
+        end_date: '2026-08-31',
+      };
+      const records = [rec('2026-08-10', 7000)];
+      const m = computeChallengeMetrics(challenge, records);
+      expect(m.yesterdaySteps).toBe(0);
+    });
+  });
+});
