@@ -825,3 +825,29 @@ describe('main.js — Task 7: search engine wiring', () => {
     expect(errorSpy).toHaveBeenCalledWith('[main] searchUI.render failed, continuing', err)
   })
 })
+
+describe('main.js — Task 12: createSearch decoupled from goal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createSearch is invoked with (db) only — no goal argument', async () => {
+    await boot()
+    expect(createSearch).toHaveBeenCalledTimes(1)
+    expect(createSearch).toHaveBeenCalledWith(mockDb)
+    // Ensure it was NOT called with the goal instance as a second argument
+    const callArgs = createSearch.mock.calls[0]
+    expect(callArgs.length).toBe(1)
+  })
+})

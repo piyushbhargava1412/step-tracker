@@ -1207,3 +1207,26 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     expect(records.overrideRecord.mock.calls[0][1].effective_steps).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 11 (ST-007a) — activeGoalKm must not appear in any src/** file
+// ---------------------------------------------------------------------------
+
+describe('Task 11 (ST-007a) — activeGoalKm removed from src/**', () => {
+  it('no src/**/*.js file contains the string "activeGoalKm"', () => {
+    const srcDir = path.resolve(__dirname);
+    function scanDir(dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanDir(full);
+        } else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) {
+          const source = fs.readFileSync(full, 'utf8');
+          expect(source, `${full} contains activeGoalKm`).not.toContain('activeGoalKm');
+        }
+      }
+    }
+    scanDir(srcDir);
+  });
+});

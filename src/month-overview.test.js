@@ -485,3 +485,59 @@ describe('month-overview fixture sanity', () => {
     expect(CLASSIFICATION_MISSED).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 11 — ST-007a: activeStepGoal payload key + no-elapsed-days dash
+// ---------------------------------------------------------------------------
+
+describe('Task 11 (ST-007a) — Hit Rate from activeStepGoal payload', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 11)); // 2026-08-11
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('renders Hit Rate: — when the payload has no elapsed days (first day of month)', async () => {
+    // Build a payload whose today equals the first day of the month,
+    // so every day in the grid is either today or future → elapsed.length === 0.
+    const grid = buildMonthGrid(2026, 7, '2026-08-01');
+    const days = grid.days.map((day) => ({
+      ...day,
+      record: null,
+      classification: { state: 0, isOverridden: false },
+    }));
+    const payload = {
+      ...grid,
+      today: '2026-08-01',
+      days,
+      aggregates: computeMonthlyAggregates(days),
+      navBounds: {},
+      activeStepGoal: 10000,
+    };
+    const doc = buildDoc();
+    const engine = makeEngine(payload);
+    const ui = createMonthOverview(doc, engine, { db: vi.fn() });
+    await ui.render();
+    const hit = doc.querySelector('.month-hit-rate');
+    expect(hit.textContent).toBe('Hit Rate: \u2014');
+  });
+
+  it('hit rate computation respects payload.activeStepGoal (10000 → MET; 15000 → MISSED)', async () => {
+    // One record with 10000 steps; at goal=10000 it's met (Hit Rate: 100%),
+    // at goal=15000 it's missed (Hit Rate: 0%).
+    const records = [{ date: '2026-08-01', effective_steps: 10000, effective_distance_km: 5.4 }];
+    const payload10k = monthPayload({ records });
+    payload10k.activeStepGoal = 10000;
+    const doc10k = buildDoc();
+    const ui10k = createMonthOverview(doc10k, makeEngine(payload10k), { db: vi.fn() });
+    await ui10k.render();
+    expect(doc10k.querySelector('.month-hit-rate').textContent).toContain('10%');
+
+    const payload15k = monthPayload({ records });
+    payload15k.activeStepGoal = 15000;
+    const doc15k = buildDoc();
+    const ui15k = createMonthOverview(doc15k, makeEngine(payload15k), { db: vi.fn() });
+    await ui15k.render();
+    expect(doc15k.querySelector('.month-hit-rate').textContent).toBe('Hit Rate: 0%');
+  });
+});
