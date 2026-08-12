@@ -58,7 +58,7 @@ confidence: high
   utility or algorithmic building block, it is extracted into its own module rather than duplicated
   or placed in a utils grab-bag. The extracted module is pure (no DOM, no Dexie) and exports its
   primitives at the fine-grained level needed by all callers. *Evidence (≥3)*: `src/date-utils.js`
-  (`_localDate`, `_daysBetween`, `_parseLocalDate` — shared by `goal.js`, `streak.js`, `steps.js`,
+  (`_localDate`, `_addDaysUtc` — shared by `goal.js`, `streak.js`, `steps.js`,
   `exporter.js`, and others); `src/units.js` (`KM_TO_STEPS` — shared by `progress.js`, `records.js`).
 - **Pure export beside factory (not inside closure)**: when a module's primary export is a factory
   (`createXxx`), supplementary pure functions that are independently testable and do not require the
@@ -168,7 +168,7 @@ confidence: high
 | Dark-theme + tab-panel presentation          | `styles.css`           | Central styling for tab bar, panels, dark theme                                |
 | Pure export beside factory                   | `src/search.js`        | `computeNearMisses` exported at module level alongside `createSearch` factory  |
 | Scalar-lens goal pattern                     | `src/goal.js`          | `getActiveStepGoal` returns integer; no per-date history, no km fields         |
-| Shared pure utility module                   | `src/date-utils.js`    | `_localDate` / `_daysBetween` — single source for timezone-safe date helpers   |
+| Shared pure utility module                   | `src/date-utils.js`    | `_localDate` / `_addDaysUtc` — single source for timezone-safe date helpers   |
 
 ---
 

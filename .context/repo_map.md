@@ -49,7 +49,7 @@
 - Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
 - Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch)
-- Date utilities: `src/date-utils.js` (pure helpers: `_localDate`, `_daysBetween`, `_parseLocalDate`; no DOM, no Dexie; extracted from `goal.js` and `streak.js`)
+- Date utilities: `src/date-utils.js` (pure helpers: `_localDate`, `_addDaysUtc`; no DOM, no Dexie; extracted from `goal.js` and `streak.js`)
 - Unit conversion constants: `src/units.js` (pure constants: `KM_TO_STEPS = 1312.33`; no imports; extracted from `goal.js`)
 - Goal Commitment engine: `src/goal.js` (`createGoal` factory; `getActiveStepGoal`/`setActiveStepGoal`; persists `active_step_goal` row in Dexie `settings` store; exports `STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`, `DEFAULT_STEP_GOAL = 10000`; no km fields, no `goal_history` write)
 - Streak calculation: `src/streak.js` (`createStreak` orchestration; `computeToleranceStreaks` — 100%/95%/90% windows; `ALLOWANCE_WINDOW_95 = 20`, `ALLOWANCE_WINDOW_90 = 10`; tier/HoF/lifetime calculations; scalar step-goal lens — no per-date goal history)
