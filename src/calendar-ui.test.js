@@ -66,7 +66,6 @@ function makeSamplePayload() {
         isFuture,
         record: isFuture ? null : { effective_steps: 5000, effective_distance_km: 5.0, original_steps: 4800, original_distance_km: 4.6 },
         classification: isFuture ? { state: 0, isOverridden: false } : { state: 2, isOverridden: false },
-        targetDistanceKm: 3.0,
       };
     }),
     aggregates: {
@@ -78,6 +77,7 @@ function makeSamplePayload() {
       hitRatePct: 100,
     },
     navBounds: { canGoPrev: true, canGoNext: false, minYear: 2026, maxYear: 2026 },
+    activeStepGoal: 5000,
   };
 }
 

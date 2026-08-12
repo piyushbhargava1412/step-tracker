@@ -51,7 +51,6 @@ function makeEngine(payload, shouldReject = false) {
       const days = grid.days.map((day) => ({
         ...day,
         record: null,
-        targetDistanceKm: 5,
         classification: { state: 0, isOverridden: false },
       }));
       return {
@@ -60,6 +59,7 @@ function makeEngine(payload, shouldReject = false) {
         days,
         aggregates: computeMonthlyAggregates(days),
         navBounds: {},
+        activeStepGoal: 10000,
       };
     }),
   };
@@ -74,8 +74,8 @@ function monthPayload({ records = [] } = {}) {
   const recordMap = new Map(records.map((r) => [r.date, r]));
   const days = grid.days.map((day) => {
     const record = recordMap.get(day.date) || null;
-    const classification = classifyDay(record, 5, day.isFuture);
-    return { ...day, record, targetDistanceKm: 5, classification };
+    const classification = classifyDay(record, 10000, day.isFuture);
+    return { ...day, record, classification };
   });
   return {
     ...grid,
@@ -83,11 +83,12 @@ function monthPayload({ records = [] } = {}) {
     days,
     aggregates: computeMonthlyAggregates(days),
     navBounds: {},
+    activeStepGoal: 10000,
   };
 }
 
-const MET_RECORD = { date: '2026-08-01', effective_steps: 7200, effective_distance_km: 5.4 };
-const EXCEEDED_RECORD = { date: '2026-08-04', effective_steps: 12100, effective_distance_km: 10.5 };
+const MET_RECORD = { date: '2026-08-01', effective_steps: 10000, effective_distance_km: 5.4 };
+const EXCEEDED_RECORD = { date: '2026-08-04', effective_steps: 15000, effective_distance_km: 10.5 };
 const MISSED_RECORD = { date: '2026-08-02', effective_steps: 2100, effective_distance_km: 1.6 };
 const OVERRIDDEN_RECORD = {
   date: '2026-08-07',
@@ -175,7 +176,7 @@ describe('createMonthOverview', () => {
 
     it('uses the selected active goal instead of each day historical target', async () => {
       const payload = monthPayload({ records: [MET_RECORD] });
-      payload.activeGoalKm = 10;
+      payload.activeStepGoal = 15000;
       const doc = buildDoc();
       const ui = createMonthOverview(doc, makeEngine(payload), { db: vi.fn() });
       await ui.render();
@@ -230,7 +231,7 @@ describe('createMonthOverview', () => {
       await ui.render();
       const tile = doc.querySelector(`[data-date="2026-08-01"]`);
       expect(tile.classList.contains('heatmap-tile--met')).toBe(true);
-      expect(tile.querySelector('.heatmap-steps').textContent).toBe('7.2k');
+      expect(tile.querySelector('.heatmap-steps').textContent).toBe('10k');
     });
 
     it('exceeded day gets .heatmap-tile--exceeded', async () => {
@@ -240,7 +241,7 @@ describe('createMonthOverview', () => {
       await ui.render();
       const tile = doc.querySelector('[data-date="2026-08-04"]');
       expect(tile.classList.contains('heatmap-tile--exceeded')).toBe(true);
-      expect(tile.querySelector('.heatmap-steps').textContent).toBe('12.1k');
+      expect(tile.querySelector('.heatmap-steps').textContent).toBe('15k');
     });
 
     it('missed day gets .heatmap-tile--missed', async () => {

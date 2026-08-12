@@ -214,7 +214,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     const hitRate = computeCommitmentHitRate(
       payload.days,
       payload.today,
-      payload.activeGoalKm,
+      payload.activeStepGoal,
     );
     const cells = [
       { label: 'Total Steps', value: payload.aggregates.totalSteps },
