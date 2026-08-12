@@ -57,7 +57,8 @@ vi.mock('./month-overview.js', () => ({
 // Task 7: mock search.js, search-ui.js, exporter.js
 const mockSearchInstance = { executeQuery: vi.fn(), computeResultSummary: vi.fn() }
 vi.mock('./search.js', () => ({
-  createSearch: vi.fn(() => mockSearchInstance)
+  createSearch: vi.fn(() => mockSearchInstance),
+  computeNearMisses: vi.fn()
 }))
 
 const mockExporterInstance = { exportCsv: vi.fn(), exportJson: vi.fn() }
@@ -804,7 +805,7 @@ describe('main.js — Task 7: search engine wiring', () => {
   it('createSearchUI factory called once with (doc, search, exporter, reporter)', async () => {
     await boot()
     expect(createSearchUI).toHaveBeenCalledTimes(1)
-    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockReporter)
+    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockReporter, expect.any(Function))
   })
 
   it('searchUI.render() invoked exactly once on bootstrap', async () => {
