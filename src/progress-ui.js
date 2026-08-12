@@ -142,8 +142,12 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     const card = _buildCard(progress);
     dashboard.appendChild(card);
 
+    // The Active Lens selector lives in the menu bar (#active-lens) when the
+    // host shell provides that mount; fall back to the dashboard otherwise.
     const selector = _buildSelector(progress);
-    dashboard.appendChild(selector);
+    const lensMount = doc.getElementById('active-lens');
+    const mount = lensMount || dashboard;
+    mount.appendChild(selector);
   }
 
   /**

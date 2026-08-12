@@ -3,33 +3,49 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Step Tracker - Daily Streaks</title>
+    <title>Step Tracker Pro - Deep Blue</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
     <!-- Google Identity Services Library -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+<div id="app-toast" class="toast" role="status" aria-live="polite"></div>
+
 <div class="container">
-    <header>
+    <!-- HEADER -->
+    <header class="app-header">
         <div class="brand-group">
-            <h1 class="app-title">🚶 step-tracker</h1>
-            <div class="status-group">
-                <span id="auth-status" class="status-badge">Not connected</span>
-                <span id="db-status" class="status-badge">Initializing…</span>
+            <div class="brand-mark" aria-hidden="true">🚶</div>
+            <div class="brand-text">
+                <h1 class="app-title">step-tracker <span class="app-title-pro">pro</span></h1>
+                <div class="status-group">
+                    <span id="auth-status" class="status-badge">Not connected</span>
+                    <span id="db-status" class="status-badge"></span>
+                    <span id="last-sync" class="sync-info">Sync: —</span>
+                </div>
             </div>
         </div>
         <div class="header-actions">
             <button id="auth-btn" class="btn btn-secondary">Connect Google Account</button>
             <button id="sync-btn" class="btn btn-primary">Sync Steps</button>
-            <span id="sync-status"></span>
+            <span id="sync-status" class="sync-status" aria-live="polite"></span>
         </div>
     </header>
 
-    <nav class="tab-bar">
-        <button class="tab-btn active" data-tab="dashboard">🏠 Dashboard</button>
-        <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
-        <button class="tab-btn" data-tab="search">🔍 Search Lab</button>
-        <button class="tab-btn" data-tab="spatial">🗺️ Spatial Map</button>
+    <!-- MENU BAR: tabs + active lens -->
+    <nav class="tab-bar" aria-label="Primary">
+        <div class="tab-links">
+            <button class="tab-btn active" data-tab="dashboard">🏠 Dashboard</button>
+            <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
+            <button class="tab-btn" data-tab="search">🔍 Lab</button>
+            <button class="tab-btn" data-tab="spatial">🗺️ Map</button>
+        </div>
+        <div class="active-lens" id="active-lens">
+            <span class="active-lens-label">Active Lens:</span>
+        </div>
     </nav>
 
     <main>
@@ -46,6 +62,11 @@
         <div id="tab-search" style="display:none"></div>
         <div id="tab-spatial" style="display:none"></div>
     </main>
+
+    <!-- FOOTER -->
+    <footer class="app-footer">
+        <p>Optimized for Performance Tracking</p>
+    </footer>
 </div>
 
 <script type="module" src="/src/main.js"></script>

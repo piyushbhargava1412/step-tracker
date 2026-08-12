@@ -1,153 +1,342 @@
-/* ─── ST-003 Design Tokens ────────────────────────────────────────────────── */
+/* ─── Deep Blue Theme Tokens ───────────────────────────────────────────────── */
 *, *::before, *::after {
     box-sizing: border-box;
 }
 
 :root {
-    --bg-dark: #0b0f17;
-    --bg-card: #161f2e;
-    --bg-card-border: #263347;
-    --text-primary: #f8fafc;
+    --bg-body: #020617;
+    --bg-card: rgba(15, 23, 42, 0.6);
+    --bg-card-solid: #0f172a;
+    --bg-card-border: rgba(56, 189, 248, 0.2);
+    --text-primary: #f1f5f9;
     --text-muted: #94a3b8;
-    --accent-emerald: #10b981;
-    --accent-emerald-glow: rgba(16, 185, 129, 0.25);
+    --accent-sky: #38bdf8;
+    --accent-sky-glow: rgba(56, 189, 248, 0.25);
     --accent-cyan: #06b6d4;
     --accent-amber: #f59e0b;
-    --font-mono: 'JetBrains Mono', Courier, monospace;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Courier, monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: var(--bg-dark);
+    background: radial-gradient(circle at top right, #0c4a6e, #020617);
+    background-color: var(--bg-body);
     color: var(--text-primary);
+    font-family: var(--font-sans);
     margin: 0;
     padding: 24px;
     min-height: 100vh;
 }
 
-.container {
-    width: min(1152px, 100%);
-    margin: 0 auto;
-    background: #1e1e1e;
-    padding: 0;
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-    background: transparent;
+button {
+    font: inherit;
+    cursor: pointer;
+    color: var(--accent-sky);
 }
 
-header {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
+/* ─── Toast notification ───────────────────────────────────────────────────── */
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 30px;
+    transform: translate(-50%, 20px);
+    background: #0ea5e9;
+    color: #ffffff;
+    text-align: center;
+    padding: 12px 24px;
     border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100;
+    max-width: min(600px, 90vw);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* ─── App shell ────────────────────────────────────────────────────────────── */
+
+.container {
+    background: var(--bg-card-solid);
+    width: min(1152px, 100%);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 0;
+}
+
+/* HEADER (glass card) */
+.app-header {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
     padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 20px;
     flex-wrap: wrap;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-}
-
-.brand-group,
-.status-group,
-.header-actions {
-    display: flex;
-    align-items: center;
 }
 
 .brand-group {
+    display: flex;
+    align-items: center;
     gap: 16px;
 }
 
-.status-group,
-.header-actions {
-    gap: 8px;
+.brand-mark {
+    width: 40px;
+    height: 40px;
+    background: #0ea5e9;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    box-shadow: 0 8px 24px rgba(14, 165, 233, 0.35);
+    flex-shrink: 0;
 }
 
 .app-title {
     margin: 0;
-    font-size: 1.4rem;
-    font-weight: 700;
+    font-size: 1.125rem;
+    font-weight: 800;
     letter-spacing: -0.5px;
+    color: var(--text-primary);
 }
 
-.status-badge {
-    display: inline-flex;
+.app-title-pro {
+    color: rgba(56, 189, 248, 0.5);
+    font-weight: 800;
+}
+
+.status-group {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border: 1px solid var(--bg-card-border);
-    border-radius: 20px;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
+    gap: 14px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+}
+
+.status-badge,
+.sync-info {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
 }
 
-.status-badge.connected {
-    color: var(--accent-emerald);
-    border-color: rgba(16, 185, 129, 0.3);
-    background: rgba(16, 185, 129, 0.1);
+.status-badge:empty {
+    display: none;
 }
 
-.status-badge.persisted {
-    color: var(--accent-cyan);
-    border-color: rgba(6, 182, 212, 0.3);
-    background: rgba(6, 182, 212, 0.1);
+#auth-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent-sky);
 }
+
+#auth-status:not(:empty)::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-sky);
+    animation: status-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+#db-status {
+    color: var(--text-muted);
+    border-left: 1px solid rgba(148, 163, 184, 0.3);
+    padding-left: 14px;
+}
+
+.sync-info {
+    color: var(--text-muted);
+    border-left: 1px solid #334155;
+    padding-left: 14px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.14em;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.sync-status {
+    flex-basis: 100%;
+    text-align: right;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.sync-status:empty {
+    display: none;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────────────────────── */
 
 .btn {
     margin: 0;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 600;
+    padding: 8px 18px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+    transition: all 0.3s ease;
+    color: #e0f2fe;
 }
 
 .btn-secondary {
-    background: transparent;
-    color: var(--text-muted);
-    border: 1px solid var(--bg-card-border);
+    background: rgba(56, 189, 248, 0.1);
+    backdrop-filter: blur(4px);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.btn-secondary:hover {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: rgba(56, 189, 248, 0.5);
+    transform: translateY(-1px);
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    background: #0ea5e9;
     color: #ffffff;
-    box-shadow: 0 0 12px var(--accent-emerald-glow);
+    box-shadow: 0 8px 20px rgba(14, 165, 233, 0.35);
 }
+
+.btn-primary:hover {
+    background: #38bdf8;
+    transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+    background: rgba(148, 163, 184, 0.4);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+/* ─── Menu bar — tabs + Active Lens ────────────────────────────────────────── */
 
 .tab-bar {
-    background: rgba(22, 31, 46, 0.6);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 10px;
-    padding: 4px;
     display: flex;
-    gap: 4px;
-    margin: 20px 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: rgba(2, 6, 23, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 6px 6px 6px 8px;
 }
 
-.tab-bar button {
-    flex: 1;
+.tab-links {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.tab-bar button.tab-btn {
+    flex: 0 0 auto;
     margin: 0;
-    padding: 10px 16px;
-    border: 0;
-    border-radius: 6px;
+    padding: 8px 18px;
+    border: 1px solid transparent;
+    border-radius: 14px;
     background: transparent;
     color: var(--text-muted);
     font-size: 0.875rem;
+    font-weight: 600;
+    transition: color 0.2s ease, background 0.2s ease;
 }
 
-.tab-bar button:hover {
-    background: rgba(255, 255, 255, 0.04);
+.tab-bar button.tab-btn:hover {
+    color: var(--accent-sky);
+    background: rgba(56, 189, 248, 0.08);
 }
 
-.tab-bar button.active {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    color: var(--accent-emerald);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+.tab-bar button.tab-btn.active {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: rgba(56, 189, 248, 0.3);
+    color: var(--accent-sky);
+    font-weight: 700;
 }
+
+/* Active Lens selector — lives inside the same menu bar */
+.active-lens {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    background: rgba(8, 47, 73, 0.3);
+    min-width: 0;
+}
+
+.active-lens-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent-sky);
+    white-space: nowrap;
+}
+
+.goal-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+}
+
+.goal-select {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+}
+
+.goal-select option {
+    background: var(--bg-card-solid);
+    color: var(--text-primary);
+}
+
+#goal-error {
+    color: var(--accent-amber);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* ─── Panels ───────────────────────────────────────────────────────────────── */
 
 [id^="tab-"] {
     display: none;
@@ -157,49 +346,6 @@ header {
     display: grid !important;
 }
 
-button {
-    background-color: #ff4757;
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    margin: 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: bold;
-}
-
-button:hover {
-    background-color: #ff6b81;
-}
-
-#streak-display {
-    margin-top: 20px;
-    color: #2ed573;
-}
-
-/* ─── ST-003 Card Anatomy ─────────────────────────────────────────────────── */
-
-.card {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-.card-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-/* ─── Mockup dashboard composition ───────────────────────────────────────── */
 .dashboard-panel {
     display: grid;
     grid-template-columns: 2fr 1fr;
@@ -212,9 +358,9 @@ button:hover {
     min-width: 0;
 }
 
-.dashboard-panel #lifetime-banner,
-.dashboard-panel #goal-selector {
+.dashboard-panel #lifetime-banner {
     grid-column: 1 / -1;
+    grid-row: 1;
 }
 
 .dashboard-panel #progress-card {
@@ -224,92 +370,17 @@ button:hover {
 
 .dashboard-panel #streak-card {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 2 / 4;
 }
 
-.dashboard-panel #goal-selector {
+.dashboard-panel #challenge-card {
+    grid-column: 1;
     grid-row: 3;
 }
-.dashboard-panel #challenge-card {
-    grid-column: 1 / -1;
-    grid-row: 4;
-}
-
-/* ─── Challenge widget sub-elements ─────────────────────────────────────── */
-.challenge-config-header {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: flex-end;
-    margin-bottom: 12px;
-}
-
-.challenge-config-header label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-}
-
-.challenge-config-header input[type='text'],
-.challenge-config-header input[type='date'] {
-    background: var(--bg-dark);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    padding: 6px 10px;
-}
-
-.challenge-finished-badge {
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--accent-emerald);
-    background: rgba(16, 185, 129, 0.12);
-    border: 1px solid var(--accent-emerald);
-    border-radius: 20px;
-    padding: 2px 10px;
-    letter-spacing: 0.4px;
-}
-
-.copied-badge {
-    display: inline-block;
-    margin-top: 10px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--accent-emerald);
-    background: rgba(16, 185, 129, 0.12);
-    border: 1px solid var(--accent-emerald);
-    border-radius: 20px;
-    padding: 3px 12px;
-    animation: copied-badge-lifecycle 2s ease forwards;
-}
-
-@keyframes copied-badge-lifecycle {
-    0% {
-        opacity: 0;
-        transform: translateY(3px);
-    }
-    8% {
-        opacity: 1;
-        transform: translateY(0);
-    }
-    88% {
-        opacity: 1;
-        transform: translateY(0);
-    }
-    100% {
-        opacity: 0;
-        transform: translateY(-3px);
-    }
-}
-
 
 .dashboard-panel #month-overview-card {
     grid-column: 1 / -1;
-    grid-row: 5;
+    grid-row: 4;
     width: 100%;
 }
 
@@ -317,15 +388,171 @@ button:hover {
     display: contents;
 }
 
-.dashboard-panel > .goal-selector {
-    margin: 0;
-    border-radius: 8px;
+/* ─── Card anatomy (glass) ─────────────────────────────────────────────────── */
+
+.card {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
-#tab-calendar {
-    background: rgba(22, 31, 46, 0.45);
+.card-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.metric-value {
+    font-size: 2.2rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.metric-unit {
+    font-size: 1rem;
+    color: var(--text-muted);
+}
+
+.metric-sub {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-pct {
+    color: var(--accent-sky);
+    font-family: var(--font-mono);
+}
+
+.progress-track {
+    background: rgba(148, 163, 184, 0.15);
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 12px 0;
+}
+
+.progress-fill {
+    background: linear-gradient(90deg, #38bdf8, #06b6d4);
+    height: 100%;
+    border-radius: 6px;
+    box-shadow: 0 0 10px var(--accent-sky-glow);
+}
+
+.progress-fill--full {
+    width: 100%;
+}
+
+.remaining-hint {
+    font-size: 0.85rem;
+    color: var(--accent-cyan);
+    font-weight: 500;
+}
+
+.goal-met-badge {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent-sky);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* ─── ST-004 Streak Card & Lifetime Banner ────────────────────────────────── */
+
+.streak-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--bg-card-border);
     border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.streak-number {
+    color: var(--accent-sky);
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.streak-unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.tier-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.tier-chip {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.tier-chip--active {
+    color: var(--accent-sky);
+    border-color: var(--accent-sky);
+}
+
+.streak-goal {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+#lifetime-banner {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.lifetime-count {
+    color: var(--accent-sky);
+}
+
+/* ─── Month-overview heatmap (dashboard + calendar) ────────────────────────── */
+
+#tab-calendar {
+    background: rgba(2, 6, 23, 0.3);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
     padding: 20px;
 }
 
@@ -374,18 +601,26 @@ button:hover {
     font-family: var(--font-mono);
     font-size: 0.7rem;
     font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.heatmap-tile:hover:not(.heatmap-tile--pad):not(:disabled) {
+    filter: brightness(1.3);
+    transform: scale(1.02);
+    z-index: 5;
 }
 
 .heatmap-tile--met {
-    background: rgba(16, 185, 129, 0.15);
-    border-color: rgba(16, 185, 129, 0.4);
-    color: var(--accent-emerald);
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: var(--accent-sky);
 }
 
 .heatmap-tile--exceeded {
-    background: rgba(6, 182, 212, 0.2);
-    border-color: rgba(6, 182, 212, 0.5);
-    color: var(--accent-cyan);
+    background: rgba(14, 165, 233, 0.25);
+    border-color: rgba(14, 165, 233, 0.55);
+    color: #7dd3fc;
+    box-shadow: 0 0 8px var(--accent-sky-glow);
 }
 
 .heatmap-tile--missed {
@@ -395,7 +630,7 @@ button:hover {
 }
 
 .heatmap-tile--today {
-    border-color: var(--accent-emerald);
+    border-color: var(--accent-sky);
 }
 
 .heatmap-tile--pad,
@@ -413,198 +648,7 @@ button:hover {
     color: var(--accent-amber);
 }
 
-@media (max-width: 760px) {
-    body {
-        padding: 12px;
-    }
-
-    header {
-        align-items: flex-start;
-        padding: 16px;
-    }
-
-    .brand-group,
-    .header-actions {
-        width: 100%;
-        justify-content: space-between;
-        flex-wrap: wrap;
-    }
-
-    .tab-bar {
-        overflow-x: auto;
-    }
-
-    .tab-bar button {
-        flex: 0 0 auto;
-        white-space: nowrap;
-    }
-
-    .dashboard-panel {
-        grid-template-columns: 1fr;
-    }
-
-    .dashboard-panel #progress-card,
-    .dashboard-panel #streak-card {
-        grid-column: 1;
-        grid-row: auto;
-    }
-}
-
-.metric-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
-}
-
-.metric-value {
-    font-size: 2.2rem;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-}
-
-.metric-unit {
-    font-size: 1rem;
-    color: var(--text-muted);
-}
-
-.metric-sub {
-    font-size: 1rem;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
-.progress-pct {
-    color: var(--accent-emerald);
-    font-family: var(--font-mono);
-}
-
-.progress-track {
-    background: rgba(255, 255, 255, 0.06);
-    height: 12px;
-    border-radius: 6px;
-    overflow: hidden;
-    margin: 12px 0;
-}
-
-.progress-fill {
-    background: linear-gradient(90deg, #10b981, #06b6d4);
-    height: 100%;
-    border-radius: 6px;
-    box-shadow: 0 0 10px var(--accent-emerald-glow);
-}
-
-.progress-fill--full {
-    width: 100%;
-}
-
-.remaining-hint {
-    font-size: 0.85rem;
-    color: var(--accent-cyan);
-    font-weight: 500;
-}
-
-.goal-met-badge {
-    display: inline-block;
-    background: rgba(16, 185, 129, 0.15);
-    color: var(--accent-emerald);
-    border: 1px solid rgba(16, 185, 129, 0.4);
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 0.9rem;
-    font-weight: 600;
-}
-
-/* ─── ST-003 Goal Selector (SF-11, token-based, overrides global button) ──── */
-
-.goal-selector {
-    border: 1px solid var(--bg-card-border);
-    color: var(--text-muted);
-    padding: 12px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.goal-select {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 0.9rem;
-}
-
-
-/* ─── ST-004 Streak Card & Lifetime Banner ────────────────────────────────── */
-
-.streak-card {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-.streak-number {
-    color: var(--accent-emerald);
-    font-size: 2.8rem;
-    font-weight: 900;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-}
-
-.streak-unit {
-    font-size: 1rem;
-    font-weight: 500;
-    color: var(--text-muted);
-}
-
-
-
-.tier-badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 16px;
-}
-
-.tier-chip {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--bg-card-border);
-    color: var(--text-muted);
-    padding: 4px 8px;
-    border-radius: 6px;
-}
-
-.tier-chip--active {
-    color: var(--accent-emerald);
-    border-color: var(--accent-emerald);
-}
-
-.streak-goal {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-}
-
-#lifetime-banner {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    font-family: var(--font-mono);
-    color: var(--text-muted);
-}
-
-.lifetime-count {
-    color: var(--accent-emerald);
-}
-
-/* ─── ST-005 Calendar Grid ────────────────────────────────────────────────── */
+/* ─── ST-005 Calendar grid, nav, summary ──────────────────────────────────── */
 
 .calendar-grid {
     display: grid;
@@ -624,13 +668,14 @@ button:hover {
 }
 
 .calendar-tile {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     aspect-ratio: 1;
     border: 1px solid var(--bg-card-border);
     border-radius: 6px;
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     font-size: 0.85rem;
     font-weight: 500;
     color: var(--text-primary);
@@ -656,16 +701,16 @@ button:hover {
 }
 
 .tile--met {
-    background: rgba(16, 185, 129, 0.15);
-    border-color: var(--accent-emerald);
-    color: var(--accent-emerald);
+    background: rgba(56, 189, 248, 0.15);
+    border-color: var(--accent-sky);
+    color: var(--accent-sky);
 }
 
 .tile--exceeded {
-    background: rgba(16, 185, 129, 0.25);
-    border-color: var(--accent-emerald);
-    color: var(--accent-emerald);
-    box-shadow: 0 0 8px var(--accent-emerald-glow);
+    background: rgba(56, 189, 248, 0.25);
+    border-color: var(--accent-sky);
+    color: var(--accent-sky);
+    box-shadow: 0 0 8px var(--accent-sky-glow);
 }
 
 .calendar-tile--pad {
@@ -683,14 +728,8 @@ button:hover {
     font-weight: 700;
 }
 
-.calendar-tile {
-    position: relative;
-}
-
-/* ─── ST-005 Navigation ───────────────────────────────────────────────────── */
-
 #calendar-nav {
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
     border-radius: 10px;
     display: flex;
@@ -702,7 +741,7 @@ button:hover {
 }
 
 #calendar-nav button {
-    background-color: var(--bg-card);
+    background-color: var(--bg-card-solid);
     color: var(--text-primary);
     border: 1px solid var(--bg-card-border);
     padding: 6px 12px;
@@ -716,8 +755,16 @@ button:hover {
     border-color: var(--accent-cyan);
 }
 
+#calendar-nav button[disabled] {
+    opacity: 0.4;
+    cursor: default;
+    background: var(--bg-card-solid);
+    color: var(--text-muted);
+    border-color: var(--bg-card-border);
+}
+
 #calendar-nav select {
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     color: var(--text-primary);
     border: 1px solid var(--bg-card-border);
     padding: 8px 12px;
@@ -735,16 +782,6 @@ button:hover {
     flex: 1;
 }
 
-#calendar-nav button[disabled] {
-    opacity: 0.4;
-    cursor: default;
-    background: var(--bg-card);
-    color: var(--text-muted);
-    border-color: var(--bg-card-border);
-}
-
-/* ─── ST-005 Summary ──────────────────────────────────────────────────────── */
-
 #calendar-summary {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -755,7 +792,7 @@ button:hover {
 }
 
 .summary-cell {
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
     border-radius: 6px;
     padding: 10px 8px;
@@ -774,30 +811,6 @@ button:hover {
     font-family: var(--font-mono);
 }
 
-@media (max-width: 640px) {
-    #calendar-nav {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-    }
-
-    #calendar-nav .calendar-period {
-        min-width: 0;
-    }
-
-    #calendar-nav select {
-        min-width: 0;
-        width: 100%;
-    }
-
-    #calendar-summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    #calendar-summary .summary-cell:first-child {
-        grid-column: 1 / -1;
-    }
-}
-
 /* ─── ST-005 Day Detail Drawer ────────────────────────────────────────────── */
 
 #day-drawer {
@@ -808,7 +821,7 @@ button:hover {
     width: 320px;
     max-height: 80vh;
     overflow-y: auto;
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
     border-radius: 12px;
     padding: 20px;
@@ -839,7 +852,7 @@ button:hover {
 }
 
 #day-drawer button[data-action="edit-day"] {
-    background: var(--accent-emerald);
+    background: var(--accent-sky);
     color: #ffffff;
     border: none;
     padding: 8px 16px;
@@ -887,7 +900,7 @@ button:hover {
 
 [data-form="override"] input,
 [data-form="override"] textarea {
-    background: var(--bg-dark);
+    background: var(--bg-body);
     border: 1px solid var(--bg-card-border);
     color: var(--text-primary);
     border-radius: 6px;
@@ -898,6 +911,16 @@ button:hover {
 [data-form="override"] textarea {
     min-height: 64px;
     resize: vertical;
+}
+
+[data-form="override"] button[type="submit"] {
+    background: var(--accent-sky);
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 700;
 }
 
 .revert-btn {
@@ -913,6 +936,242 @@ button:hover {
 
 .revert-btn:hover {
     background: rgba(251, 191, 36, 0.1);
+}
+
+/* ─── Challenge widget & transient badges ──────────────────────────────────── */
+
+.challenge-card {
+    border-left: 4px solid var(--accent-sky);
+}
+
+.challenge-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.challenge-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.challenge-title {
+    font-size: 1.2rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.challenge-range {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.challenge-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.challenge-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    background: var(--bg-card-solid);
+    color: var(--text-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    margin: 0;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.challenge-icon-btn:hover {
+    border-color: var(--accent-sky);
+    color: var(--accent-sky);
+}
+
+.challenge-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 12px;
+    background: var(--bg-card-solid);
+    color: var(--accent-sky);
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 10px 14px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.challenge-copy-btn:hover {
+    border-color: var(--accent-sky);
+    background: rgba(56, 189, 248, 0.1);
+}
+
+.challenge-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+@media (min-width: 640px) {
+    .challenge-metrics {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.challenge-metric {
+    background: rgba(56, 189, 248, 0.05);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.challenge-metric-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+}
+
+.challenge-metric-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    line-height: 1.1;
+}
+
+.challenge-metric-sub {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.challenge-progress-track {
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+    overflow: hidden;
+    margin: 2px 0;
+}
+
+.challenge-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent-sky);
+}
+
+.challenge-config {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--bg-card-border);
+}
+
+.challenge-config[hidden] {
+    display: none;
+}
+
+.challenge-config label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.challenge-config input[type='text'],
+.challenge-config input[type='date'] {
+    background: var(--bg-body);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 8px 10px;
+}
+
+.challenge-finished-badge {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent-sky);
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid var(--accent-sky);
+    border-radius: 20px;
+    padding: 2px 10px;
+    letter-spacing: 0.4px;
+}
+
+.copied-badge {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent-sky);
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid var(--accent-sky);
+    border-radius: 20px;
+    padding: 3px 12px;
+    animation: copied-badge-lifecycle 2s ease forwards;
+}
+
+@keyframes copied-badge-lifecycle {
+    0% {
+        opacity: 0;
+        transform: translateY(3px);
+    }
+    8% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    88% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-3px);
+    }
+}
+
+/* ─── Footer ──────────────────────────────────────────────────────────────── */
+
+.app-footer {
+    text-align: center;
+    padding: 16px 0 0;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4em;
 }
 
 /* ─── ST-007 Search Lab ───────────────────────────────────────────────────── */
@@ -934,7 +1193,7 @@ button:hover {
 
 .search-filters input,
 .search-filters select {
-    background: var(--bg-card);
+    background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
     color: var(--text-primary);
     border-radius: 6px;
@@ -977,7 +1236,7 @@ button:hover {
 
 .search-results-table [data-cell="effective-steps"] {
     font-family: var(--font-mono);
-    color: var(--accent-emerald);
+    color: var(--accent-sky);
     font-weight: 700;
 }
 
@@ -1009,7 +1268,6 @@ button:hover {
 
 /* ─── ST-007a Tolerance Metrics, Hall of Fame, Near-Miss Panel ──────────────── */
 
-/* Tolerance streak metrics block */
 .tolerance-metrics {
     display: flex;
     gap: 12px;
@@ -1040,12 +1298,11 @@ button:hover {
 }
 
 .tolerance-value.streak-number {
-    color: var(--accent-emerald);
+    color: var(--accent-sky);
     font-size: 2.8rem;
     font-weight: 900;
 }
 
-/* Hall of Fame block */
 .hall-of-fame {
     margin-top: 16px;
     border-top: 1px solid var(--bg-card-border);
@@ -1082,7 +1339,7 @@ button:hover {
 }
 
 .hof-days {
-    color: var(--accent-emerald);
+    color: var(--accent-sky);
     font-weight: 700;
 }
 
@@ -1099,7 +1356,6 @@ button:hover {
     padding: 4px 0;
 }
 
-/* Near-miss panel — Search Lab */
 .near-miss-panel {
     background: var(--bg-card);
     border: 1px solid var(--bg-card-border);
@@ -1108,4 +1364,97 @@ button:hover {
     margin-top: 12px;
     font-size: 0.85rem;
     color: var(--text-muted);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 760px) {
+    body {
+        padding: 12px;
+    }
+
+    .app-header {
+        align-items: flex-start;
+        padding: 16px;
+    }
+
+    .brand-group,
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
+    .tab-links {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        width: 100%;
+    }
+
+    .tab-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .active-lens {
+        justify-content: space-between;
+    }
+
+    .dashboard-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-panel #lifetime-banner,
+    .dashboard-panel #progress-card,
+    .dashboard-panel #streak-card,
+    .dashboard-panel #challenge-card,
+    .dashboard-panel #month-overview-card {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    /* Mobile stack order: lifetime-banner → progress → streak → challenge → calendar */
+    .dashboard-panel #lifetime-banner {
+        order: 1;
+    }
+
+    .dashboard-panel #progress-card {
+        order: 2;
+    }
+
+    .dashboard-panel #streak-card {
+        order: 3;
+    }
+
+    .dashboard-panel #challenge-card {
+        order: 4;
+    }
+
+    .dashboard-panel #month-overview-card {
+        order: 5;
+    }
+}
+
+@media (max-width: 640px) {
+    #calendar-nav {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+    }
+
+    #calendar-nav .calendar-period {
+        min-width: 0;
+    }
+
+    #calendar-nav select {
+        min-width: 0;
+        width: 100%;
+    }
+
+    #calendar-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #calendar-summary .summary-cell:first-child {
+        grid-column: 1 / -1;
+    }
 }

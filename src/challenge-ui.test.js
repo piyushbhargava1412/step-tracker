@@ -2,9 +2,12 @@
  * Tests for challenge-ui.js — render layer.
  * jsdom environment via Vitest.
  *
- * Coverage targets:
- *   - render() configure state (no challenge)
- *   - render() metric state (challenge present)
+ * The card always renders the mockup metric layout ("Active Group Challenge"):
+ * a header with gear (⚙️) + copy actions, four metric tiles, and a collapsible
+ * date-config section driven by the gear. Coverage:
+ *   - mockup metric card (configured + not configured)
+ *   - "Latest Day" label (renamed from "Yesterday")
+ *   - gear toggle reveals/hides the start/end date config
  *   - completed challenge badge
  *   - idempotency (two calls → one card)
  *   - fail-open guard (missing #tab-dashboard)
@@ -105,9 +108,9 @@ describe('render() — missing #tab-dashboard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Configure state (no active challenge)
+// Mockup metric card — no challenge configured
 // ---------------------------------------------------------------------------
-describe('render() — configure state', () => {
+describe('render() — mockup card, no challenge configured', () => {
   it('inserts #challenge-card into #tab-dashboard', async () => {
     const doc = makeDoc();
     const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
@@ -115,19 +118,73 @@ describe('render() — configure state', () => {
     expect(doc.getElementById('challenge-card')).not.toBeNull();
   });
 
-  it('renders name input', async () => {
+  it('renders the header title "Active Group Challenge"', async () => {
     const doc = makeDoc();
     const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
     await ui.render();
-    const nameInput = doc.querySelector('input[type="text"]');
-    expect(nameInput).not.toBeNull();
+    const title = doc.querySelector('.challenge-title');
+    expect(title).not.toBeNull();
+    expect(title.textContent).toBe('Active Group Challenge');
   });
 
-  it('renders start and end date pickers', async () => {
+  it('renders "Not configured" range when no challenge exists', async () => {
     const doc = makeDoc();
     const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
     await ui.render();
-    const datePickers = doc.querySelectorAll('input[type="date"]');
+    const range = doc.querySelector('.challenge-range');
+    expect(range).not.toBeNull();
+    expect(range.textContent).toBe('Not configured');
+  });
+
+  it('renders the gear button (data-action="toggle-challenge-config")', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    const gear = doc.querySelector('[data-action="toggle-challenge-config"]');
+    expect(gear).not.toBeNull();
+  });
+
+  it('renders the Copy Update button (data-action="copy-challenge")', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.querySelector('[data-action="copy-challenge"]')).not.toBeNull();
+  });
+
+  it('renders exactly four metric tiles (.challenge-metric)', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.querySelectorAll('.challenge-metric').length).toBe(4);
+  });
+
+  it('labels the first tile "Latest Day" (renamed from Yesterday)', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    const card = doc.getElementById('challenge-card');
+    expect(card.textContent).toContain('Latest Day');
+    expect(card.textContent).not.toContain('Yesterday');
+  });
+
+  it('labels the remaining tiles Cumulative / Day Progress / Avg. Pace', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    const card = doc.getElementById('challenge-card');
+    expect(card.textContent).toContain('Cumulative');
+    expect(card.textContent).toContain('Day Progress');
+    expect(card.textContent).toContain('Avg. Pace');
+  });
+
+  it('renders the name/date config with the start and end pickers VISIBLE', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    const config = doc.querySelector('.challenge-config');
+    expect(config).not.toBeNull();
+    expect(config.hidden).toBe(false);
+    const datePickers = config.querySelectorAll('input[type="date"]');
     expect(datePickers.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -159,18 +216,10 @@ describe('render() — configure state', () => {
     expect(saveBtn).not.toBeNull();
   });
 
-  it('does NOT render metric rows or Copy button', async () => {
-    const doc = makeDoc();
-    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
-    await ui.render();
-    const copyBtn = doc.querySelector('[data-action="copy-challenge"]');
-    expect(copyBtn).toBeNull();
-  });
-
   it('does NOT call db.daily_records.where', async () => {
     const doc = makeDoc();
     const db = makeDb();
-    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    const ui = createChallengeUI(doc, makeChallengeEngine(), db, makeReporter());
     await ui.render();
     // No challenge → no record query needed
     expect(db.daily_records.where).not.toHaveBeenCalled();
@@ -178,9 +227,9 @@ describe('render() — configure state', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Metric state (active challenge present)
+// Mockup metric card — active challenge present
 // ---------------------------------------------------------------------------
-describe('render() — metric state (active challenge)', () => {
+describe('render() — mockup card, active challenge', () => {
   const ACTIVE_CHALLENGE = {
     key: 'active_challenge',
     name: 'Team Steps',
@@ -197,29 +246,71 @@ describe('render() — metric state (active challenge)', () => {
     expect(doc.getElementById('challenge-card')).not.toBeNull();
   });
 
-  it('renders Copy button with data-action="copy-challenge"', async () => {
+  it('renders gear + Copy Update actions', async () => {
     const doc = makeDoc();
     const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
+    expect(doc.querySelector('[data-action="toggle-challenge-config"]')).not.toBeNull();
     expect(doc.querySelector('[data-action="copy-challenge"]')).not.toBeNull();
   });
 
-  it('renders exactly four metric rows', async () => {
+  it('renders the date range in the header subtitle', async () => {
     const doc = makeDoc();
     const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
-    const metricRows = doc.querySelectorAll('.metric-row');
-    expect(metricRows.length).toBe(4);
+    const range = doc.querySelector('.challenge-range');
+    expect(range.textContent).toBe('Aug 01 — Aug 31, 2026');
   });
 
-  it('does NOT render name input or Save button', async () => {
+  it('renders exactly four metric tiles', async () => {
     const doc = makeDoc();
     const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
-    expect(doc.querySelector('[data-action="save-challenge"]')).toBeNull();
+    expect(doc.querySelectorAll('.challenge-metric').length).toBe(4);
+  });
+
+  it('renders the "Latest Day" tile label', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.getElementById('challenge-card').textContent).toContain('Latest Day');
+  });
+
+  it('hides the date config by default when a challenge is configured', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+    const config = doc.querySelector('.challenge-config');
+    expect(config).not.toBeNull();
+    expect(config.hidden).toBe(true);
+  });
+
+  it('clicking the gear reveals the date config', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+    const config = doc.querySelector('.challenge-config');
+    expect(config.hidden).toBe(true);
+    doc.querySelector('[data-action="toggle-challenge-config"]').click();
+    expect(config.hidden).toBe(false);
+  });
+
+  it('clicking the gear twice toggles the config back to hidden', async () => {
+    const doc = makeDoc();
+    const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    await ui.render();
+    const config = doc.querySelector('.challenge-config');
+    const gear = doc.querySelector('[data-action="toggle-challenge-config"]');
+    gear.click();
+    gear.click();
+    expect(config.hidden).toBe(true);
   });
 
   it('queries db.daily_records for the challenge date range', async () => {
@@ -250,7 +341,7 @@ describe('render() — metric state (active challenge)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Completed challenge — "Challenge Finished" badge
+// Completed challenge — "Challenge Finished" badge + latest day = end_date
 // ---------------------------------------------------------------------------
 describe('render() — completed challenge', () => {
   it('renders "Challenge Finished" badge when end_date is in the past', async () => {
@@ -268,6 +359,23 @@ describe('render() — completed challenge', () => {
     const card = doc.getElementById('challenge-card');
     expect(card.textContent).toContain('Challenge Finished');
   });
+
+  it('shows the end_date steps as the "Latest Day" tile value', async () => {
+    const doc = makeDoc();
+    const completedChallenge = {
+      key: 'active_challenge',
+      name: 'July Sprint',
+      start_date: '2020-01-01',
+      end_date: '2020-01-31',
+      created_at: '2020-01-01T00:00:00.000Z',
+    };
+    const records = [{ date: '2020-01-31', effective_steps: 12000 }];
+    const engine = makeChallengeEngine({ challenge: completedChallenge });
+    const ui = createChallengeUI(doc, engine, makeDb({ records }), makeReporter());
+    await ui.render();
+    const latestTile = doc.querySelector('[data-metric="latest"] .challenge-metric-value');
+    expect(latestTile.textContent).toBe('12,000');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -282,7 +390,7 @@ describe('render() — idempotency', () => {
     expect(doc.querySelectorAll('#challenge-card').length).toBe(1);
   });
 
-  it('switches from configure to metric state on second render with new challenge', async () => {
+  it('switches from empty to configured state on second render with new challenge', async () => {
     const doc = makeDoc();
     let callCount = 0;
     const challenge = {
@@ -300,12 +408,12 @@ describe('render() — idempotency', () => {
       setActiveChallenge: vi.fn(),
     };
     const ui = createChallengeUI(doc, challenge, makeDb(), makeReporter());
-    await ui.render(); // configure state
-    expect(doc.querySelector('[data-action="save-challenge"]')).not.toBeNull();
+    await ui.render(); // empty state → config visible
+    expect(doc.querySelector('.challenge-config').hidden).toBe(false);
 
-    await ui.render(); // metric state
+    await ui.render(); // configured state → config hidden
+    expect(doc.querySelector('.challenge-config').hidden).toBe(true);
     expect(doc.querySelector('[data-action="copy-challenge"]')).not.toBeNull();
-    expect(doc.querySelector('[data-action="save-challenge"]')).toBeNull();
   });
 });
 
@@ -390,7 +498,7 @@ describe('delegated Save handler (data-action="save-challenge")', () => {
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
 
-    // Fill in inputs
+    // Fill in inputs (config is visible in the empty state)
     doc.querySelector('[data-field="challenge-name"]').value = 'Office Challenge';
     doc.querySelector('[data-field="start-date"]').value = '2026-08-01';
     doc.querySelector('[data-field="end-date"]').value = '2026-08-31';
@@ -409,7 +517,39 @@ describe('delegated Save handler (data-action="save-challenge")', () => {
     });
   });
 
-  it('re-renders after successful Save (switches to metric state)', async () => {
+  it('saves from the gear-opened config even when a challenge is configured', async () => {
+    const doc = makeDoc();
+    const engine = CHALLENGE_ENGINE_WITH_SAVE();
+    const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
+    // Return an existing challenge from the very first render
+    engine.getActiveChallenge.mockReturnValue(
+      Promise.resolve({
+        key: 'active_challenge',
+        name: 'Old',
+        start_date: '2026-01-01',
+        end_date: '2026-12-31',
+        created_at: '',
+      })
+    );
+    await ui.render();
+
+    const config = doc.querySelector('.challenge-config');
+    expect(config.hidden).toBe(true);
+    // Reveal via gear, then edit and save
+    doc.querySelector('[data-action="toggle-challenge-config"]').click();
+    expect(config.hidden).toBe(false);
+    doc.querySelector('[data-field="challenge-name"]').value = 'Renamed';
+    doc.querySelector('[data-action="save-challenge"]').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(engine.setActiveChallenge).toHaveBeenCalledWith({
+      name: 'Renamed',
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+    });
+  });
+
+  it('re-renders after successful Save (config closes again)', async () => {
     const doc = makeDoc();
     const engine = CHALLENGE_ENGINE_WITH_SAVE();
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
@@ -422,9 +562,9 @@ describe('delegated Save handler (data-action="save-challenge")', () => {
     doc.querySelector('[data-action="save-challenge"]').click();
     await new Promise(r => setTimeout(r, 50));
 
-    // After re-render, metric state should be shown (Copy button present)
+    // After re-render, config is hidden (metric view) and copy is available
+    expect(doc.querySelector('.challenge-config').hidden).toBe(true);
     expect(doc.querySelector('[data-action="copy-challenge"]')).not.toBeNull();
-    expect(doc.querySelector('[data-action="save-challenge"]')).toBeNull();
   });
 
   it('catches RangeError from setActiveChallenge, surfaces via reporter.db, does not throw', async () => {
@@ -495,7 +635,7 @@ describe('delegated Copy handler (data-action="copy-challenge")', () => {
     expect(writeTextMock).toHaveBeenCalledTimes(1);
     const text = writeTextMock.mock.calls[0][0];
     expect(text).toContain('Team Steps Update');
-    expect(text).toContain("Yesterday's Steps");
+    expect(text).toContain('Latest Day');
     expect(text).toContain('Cumulative Total');
     expect(text).toContain('Average Pace');
   });
