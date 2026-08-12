@@ -447,12 +447,16 @@ export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
     throw new TypeError('[steps] _fetchChunk requires a { startMs, endMs } chunk');
   }
 
+  const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const body = JSON.stringify({
     aggregateBy: [
       { dataTypeName: STEP_DATA_TYPE },
       { dataTypeName: DISTANCE_DATA_TYPE },
     ],
-    bucketByTime: { durationMillis: BUCKET_MS },
+    bucketByTime: {
+      durationMillis: BUCKET_MS,
+      timeZoneId: userTimeZone
+    },
     startTimeMillis: _localMidnight(chunk.startMs).getTime(),
     endTimeMillis: _localMidnight(chunk.endMs).getTime(),
   });
