@@ -410,3 +410,98 @@ The `goal_history` table that existed in DB v2–v3 has been **dropped** in v4. 
 4. `goal_history` is dropped (`null` in the v4 store map).
 
 This migration is one-way: downgrading to a DB version that expects `goal_history` is not supported.
+
+## Group Challenge Tracker
+
+The Dashboard includes a **Group Challenge Tracker** widget (`#challenge-card`) for monitoring a team step challenge and sharing progress with a one-click clipboard copy.
+
+The widget is driven by two modules:
+- `src/challenge.js` — pure engine (no DOM): persistence, metric computation, and text formatting.
+- `src/challenge-ui.js` — sole DOM writer: renders the configure or metric card, handles user actions.
+
+### Configuring a Challenge Window
+
+When no challenge is saved, the widget shows a configure card with three fields:
+
+| Field | Required | Default | Constraint |
+|-------|----------|---------|------------|
+| Challenge Name | No | `Step Challenge` | Free text; stored as-is; displayed in the copy output |
+| Start Date | Yes | First day of the current month | ISO date (`YYYY-MM-DD`) |
+| End Date | Yes | Last day of the current month | Must be ≥ Start Date; `RangeError` is thrown otherwise |
+
+Click **Save Challenge** to persist the window. The widget immediately switches to the metric view.
+
+### Settings Schema
+
+The active challenge is stored as a single row in the Dexie `settings` store under the primary key `'active_challenge'`:
+
+```json
+{
+  "key": "active_challenge",
+  "name": "Office Steps Challenge",
+  "start_date": "2026-08-01",
+  "end_date": "2026-08-31",
+  "created_at": "2026-08-01T09:00:00.000Z"
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `key` | `string` | Always `'active_challenge'` — the Dexie primary key |
+| `name` | `string \| null` | Optional display name; `null` when omitted |
+| `start_date` | `string` | ISO date (`YYYY-MM-DD`); inclusive range start |
+| `end_date` | `string` | ISO date (`YYYY-MM-DD`); inclusive range end |
+| `created_at` | `string` | ISO timestamp set on first save; preserved on subsequent edits |
+
+### Cumulative Summation Rules
+
+The engine (`computeChallengeMetrics`) applies the following rules consistently:
+
+**Yesterday's Steps** — always `today − 1`, regardless of whether the challenge is active or completed. If the challenge ended last week, "Yesterday's Steps" is still yesterday's literal step count from `daily_records` (may be 0 if outside the challenge window).
+
+**Cumulative Total** — sum of `effective_steps` for records in `[start_date, rangeEnd]` (inclusive):
+- **Active challenge** (`end_date >= today`): `rangeEnd = yesterday` — sums from `start_date` through yesterday, excluding today's in-progress day.
+- **Completed challenge** (`end_date < today`): `rangeEnd = end_date` — sums the full challenge window.
+
+**Elapsed Days** (`Day N of M`):
+- Active: `(yesterday − start_date) + 1`, floored at 0 (renders as `Day 0` when the challenge has just started today).
+- Completed: full duration `(end_date − start_date) + 1`.
+
+**Average Pace** — `cumulativeTotal / elapsedDays` steps/day, rounded to the nearest integer. Renders as `0` when `elapsedDays = 0` (divide-by-zero guard).
+
+### Four Displayed Metrics
+
+| Label | Value |
+|-------|-------|
+| Yesterday's Steps | Step count for `today − 1` |
+| Cumulative Total | Sum of `effective_steps` in the summation window |
+| Day Progress | `Day N of M` (elapsed / total challenge duration) |
+| Average Pace | `steps/day` rounded to integer |
+
+When `end_date < today`, a **🏁 Challenge Finished** badge appears in the card header.
+
+### One-Click Clipboard Export
+
+Click **📋 Copy Group Update** to copy a pre-formatted progress update to the system clipboard. Requires a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) (`https://` or `localhost`).
+
+**Formatted output template:**
+
+```
+🚶 {name} Update
+📅 Yesterday's Steps: {yesterdaySteps}
+📊 Cumulative Total: {cumulativeTotal} steps (Day {elapsedDays})
+📈 Average Pace: {avgPace} steps/day
+```
+
+All step counts are formatted with thousands separators (`toLocaleString('en-US')`). If no name was saved, `{name}` falls back to `Step Challenge`.
+
+**Example output:**
+
+```
+🚶 Office Steps Challenge Update
+📅 Yesterday's Steps: 11,243
+📊 Cumulative Total: 187,450 steps (Day 17)
+📈 Average Pace: 11,026 steps/day
+```
+
+After a successful copy, a **✅ Copied to Clipboard!** badge appears on the card for 2 seconds. If the clipboard API fails (non-secure context or permission denied), a `⚠️ Copy to clipboard failed` message appears in the status line.
