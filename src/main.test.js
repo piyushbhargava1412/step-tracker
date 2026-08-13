@@ -118,6 +118,17 @@ vi.mock('./steps.js', () => ({
   createStepSync: vi.fn(() => mockStepSyncInstance)
 }))
 
+// ST-015 Task 9: settings + settings-ui mocks
+const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn() }
+vi.mock('./settings.js', () => ({
+  createSettings: vi.fn(() => mockSettingsInstance)
+}))
+
+const mockSettingsUIInstance = { render: vi.fn().mockResolvedValue(undefined), open: vi.fn(), close: vi.fn() }
+vi.mock('./settings-ui.js', () => ({
+  createSettingsUI: vi.fn(() => mockSettingsUIInstance)
+}))
+
 // Import mocked modules so we have references to the spy fns
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
@@ -137,6 +148,8 @@ import { createExporter } from './exporter.js'
 import { createSearchUI } from './search-ui.js'
 import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
+import { createSettings } from './settings.js'
+import { createSettingsUI } from './settings-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1086,5 +1099,125 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
       expect(errorSpy).toHaveBeenCalled()
       errorSpy.mockRestore()
     })
+  })
+})
+
+describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <button id="settings-btn">Settings</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  it('createSettings is instantiated once with db', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createSettings).toHaveBeenCalledTimes(1)
+    expect(createSettings).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createSettingsUI is instantiated once with (doc, settingsInstance, reporter, confirmFn)', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createSettingsUI).toHaveBeenCalledTimes(1)
+    expect(createSettingsUI).toHaveBeenCalledWith(
+      isolatedDoc,
+      mockSettingsInstance,
+      mockReporter,
+      expect.any(Function)
+    )
+  })
+
+  it('clicking #settings-btn calls settingsUI.open()', async () => {
+    await bootstrap(isolatedDoc)
+    const btn = document.getElementById('settings-btn')
+    btn.click()
+    expect(mockSettingsUIInstance.open).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated triggers searchUI.render() (fail-open leg)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated triggers all existing fan-out legs plus searchUI.render()', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('searchUI.render() throwing in mutation handler does not break other fan-out legs (fail-open)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockSearchUIInstance.render.mockRejectedValueOnce(new Error('searchUI fail'))
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    // Other legs must still have been called
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(errorSpy).toHaveBeenCalledWith('[main]', expect.any(Error))
+    errorSpy.mockRestore()
   })
 })
