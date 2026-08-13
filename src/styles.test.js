@@ -793,9 +793,16 @@ describe('styles.css — ST-015 settings button & modal overlay (Task 8)', () =>
   });
 
   it('.disabled-picker selector with opacity-50 and pointer-events-none is defined', () => {
-    expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent) ||
-           cssContent.includes('opacity-50')).toBe(true);
+    expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent)).toBe(true);
     expect(/\.disabled-picker\s*\{[^}]*pointer-events:\s*none/.test(cssContent)).toBe(true);
+  });
+
+  it('.modal-dialog selector is defined for the settings modal', () => {
+    expect(cssContent).toMatch(/#settings-modal\s+\.modal-dialog/);
+  });
+
+  it('.modal-header selector is defined for the settings modal', () => {
+    expect(cssContent).toMatch(/#settings-modal\s+\.modal-header/);
   });
 
   it('ST-015 section has no hex colour literals', () => {

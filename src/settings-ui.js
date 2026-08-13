@@ -40,8 +40,11 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     }
 
     // Build content
-    modal.appendChild(_buildHeader());
-    modal.appendChild(_buildBody());
+    const dialog = doc.createElement('div');
+    dialog.className = 'modal-dialog';
+    dialog.appendChild(_buildHeader());
+    dialog.appendChild(_buildBody());
+    modal.appendChild(dialog);
 
     // Attach delegated listeners to modal
     modal.addEventListener('click', _handleClick, { signal });
@@ -50,7 +53,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
 
   function _buildHeader() {
     const header = doc.createElement('div');
-    header.className = 'settings-header';
+    header.className = 'modal-header';
 
     const title = doc.createElement('h2');
     title.className = 'settings-title';
@@ -95,7 +98,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
 
     const dateInput = doc.createElement('input');
     dateInput.type = 'date';
-    dateInput.className = 'settings-date-input';
+    dateInput.className = 'settings-date-picker';
     dateInput.dataset.field = 'anchor-date';
     label.appendChild(dateInput);
 
@@ -155,7 +158,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     const modal = doc.getElementById('settings-modal');
     if (!modal) return;
 
-    modal.style.display = 'flex';
+    modal.removeAttribute('hidden');
 
     // Pre-populate date input from settings
     try {
@@ -176,7 +179,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
   function close() {
     const modal = doc.getElementById('settings-modal');
     if (!modal) return;
-    modal.style.display = 'none';
+    modal.setAttribute('hidden', '');
   }
 
   // ── Event handlers ────────────────────────────────────────────────────────

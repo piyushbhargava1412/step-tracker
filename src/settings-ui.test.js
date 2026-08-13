@@ -21,7 +21,7 @@ function buildDoc(html = '') {
 
 function getBaseHTML() {
   return `
-    <div id="settings-modal" style="display:none;" role="dialog" aria-modal="true">
+    <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden>
     </div>
   `;
 }
@@ -114,6 +114,36 @@ describe('createSettingsUI — render()', () => {
     const preview = doc.querySelector('[data-preview="impact"]');
     expect(preview).not.toBeNull();
   });
+
+  it('render() emits modal-dialog wrapper class matching styles.css', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const dialog = doc.querySelector('#settings-modal .modal-dialog');
+    expect(dialog).not.toBeNull();
+  });
+
+  it('render() emits modal-header class matching styles.css', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const header = doc.querySelector('#settings-modal .modal-header');
+    expect(header).not.toBeNull();
+  });
+
+  it('date input uses settings-date-picker class matching styles.css', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    expect(input.classList.contains('settings-date-picker')).toBe(true);
+  });
 });
 
 // ── open() / close() ─────────────────────────────────────────────────────────
@@ -127,7 +157,7 @@ describe('createSettingsUI — open() / close()', () => {
     await ui.render();
     await ui.open();
     const modal = doc.getElementById('settings-modal');
-    expect(modal.style.display).not.toBe('none');
+    expect(modal.hasAttribute('hidden')).toBe(false);
   });
 
   it('open() pre-populates date input from getSyncAnchorDate()', async () => {
@@ -151,7 +181,7 @@ describe('createSettingsUI — open() / close()', () => {
     await ui.open();
     ui.close();
     const modal = doc.getElementById('settings-modal');
-    expect(modal.style.display).toBe('none');
+    expect(modal.hasAttribute('hidden')).toBe(true);
   });
 
   it('close-button click hides the modal', async () => {
@@ -166,7 +196,7 @@ describe('createSettingsUI — open() / close()', () => {
     expect(closeBtn).not.toBeNull();
     closeBtn.click();
     const modal = doc.getElementById('settings-modal');
-    expect(modal.style.display).toBe('none');
+    expect(modal.hasAttribute('hidden')).toBe(true);
   });
 
   it('getSyncAnchorDate error → reporter.db called', async () => {
