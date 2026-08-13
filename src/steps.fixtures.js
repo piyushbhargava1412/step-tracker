@@ -16,16 +16,20 @@ import { vi } from 'vitest';
  * @param {Array=}  opts.seed   Initial daily_records rows ({ date, ... }).
  * @param {*=}      opts.flag   Value the settings.get/put latch pair reads/writes.
  */
-export function makeStatefulDb({ seed = [], flag = undefined } = {}) {
+export function makeStatefulDb({ seed = [], flag = undefined, syncAnchor = undefined } = {}) {
   const rows = new Map(seed.map((r) => [r.date, r]));
   let flagValue = flag;
+  const anchorValue = syncAnchor;
   const sortAsc = () =>
     [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
   return {
     settings: {
-      get: vi.fn(async (key) =>
-        flagValue === undefined ? undefined : { key, value: flagValue }
-      ),
+      get: vi.fn(async (key) => {
+        if (key === 'sync_anchor_date') {
+          return anchorValue === undefined ? undefined : { key, value: anchorValue };
+        }
+        return flagValue === undefined ? undefined : { key, value: flagValue };
+      }),
       put: vi.fn(async (row) => {
         flagValue = row.value;
       }),
@@ -58,13 +62,16 @@ export function makeStatefulDb({ seed = [], flag = undefined } = {}) {
  * @param {*=}      opts.latestValue   Value last() always resolves.
  * @param {*=}      opts.flagRow       Row settings.get always resolves.
  */
-export function makeScriptedDb({ firstSeq, latestValue, flagRow } = {}) {
+export function makeScriptedDb({ firstSeq, latestValue, flagRow, anchorRow } = {}) {
   const first = vi.fn();
   for (const value of firstSeq) first.mockResolvedValueOnce(value);
   first.mockResolvedValue(firstSeq[firstSeq.length - 1]);
   return {
     settings: {
-      get: vi.fn().mockResolvedValue(flagRow),
+      get: vi.fn((key) => {
+        if (key === 'sync_anchor_date') return Promise.resolve(anchorRow);
+        return Promise.resolve(flagRow);
+      }),
       put: vi.fn().mockResolvedValue(undefined),
     },
     daily_records: {

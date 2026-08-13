@@ -50,6 +50,13 @@ export const MAX_RETRY_AFTER_MS = 30_000;
 /** Key in the Dexie `settings` store that latches a completed backfill. */
 export const BACKFILL_COMPLETE_KEY = 'initial_backfill_complete';
 
+/**
+ * Default sync anchor date string used when no user-configured anchor is stored.
+ * This is the fallback for _determineSyncWindows when sync_anchor_date is absent,
+ * empty, or unreadable.
+ */
+export const DEFAULT_SYNC_ANCHOR = '2018-01-01';
+
 /** Phase tag for a window that walks history back to HISTORY_ANCHOR_DATE. */
 export const PHASE_FULL_HISTORY = 'Full history sync';
 
@@ -225,7 +232,19 @@ export function _chunkWindow(startDate, endDate) {
  *          Windows in processing order.
  */
 export async function _determineSyncWindows(db) {
-  const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+  // Read user-configured sync anchor; fall back to DEFAULT_SYNC_ANCHOR on
+  // absence, empty value, or a thrown error (fail-open: mirrors the adjacent
+  // BACKFILL_COMPLETE_KEY read pattern).
+  let anchorDateStr = DEFAULT_SYNC_ANCHOR;
+  try {
+    const anchorRow = await db.settings.get('sync_anchor_date');
+    if (anchorRow?.value) {
+      anchorDateStr = anchorRow.value;
+    }
+  } catch (err) {
+    console.error('[steps]', err);
+  }
+  const anchorMs = _localMidnight(anchorDateStr).getTime();
   const endMs = _addDays(_localMidnight(new Date()), 1).getTime();
 
   let backfillComplete = false;
