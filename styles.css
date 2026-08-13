@@ -480,7 +480,7 @@ button {
     font-weight: 600;
 }
 
-/* ─── ST-004 Streak Card & Lifetime Banner ────────────────────────────────── */
+/* ─── Active Streaks card (mockup) ─────────────────────────────────────────── */
 
 .streak-card {
     background: var(--bg-card);
@@ -500,38 +500,161 @@ button {
     font-variant-numeric: tabular-nums;
 }
 
-.streak-unit {
-    font-size: 1rem;
-    font-weight: 500;
+.streak-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.streak-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
     color: var(--text-muted);
 }
 
-.tier-badges {
+.goal-badge {
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: var(--accent-sky);
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+.streak-actual {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.streak-actual-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.streak-actual-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.streak-bar {
+    background: rgba(148, 163, 184, 0.15);
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 12px;
+}
+
+.streak-bar-fill {
+    background: linear-gradient(90deg, #38bdf8, #06b6d4);
+    height: 100%;
+    border-radius: 3px;
+    box-shadow: 0 0 10px var(--accent-sky-glow);
+}
+
+.streak-allowances {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.streak-allowance {
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.streak-allowance-label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.streak-allowance-value {
+    display: block;
+    font-size: 1.4rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+
+.streak-runs {
+    border-top: 1px solid var(--bg-card-border);
+    padding-top: 12px;
+}
+
+.streak-runs-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    margin: 0 0 8px;
+}
+
+.streak-run {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 16px;
-}
-
-.tier-chip {
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--bg-card-border);
     font-family: var(--font-mono);
-    font-size: 0.75rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--bg-card-border);
-    color: var(--text-muted);
-    padding: 4px 8px;
-    border-radius: 6px;
+    font-size: 0.8rem;
 }
 
-.tier-chip--active {
+.streak-run:last-child {
+    border-bottom: none;
+}
+
+.streak-run-rank {
     color: var(--accent-sky);
-    border-color: var(--accent-sky);
+    font-weight: 700;
+    min-width: 24px;
 }
 
-.streak-goal {
-    color: var(--text-muted);
-    font-family: var(--font-mono);
+.streak-run:not(:first-of-type) .streak-run-rank {
+    opacity: 0.8;
 }
+
+.streak-run-days {
+    color: var(--accent-sky);
+    font-weight: 700;
+}
+
+.streak-run-range {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    flex: 1;
+    text-align: right;
+}
+
+.streak-runs-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+    padding: 4px 0;
+    margin: 0;
+}
+
+/* ─── Lifetime compliance banner ───────────────────────────────────────────── */
 
 #lifetime-banner {
     background: var(--bg-card);
@@ -1380,95 +1503,7 @@ button {
     align-items: center;
 }
 
-/* ─── ST-007a Tolerance Metrics, Hall of Fame, Near-Miss Panel ──────────────── */
-
-.tolerance-metrics {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-}
-
-.tolerance-metric {
-    background: var(--bg-card);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    flex: 1;
-    min-width: 80px;
-    text-align: center;
-}
-
-.tolerance-value {
-    display: block;
-    color: var(--text-primary);
-    font-size: 1.6rem;
-    font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-}
-
-.tolerance-value.streak-number {
-    color: var(--accent-sky);
-    font-size: 2.8rem;
-    font-weight: 900;
-}
-
-.hall-of-fame {
-    margin-top: 16px;
-    border-top: 1px solid var(--bg-card-border);
-    padding-top: 12px;
-}
-
-.hof-title {
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-muted);
-    margin-bottom: 8px;
-}
-
-.hof-entry {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--bg-card-border);
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-}
-
-.hof-entry:last-child {
-    border-bottom: none;
-}
-
-.hof-rank {
-    color: var(--accent-amber);
-    font-weight: 700;
-    min-width: 24px;
-}
-
-.hof-days {
-    color: var(--accent-sky);
-    font-weight: 700;
-}
-
-.hof-range {
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    flex: 1;
-}
-
-.hof-empty {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    font-style: italic;
-    padding: 4px 0;
-}
+/* ─── ST-007a Near-Miss Panel ──────────────────────────────────────────────── */
 
 .near-miss-panel {
     background: var(--bg-card);

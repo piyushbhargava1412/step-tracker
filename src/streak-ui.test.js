@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createStreakUI } from './streak-ui.js';
-import { TIER_STEP_THRESHOLDS } from './streak.js';
 import { DEFAULT_STEP_GOAL } from './goal.js';
 
 const streakUiSource = fs.readFileSync(path.resolve(__dirname, 'streak-ui.js'), 'utf8');
@@ -50,62 +49,31 @@ function makeStreakReject(err) {
   return { compute: vi.fn().mockRejectedValue(err) };
 }
 
-/** Zero-tier ladder helper (fresh array per fixture). */
-function zeroTiers() {
-  return TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 0, best: 0 }));
-}
-
 /** Zero-state compute result (mirrors _zeroState()). */
 const ZERO_RESULT = {
   tolerance: { actual: 0, allowance95: 0, allowance90: 0 },
-  tiers: zeroTiers(),
   hallOfFame: [],
   lifetime: { metDays: 0, totalDays: 0, pct: 0 },
   activeStepGoal: DEFAULT_STEP_GOAL, // 10000
 };
 
-/** AC Scenario 4: 40 out of 100 days met (40.0%). */
-const SCENARIO_4_RESULT = {
-  tolerance: { actual: 7, allowance95: 12, allowance90: 15 },
-  tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 5, best: 10 })),
+/** AC Scenario: 19 / 39 / 39 (story's worked tolerance example). */
+const TOLERANCE_RESULT = {
+  tolerance: { actual: 19, allowance95: 39, allowance90: 39 },
   hallOfFame: [],
   lifetime: { metDays: 40, totalDays: 100, pct: 40.0 },
   activeStepGoal: DEFAULT_STEP_GOAL,
 };
 
-/** AC Scenario: 19 / 39 / 39 (story's worked tolerance example). */
-const TOLERANCE_RESULT = {
-  tolerance: { actual: 19, allowance95: 39, allowance90: 39 },
-  tiers: zeroTiers(),
-  hallOfFame: [],
-  lifetime: { metDays: 30, totalDays: 40, pct: 75 },
-  activeStepGoal: DEFAULT_STEP_GOAL,
-};
-
-/** Custom/legacy step goal not matching any tier rung. */
+/** Custom/legacy step goal not matching any preset. */
 const GOAL_NO_MATCH_RESULT = {
   tolerance: { actual: 2, allowance95: 2, allowance90: 2 },
-  tiers: TIER_STEP_THRESHOLDS.map((t) => ({ threshold: t, active: 1, best: 3 })),
   hallOfFame: [],
   lifetime: { metDays: 5, totalDays: 10, pct: 50 },
-  activeStepGoal: 6000, // not a member of TIER_STEP_THRESHOLDS
+  activeStepGoal: 6000,
 };
 
-/** Result with non-zero chip counts for chip-text test. */
-const CHIP_TEXT_RESULT = {
-  tolerance: { actual: 42, allowance95: 50, allowance90: 55 },
-  tiers: [
-    { threshold: 5000, active: 42, best: 60 },
-    { threshold: 7500, active: 21, best: 30 },
-    { threshold: 10000, active: 10, best: 15 },
-    { threshold: 15000, active: 2, best: 5 },
-  ],
-  hallOfFame: [],
-  lifetime: { metDays: 20, totalDays: 50, pct: 40 },
-  activeStepGoal: 10000,
-};
-
-/** Three podium entries. */
+/** Three podium entries, all within single calendar years. */
 const HOF_THREE = [
   { startDate: '2026-05-01', endDate: '2026-06-10', days: 41 },
   { startDate: '2026-01-02', endDate: '2026-01-20', days: 19 },
@@ -114,6 +82,9 @@ const HOF_THREE = [
 
 /** Single podium entry. */
 const HOF_ONE = [{ startDate: '2026-03-01', endDate: '2026-03-05', days: 5 }];
+
+/** Cross-year podium entry (mockup: 1,178 days spanning 2021–2025). */
+const HOF_CROSS = [{ startDate: '2021-01-01', endDate: '2025-12-31', days: 1178 }];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -170,211 +141,8 @@ describe('createStreakUI', () => {
 
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
-      expect(doc.getElementById('lifetime-banner')).toBeNull();
+
       expect(doc.getElementById('streak-card')).toBeNull();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Happy path — prepend order (SF-4)
-  // -------------------------------------------------------------------------
-  describe('prepend order (SF-4)', () => {
-    it('banner + card are the first two children of #tab-dashboard in order', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const dashboard = doc.getElementById('tab-dashboard');
-      const children = Array.from(dashboard.children);
-      expect(children[0].id).toBe('lifetime-banner');
-      expect(children[1].id).toBe('streak-card');
-    });
-
-    it('pre-existing content is pushed down, not removed', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const existing = doc.getElementById('existing-content');
-      expect(existing).not.toBeNull();
-    });
-
-    it('banner is the first child (order: banner, card, existing)', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const dashboard = doc.getElementById('tab-dashboard');
-      expect(dashboard.firstElementChild.id).toBe('lifetime-banner');
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Banner string (SF-4d)
-  // -------------------------------------------------------------------------
-  describe('lifetime banner (SF-4d)', () => {
-    it('AC Scenario 4: banner reads "40 / 100 Days (40.0% Lifetime)"', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(SCENARIO_4_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const banner = doc.getElementById('lifetime-banner');
-      expect(banner).not.toBeNull();
-      expect(banner.textContent).toBe('40 / 100 Days (40.0% Lifetime)');
-    });
-
-    it('metDays / totalDays live in the .lifetime-count span', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(SCENARIO_4_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const count = doc.querySelector('.lifetime-count');
-      expect(count).not.toBeNull();
-      expect(count.textContent).toBe('40 / 100');
-    });
-
-    it('pct renders with exactly one decimal', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak({
-        ...ZERO_RESULT,
-        lifetime: { metDays: 1, totalDays: 3, pct: (1 / 3) * 100 },
-      });
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const banner = doc.getElementById('lifetime-banner');
-      expect(banner.textContent).toBe('1 / 3 Days (33.3% Lifetime)');
-    });
-
-    it('zero-state banner reads "0 / 0 Days (0.0% Lifetime)"', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const banner = doc.getElementById('lifetime-banner');
-      expect(banner).not.toBeNull();
-      expect(banner.textContent).toBe('0 / 0 Days (0.0% Lifetime)');
-    });
-
-    it('banner uses toLocaleString("en-US") separators for large numbers', async () => {
-      const doc = buildDoc();
-      const result = {
-        ...ZERO_RESULT,
-        lifetime: { metDays: 1_200, totalDays: 3_000, pct: 40.0 },
-      };
-      const streak = makeStreak(result);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const banner = doc.getElementById('lifetime-banner');
-      expect(banner.textContent).toBe('1,200 / 3,000 Days (40.0% Lifetime)');
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Tolerance metrics (SF-7 render)
-  // -------------------------------------------------------------------------
-  describe('tolerance metrics (SF-7)', () => {
-    it('renders exactly three .tolerance-metric nodes inside .tolerance-metrics', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(TOLERANCE_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const container = doc.querySelector('.tolerance-metrics');
-      expect(container).not.toBeNull();
-      expect(container.querySelectorAll('.tolerance-metric').length).toBe(3);
-    });
-
-    it('.tolerance-metrics lives inside #streak-card', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(TOLERANCE_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const card = doc.getElementById('streak-card');
-      expect(card.querySelector('.tolerance-metrics')).not.toBeNull();
-    });
-
-    it('the three metric labels are Actual (100%), 95% Tolerance, 90% Tolerance in order', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(TOLERANCE_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const labels = Array.from(doc.querySelectorAll('.tolerance-metric .tolerance-label')).map(
-        (el) => el.textContent,
-      );
-      expect(labels).toEqual(['Actual Streak (100%)', '95% Tolerance', '90% Tolerance']);
-    });
-
-    it('the three metric values come from result.tolerance (19 / 39 / 39)', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(TOLERANCE_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const values = Array.from(doc.querySelectorAll('.tolerance-metric .tolerance-value')).map(
-        (el) => el.textContent,
-      );
-      expect(values).toEqual(['19', '39', '39']);
-    });
-
-    it('the headline .streak-number is the Actual (100%) streak', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(TOLERANCE_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const headline = doc.querySelectorAll('.streak-number');
-      expect(headline.length).toBe(1);
-      expect(headline[0].textContent).toBe('19');
-    });
-
-    it('zero-state renders three metrics all reading 0', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(ZERO_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const values = Array.from(doc.querySelectorAll('.tolerance-metric .tolerance-value')).map(
-        (el) => el.textContent,
-      );
-      expect(values).toEqual(['0', '0', '0']);
     });
   });
 
@@ -392,56 +160,127 @@ describe('createStreakUI', () => {
       await ui.render();
     });
 
-    it('#streak-card is present', () => {
-      expect(doc.getElementById('streak-card')).not.toBeNull();
-    });
-
-    it('card has a .card-title', () => {
+    it('#streak-card is present, prepended after the lifetime banner', () => {
+      const dashboard = doc.getElementById('tab-dashboard');
       const card = doc.getElementById('streak-card');
-      const title = card.querySelector('.card-title');
-      expect(title).not.toBeNull();
-      expect(title.textContent.length).toBeGreaterThan(0);
+      expect(card).not.toBeNull();
+      expect(dashboard.firstElementChild.id).toBe('lifetime-banner');
+      expect(dashboard.children[1]).toBe(card);
     });
 
-    it('four .tier-chip elements are present (one per threshold)', () => {
-      const chips = doc.querySelectorAll('.tier-chip');
-      expect(chips.length).toBe(TIER_STEP_THRESHOLDS.length);
-    });
-
-    it('zero-state chips read >5k: 0d (best 0d), >7.5k: 0d (best 0d), >10k: 0d (best 0d), >15k: 0d (best 0d)', () => {
-      const chips = Array.from(doc.querySelectorAll('.tier-chip'));
-      const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual([
-        '>5k: 0d (best 0d)',
-        '>7.5k: 0d (best 0d)',
-        '>10k: 0d (best 0d)',
-        '>15k: 0d (best 0d)',
-      ]);
-    });
-
-    it('renders card sections in order: title, tolerance metrics, goal, tiers, hall of fame', () => {
+    it('renders card sections in order: header, actual, allowances, runs', () => {
       const card = doc.getElementById('streak-card');
       const order = Array.from(card.children).map((el) => el.className);
       expect(order).toEqual([
-        'card-title',
-        'tolerance-metrics',
-        'streak-goal',
-        'tier-badges',
-        'hall-of-fame',
+        'streak-header',
+        'streak-actual',
+        'streak-allowances',
+        'streak-runs',
       ]);
     });
   });
 
   // -------------------------------------------------------------------------
-  // Goal label (SF-6) — steps, not km
+  // Lifetime compliance banner (SF-4d)
   // -------------------------------------------------------------------------
-  describe('goal label (SF-6)', () => {
+  describe('lifetime banner (SF-4d)', () => {
+    it('renders #lifetime-banner as the first dashboard child', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const banner = doc.getElementById('lifetime-banner');
+      expect(banner).not.toBeNull();
+      expect(doc.getElementById('tab-dashboard').firstElementChild).toBe(banner);
+    });
+
+    it('reads "${metDays} / ${totalDays} Days (${pct}% Lifetime)" from result.lifetime', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({
+        ...ZERO_RESULT,
+        lifetime: { metDays: 40, totalDays: 100, pct: 40.0 },
+      });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const banner = doc.getElementById('lifetime-banner');
+      expect(banner.textContent).toBe('40 / 100 Days (40.0% Lifetime)');
+    });
+
+    it('the met/total day counts live in the .lifetime-count span', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({
+        ...ZERO_RESULT,
+        lifetime: { metDays: 1, totalDays: 3, pct: (1 / 3) * 100 },
+      });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const count = doc.querySelector('.lifetime-count');
+      expect(count).not.toBeNull();
+      expect(count.textContent).toBe('1 / 3');
+    });
+
+    it('formats large counts with thousands separators', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({
+        ...ZERO_RESULT,
+        lifetime: { metDays: 1200, totalDays: 3000, pct: 40.0 },
+      });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const banner = doc.getElementById('lifetime-banner');
+      expect(banner.querySelector('.lifetime-count').textContent).toBe('1,200 / 3,000');
+      expect(banner.textContent).toBe('1,200 / 3,000 Days (40.0% Lifetime)');
+    });
+
+    it('a missing lifetime result fails open to the zero-state banner', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({ ...ZERO_RESULT, lifetime: undefined });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.getElementById('lifetime-banner').textContent).toBe(
+        '0 / 0 Days (0.0% Lifetime)',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Header: title + goal badge (SF-6 — steps, not km)
+  // -------------------------------------------------------------------------
+  describe('card header', () => {
+    it('.streak-title reads "Active Streaks"', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const title = doc.querySelector('.streak-title');
+      expect(title).not.toBeNull();
+      expect(title.textContent).toBe('Active Streaks');
+    });
+
     it.each([
-      [5000, 'Goal: 5,000 steps'],
-      [7500, 'Goal: 7,500 steps'],
-      [10000, 'Goal: 10,000 steps'],
-      [15000, 'Goal: 15,000 steps'],
-    ])('activeStepGoal %s → ".streak-goal" reads "%s"', async (stepGoal, expected) => {
+      [5000, '5k Goal'],
+      [7500, '7.5k Goal'],
+      [10000, '10k Goal'],
+      [15000, '15k Goal'],
+    ])('activeStepGoal %s → .goal-badge reads "%s"', async (stepGoal, expected) => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, activeStepGoal: stepGoal });
       const reporter = { db: vi.fn() };
@@ -449,8 +288,20 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const goalEl = doc.querySelector('.streak-goal');
-      expect(goalEl.textContent).toBe(expected);
+      const badge = doc.querySelector('.goal-badge');
+      expect(badge).not.toBeNull();
+      expect(badge.textContent).toBe(expected);
+    });
+
+    it('a custom goal like 6000 → .goal-badge reads "6k Goal"', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(GOAL_NO_MATCH_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.querySelector('.goal-badge').textContent).toBe('6k Goal');
     });
 
     it('no "km" substring anywhere in the rendered #streak-card', async () => {
@@ -468,10 +319,112 @@ describe('createStreakUI', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Hall of Fame (SF-4c render)
+  // Actual (100%) streak block
   // -------------------------------------------------------------------------
-  describe('hall of fame (SF-4c)', () => {
-    it('.hall-of-fame block lives inside #streak-card', async () => {
+  describe('actual (100%) streak block', () => {
+    it('.streak-actual-label reads "Actual (100%)"', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.querySelector('.streak-actual-label').textContent).toBe('Actual (100%)');
+    });
+
+    it('the headline .streak-number equals tolerance.actual (19)', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.querySelector('.streak-actual .streak-number').textContent).toBe('19');
+    });
+
+    it('the bar is a .streak-bar holding a .streak-bar-fill filled to 100%', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const bar = doc.querySelector('.streak-actual .streak-bar');
+      expect(bar).not.toBeNull();
+      const fill = bar.querySelector('.streak-bar-fill');
+      expect(fill).not.toBeNull();
+      expect(fill.style.width).toBe('100%');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Tolerance allowances (SF-7 render)
+  // -------------------------------------------------------------------------
+  describe('tolerance allowances (SF-7)', () => {
+    it('renders exactly two .streak-allowance nodes inside .streak-allowances', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const container = doc.querySelector('.streak-allowances');
+      expect(container).not.toBeNull();
+      expect(container.querySelectorAll('.streak-allowance').length).toBe(2);
+    });
+
+    it('allowance labels read "95% Tolerance" then "90% Tolerance"', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const labels = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-label'),
+      ).map((el) => el.textContent);
+      expect(labels).toEqual(['95% Tolerance', '90% Tolerance']);
+    });
+
+    it('allowance values come from result.tolerance (39 / 39)', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const values = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-value'),
+      ).map((el) => el.textContent);
+      expect(values).toEqual(['39', '39']);
+    });
+
+    it('zero-state allowances both read 0', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const values = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-value'),
+      ).map((el) => el.textContent);
+      expect(values).toEqual(['0', '0']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Best Runs podium (SF-4c render)
+  // -------------------------------------------------------------------------
+  describe('best runs (SF-4c)', () => {
+    it('.streak-runs block lives inside #streak-card', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
@@ -480,10 +433,10 @@ describe('createStreakUI', () => {
       await ui.render();
 
       const card = doc.getElementById('streak-card');
-      expect(card.querySelector('.hall-of-fame')).not.toBeNull();
+      expect(card.querySelector('.streak-runs')).not.toBeNull();
     });
 
-    it('.hof-title names the active step goal with a thousands separator', async () => {
+    it('.streak-runs-title names the active step goal with a thousands separator', async () => {
       const doc = buildDoc();
       const streak = makeStreak({
         ...ZERO_RESULT,
@@ -495,12 +448,12 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const title = doc.querySelector('.hof-title');
+      const title = doc.querySelector('.streak-runs-title');
       expect(title).not.toBeNull();
-      expect(title.textContent).toBe('Hall of Fame — best runs at 7,500 steps');
+      expect(title.textContent).toBe('🏆 Best Runs at 7,500');
     });
 
-    it('three entries render three .hof-entry nodes', async () => {
+    it('three entries render three .streak-run nodes', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
@@ -508,11 +461,11 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      expect(doc.querySelectorAll('.hof-entry').length).toBe(3);
-      expect(doc.querySelector('.hof-empty')).toBeNull();
+      expect(doc.querySelectorAll('.streak-run').length).toBe(3);
+      expect(doc.querySelector('.streak-runs-empty')).toBeNull();
     });
 
-    it('.hof-rank reads #1, #2, #3 in podium order', async () => {
+    it('.streak-run-rank reads #1, #2, #3 in podium order', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
@@ -520,11 +473,13 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const ranks = Array.from(doc.querySelectorAll('.hof-rank')).map((el) => el.textContent);
+      const ranks = Array.from(doc.querySelectorAll('.streak-run-rank')).map(
+        (el) => el.textContent,
+      );
       expect(ranks).toEqual(['#1', '#2', '#3']);
     });
 
-    it('.hof-days reads "N days" per entry', async () => {
+    it('.streak-run-days reads "N days" per entry', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
@@ -532,11 +487,13 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const days = Array.from(doc.querySelectorAll('.hof-days')).map((el) => el.textContent);
+      const days = Array.from(doc.querySelectorAll('.streak-run-days')).map(
+        (el) => el.textContent,
+      );
       expect(days).toEqual(['41 days', '19 days', '8 days']);
     });
 
-    it('.hof-range reads "start → end" per entry', async () => {
+    it('.streak-run-range collapses same-year entries to the year', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
@@ -544,15 +501,27 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const ranges = Array.from(doc.querySelectorAll('.hof-range')).map((el) => el.textContent);
-      expect(ranges).toEqual([
-        '2026-05-01 → 2026-06-10',
-        '2026-01-02 → 2026-01-20',
-        '2025-11-01 → 2025-11-08',
-      ]);
+      const ranges = Array.from(doc.querySelectorAll('.streak-run-range')).map(
+        (el) => el.textContent,
+      );
+      expect(ranges).toEqual(['2026', '2026', '2025']);
     });
 
-    it('a single-entry result renders exactly one .hof-entry', async () => {
+    it('a cross-year run renders "1,178 days" and "2021-2025" (mockup format)', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_CROSS });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.querySelectorAll('.streak-run').length).toBe(1);
+      expect(doc.querySelector('.streak-run-rank').textContent).toBe('#1');
+      expect(doc.querySelector('.streak-run-days').textContent).toBe('1,178 days');
+      expect(doc.querySelector('.streak-run-range').textContent).toBe('2021-2025');
+    });
+
+    it('a single-entry result renders exactly one .streak-run', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_ONE });
       const reporter = { db: vi.fn() };
@@ -560,15 +529,15 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const entries = doc.querySelectorAll('.hof-entry');
+      const entries = doc.querySelectorAll('.streak-run');
       expect(entries.length).toBe(1);
-      expect(entries[0].querySelector('.hof-rank').textContent).toBe('#1');
-      expect(entries[0].querySelector('.hof-days').textContent).toBe('5 days');
-      expect(entries[0].querySelector('.hof-range').textContent).toBe('2026-03-01 → 2026-03-05');
-      expect(doc.querySelector('.hof-empty')).toBeNull();
+      expect(entries[0].querySelector('.streak-run-rank').textContent).toBe('#1');
+      expect(entries[0].querySelector('.streak-run-days').textContent).toBe('5 days');
+      expect(entries[0].querySelector('.streak-run-range').textContent).toBe('2026');
+      expect(doc.querySelector('.streak-runs-empty')).toBeNull();
     });
 
-    it('an empty result renders .hof-empty and zero .hof-entry', async () => {
+    it('an empty result renders .streak-runs-empty and zero .streak-run', async () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
@@ -576,13 +545,13 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      expect(doc.querySelectorAll('.hof-entry').length).toBe(0);
-      const empty = doc.querySelector('.hof-empty');
+      expect(doc.querySelectorAll('.streak-run').length).toBe(0);
+      const empty = doc.querySelector('.streak-runs-empty');
       expect(empty).not.toBeNull();
       expect(empty.textContent).toBe('No qualifying streak periods yet');
     });
 
-    it('a non-array hallOfFame fails open to .hof-empty', async () => {
+    it('a non-array hallOfFame fails open to .streak-runs-empty', async () => {
       const doc = buildDoc();
       const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: undefined });
       const reporter = { db: vi.fn() };
@@ -590,15 +559,15 @@ describe('createStreakUI', () => {
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      expect(doc.querySelectorAll('.hof-entry').length).toBe(0);
-      expect(doc.querySelector('.hof-empty')).not.toBeNull();
+      expect(doc.querySelectorAll('.streak-run').length).toBe(0);
+      expect(doc.querySelector('.streak-runs-empty')).not.toBeNull();
     });
   });
 
   // -------------------------------------------------------------------------
-  // Lock badge removal (regression)
+  // Removed features regression (lock badge / tier chips / banner / hof block)
   // -------------------------------------------------------------------------
-  describe('lock badge removal (regression)', () => {
+  describe('removed features regression', () => {
     it('no .lock-badge node is rendered', async () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
@@ -622,63 +591,32 @@ describe('createStreakUI', () => {
       expect(dashboard.textContent).not.toContain('Effective Date Lock');
       expect(dashboard.innerHTML).not.toContain('lock-badge');
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // Tier chip active highlighting (SF-3 / SF-4b × SF-10 invariant)
-  // -------------------------------------------------------------------------
-  describe('tier chip active highlighting (SF-3)', () => {
-    it.each([
-      [5000, '>5k'],
-      [7500, '>7.5k'],
-      [10000, '>10k'],
-      [15000, '>15k'],
-    ])('activeStepGoal %s → exactly one .tier-chip--active on the %s chip', async (stepGoal, chipText) => {
+    it('no tier chips are rendered', async () => {
       const doc = buildDoc();
-      const streak = makeStreak({ ...ZERO_RESULT, activeStepGoal: stepGoal });
+      const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
 
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const activeChips = doc.querySelectorAll('.tier-chip--active');
-      expect(activeChips.length).toBe(1);
-      expect(activeChips[0].textContent).toContain(chipText);
+      expect(doc.querySelectorAll('.tier-chip').length).toBe(0);
+      expect(doc.querySelector('.tier-badges')).toBeNull();
+      expect(doc.querySelector('.streak-goal')).toBeNull();
     });
 
-    it('a step goal outside the enum → no .tier-chip--active (no exact match)', async () => {
+    it('no legacy tolerance-box / hall-of-fame block is rendered', async () => {
       const doc = buildDoc();
-      const streak = makeStreak(GOAL_NO_MATCH_RESULT);
+      const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
       const reporter = { db: vi.fn() };
 
       const ui = createStreakUI(doc, streak, reporter);
       await ui.render();
 
-      const activeChips = doc.querySelectorAll('.tier-chip--active');
-      expect(activeChips.length).toBe(0);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Chip text format
-  // -------------------------------------------------------------------------
-  describe('chip text format (SF-8 verbatim mockup)', () => {
-    it('non-zero counts render as >5k: 42d (best 60d), >7.5k: 21d (best 30d), >10k: 10d (best 15d), >15k: 2d (best 5d)', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak(CHIP_TEXT_RESULT);
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-
-      const chips = Array.from(doc.querySelectorAll('.tier-chip'));
-      const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual([
-        '>5k: 42d (best 60d)',
-        '>7.5k: 21d (best 30d)',
-        '>10k: 10d (best 15d)',
-        '>15k: 2d (best 5d)',
-      ]);
+      expect(doc.querySelector('.tolerance-metrics')).toBeNull();
+      expect(doc.querySelector('.tolerance-metric')).toBeNull();
+      expect(doc.querySelector('.hall-of-fame')).toBeNull();
+      expect(doc.querySelector('.hof-entry')).toBeNull();
     });
   });
 
@@ -698,7 +636,7 @@ describe('createStreakUI', () => {
       expect(doc.querySelectorAll('#streak-card').length).toBe(1);
     });
 
-    it('two render() calls → exactly one #lifetime-banner', async () => {
+    it('two render() calls → exactly one #lifetime-banner, still first', async () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
@@ -708,22 +646,12 @@ describe('createStreakUI', () => {
       await ui.render();
 
       expect(doc.querySelectorAll('#lifetime-banner').length).toBe(1);
+      expect(doc.getElementById('tab-dashboard').firstElementChild.id).toBe(
+        'lifetime-banner',
+      );
     });
 
-    it('two render() calls → exactly one .hall-of-fame', async () => {
-      const doc = buildDoc();
-      const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
-      const reporter = { db: vi.fn() };
-
-      const ui = createStreakUI(doc, streak, reporter);
-      await ui.render();
-      await ui.render();
-
-      expect(doc.querySelectorAll('.hall-of-fame').length).toBe(1);
-      expect(doc.querySelectorAll('.hof-entry').length).toBe(3);
-    });
-
-    it('after two renders, banner is still the first child', async () => {
+    it('two render() calls → exactly one .streak-header and one .streak-actual', async () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
@@ -732,8 +660,37 @@ describe('createStreakUI', () => {
       await ui.render();
       await ui.render();
 
-      const dashboard = doc.getElementById('tab-dashboard');
-      expect(dashboard.firstElementChild.id).toBe('lifetime-banner');
+      expect(doc.querySelectorAll('.streak-header').length).toBe(1);
+      expect(doc.querySelectorAll('.streak-actual').length).toBe(1);
+    });
+
+    it('two render() calls → exactly three .streak-run nodes', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({ ...ZERO_RESULT, hallOfFame: HOF_THREE });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+      await ui.render();
+
+      expect(doc.querySelectorAll('.streak-run').length).toBe(3);
+    });
+
+    it('a stale #lifetime-banner injected earlier is replaced by exactly one fresh one', async () => {
+      const doc = buildDoc();
+      doc.getElementById('tab-dashboard').innerHTML =
+        '<div id="lifetime-banner">stale</div>';
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      expect(doc.querySelectorAll('#lifetime-banner').length).toBe(1);
+      expect(doc.getElementById('lifetime-banner').textContent).toBe(
+        '0 / 0 Days (0.0% Lifetime)',
+      );
+      expect(doc.querySelectorAll('#streak-card').length).toBe(1);
     });
   });
 
@@ -767,48 +724,39 @@ describe('createStreakUI', () => {
       expect(doc.getElementById('lifetime-banner')).not.toBeNull();
     });
 
-    it('compute() rejecting → zero-state banner "0 / 0 Days (0.0% Lifetime)"', async () => {
+    it('compute() rejecting → zero-state banner reads "0 / 0 Days (0.0% Lifetime)"', async () => {
       await ui.render();
-      const banner = doc.getElementById('lifetime-banner');
-      expect(banner.textContent).toBe('0 / 0 Days (0.0% Lifetime)');
-    });
-
-    it('compute() rejecting → zero-state tolerance metrics all read 0', async () => {
-      await ui.render();
-      const values = Array.from(doc.querySelectorAll('.tolerance-metric .tolerance-value')).map(
-        (el) => el.textContent,
+      expect(doc.getElementById('lifetime-banner').textContent).toBe(
+        '0 / 0 Days (0.0% Lifetime)',
       );
-      expect(values).toEqual(['0', '0', '0']);
     });
 
-    it('compute() rejecting → zero-state chips >5k: 0d (best 0d), etc.', async () => {
+    it('compute() rejecting → zero-state headline number reads 0', async () => {
       await ui.render();
-      const chips = Array.from(doc.querySelectorAll('.tier-chip'));
-      expect(chips.length).toBe(TIER_STEP_THRESHOLDS.length);
-      const texts = chips.map((c) => c.textContent);
-      expect(texts).toEqual([
-        '>5k: 0d (best 0d)',
-        '>7.5k: 0d (best 0d)',
-        '>10k: 0d (best 0d)',
-        '>15k: 0d (best 0d)',
-      ]);
+      expect(doc.querySelector('.streak-actual .streak-number').textContent).toBe('0');
     });
 
-    it('compute() rejecting → zero-state hall of fame renders .hof-empty', async () => {
+    it('compute() rejecting → zero-state allowances both read 0', async () => {
       await ui.render();
-      expect(doc.querySelector('.hall-of-fame')).not.toBeNull();
-      expect(doc.querySelectorAll('.hof-entry').length).toBe(0);
-      expect(doc.querySelector('.hof-empty').textContent).toBe(
+      const values = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-value'),
+      ).map((el) => el.textContent);
+      expect(values).toEqual(['0', '0']);
+    });
+
+    it('compute() rejecting → zero-state best runs renders .streak-runs-empty', async () => {
+      await ui.render();
+      expect(doc.querySelector('.streak-runs')).not.toBeNull();
+      expect(doc.querySelectorAll('.streak-run').length).toBe(0);
+      expect(doc.querySelector('.streak-runs-empty').textContent).toBe(
         'No qualifying streak periods yet',
       );
     });
 
-    it('compute() rejecting → zero-state goal label uses DEFAULT_STEP_GOAL', async () => {
+    it('compute() rejecting → zero-state goal badge uses DEFAULT_STEP_GOAL', async () => {
       await ui.render();
-      const goalEl = doc.querySelector('.streak-goal');
-      expect(goalEl.textContent).toBe(
-        `Goal: ${DEFAULT_STEP_GOAL.toLocaleString('en-US')} steps`,
-      );
+      const badge = doc.querySelector('.goal-badge');
+      expect(badge.textContent).toBe(`${DEFAULT_STEP_GOAL / 1000}k Goal`);
     });
 
     it('render() resolves (never rejects) even when compute() throws', async () => {

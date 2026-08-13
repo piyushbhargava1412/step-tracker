@@ -186,9 +186,9 @@ describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 
   });
 });
 
-// ─── Task 8: ST-004 streak card, chips, lock badge, lifetime banner ────────
+// ─── Active Streaks card selectors (mockup) ─────────────────────────────────
 
-describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner (Task 8)', () => {
+describe('styles.css — Active Streaks card (mockup)', () => {
   let cssContent;
 
   beforeAll(() => {
@@ -196,20 +196,58 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     cssContent = fs.readFileSync(cssPath, 'utf8');
   });
 
-  // ── ST-004 Selectors present ──────────────────────────────────────────────
+  // ── Mockup selectors present ───────────────────────────────────────────────
 
-  it('should contain all seven ST-004 selectors (ST-007a: lock-badge removed)', () => {
-    const st004Selectors = [
+  it('should contain the Active Streaks card mockup selectors', () => {
+    const mockupSelectors = [
       '.streak-card',
       '.streak-number',
+      '.streak-header',
+      '.streak-title',
+      '.goal-badge',
+      '.streak-actual',
+      '.streak-actual-head',
+      '.streak-actual-label',
+      '.streak-bar',
+      '.streak-bar-fill',
+      '.streak-allowances',
+      '.streak-allowance',
+      '.streak-allowance-label',
+      '.streak-allowance-value',
+      '.streak-runs',
+      '.streak-runs-title',
+      '.streak-run',
+      '.streak-run-rank',
+      '.streak-run-days',
+      '.streak-run-range',
+      '.streak-runs-empty',
+    ];
+    for (const selector of mockupSelectors) {
+      expect(cssContent).toContain(selector);
+    }
+  });
+
+  // ── Removed legacy selectors absent ────────────────────────────────────────
+
+  it('legacy tier/goal/fame/tolerance selectors are absent from styles.css', () => {
+    for (const selector of [
       '.tier-badges',
       '.tier-chip',
       '.tier-chip--active',
       '.streak-goal',
-      '#lifetime-banner',
-    ];
-    for (const selector of st004Selectors) {
-      expect(cssContent).toContain(selector);
+      '.streak-unit',
+      '.tolerance-metrics',
+      '.tolerance-metric',
+      '.tolerance-value',
+      '.hall-of-fame',
+      '.hof-title',
+      '.hof-entry',
+      '.hof-rank',
+      '.hof-days',
+      '.hof-range',
+      '.hof-empty',
+    ]) {
+      expect(cssContent).not.toContain(selector);
     }
   });
 
@@ -249,95 +287,61 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     expect(/\.streak-number\s*{[^}]*font-variant-numeric:\s*tabular-nums/.test(cssContent)).toBe(true);
   });
 
-  // ── .streak-unit ─────────────────────────────────────────────────────────
+  // ── Mockup card anatomy ───────────────────────────────────────────────────
 
-  it('.streak-unit should have 1rem font size', () => {
-    expect(/\.streak-unit\s*{[^}]*font-size:\s*1rem/.test(cssContent)).toBe(true);
+  it('.streak-header should have display: flex', () => {
+    expect(/\.streak-header\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
   });
 
-  it('.streak-unit should have font-weight: 500', () => {
-    expect(/\.streak-unit\s*{[^}]*font-weight:\s*500/.test(cssContent)).toBe(true);
+  it('.streak-header should justify the title and goal badge with space-between', () => {
+    expect(/\.streak-header\s*{[^}]*justify-content:\s*space-between/.test(cssContent)).toBe(true);
   });
 
-  it('.streak-unit should use var(--text-muted) color', () => {
-    expect(/\.streak-unit\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+  it('.goal-badge should use var(--accent-sky) color', () => {
+    expect(/\.goal-badge\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
   });
 
-  // ── .lock-badge absent (ST-007a removed) ─────────────────────────────────
-
-  it('.lock-badge is absent from styles.css (ST-007a removed)', () => {
-    expect(cssContent).not.toContain('.lock-badge');
+  it('.streak-actual should render as a sky-tinted block', () => {
+    expect(/\.streak-actual\s*{[^}]*background:\s*rgba\(56,\s*189,\s*248,\s*0\.08\)/.test(cssContent)).toBe(true);
   });
 
-  // ── .tier-badges ─────────────────────────────────────────────────────────
-
-  it('.tier-badges should have display: flex', () => {
-    expect(/\.tier-badges\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
+  it('.streak-actual-head should use display: flex', () => {
+    expect(/\.streak-actual-head\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-badges should have gap: 8px', () => {
-    expect(/\.tier-badges\s*{[^}]*gap:\s*8px/.test(cssContent)).toBe(true);
+  it('.streak-bar-fill should use the sky gradient', () => {
+    expect(/\.streak-bar-fill\s*{[^}]*linear-gradient\(90deg,\s*#38bdf8,\s*#06b6d4\)/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-badges should have flex-wrap: wrap', () => {
-    expect(/\.tier-badges\s*{[^}]*flex-wrap:\s*wrap/.test(cssContent)).toBe(true);
+  it('.streak-allowances should use a two-column grid', () => {
+    expect(/\.streak-allowances\s*{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-badges should have margin-top: 16px', () => {
-    expect(/\.tier-badges\s*{[^}]*margin-top:\s*16px/.test(cssContent)).toBe(true);
+  it('.streak-allowance-label should use var(--text-muted) color', () => {
+    expect(/\.streak-allowance-label\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
   });
 
-  // ── .tier-chip base anatomy ──────────────────────────────────────────────
-
-  it('.tier-chip should use var(--font-mono)', () => {
-    expect(/\.tier-chip\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
+  it('.streak-run-range should align right (mockup trailing year span)', () => {
+    expect(/\.streak-run-range\s*{[^}]*text-align:\s*right/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-chip should have 0.75rem font size', () => {
-    expect(/\.tier-chip\s*{[^}]*font-size:\s*0\.75rem/.test(cssContent)).toBe(true);
+  it('.streak-run:not(:first-of-type) .streak-run-rank should fade the non-podium ranks', () => {
+    expect(/\.streak-run:not\(:first-of-type\)\s+\.streak-run-rank\s*{[^}]*opacity:\s*0\.8/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-chip should have rgba(255,255,255,0.04) background', () => {
-    expect(/\.tier-chip\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.04\)/.test(cssContent)).toBe(true);
+  // ── Mockup best-runs empty state ──────────────────────────────────────────
+
+  it('.streak-runs-empty should use var(--text-muted) with italic style', () => {
+    expect(/\.streak-runs-empty\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
+    expect(/\.streak-runs-empty\s*{[^}]*font-style:\s*italic/.test(cssContent)).toBe(true);
   });
 
-  it('.tier-chip should have 1px border with var(--bg-card-border)', () => {
-    expect(/\.tier-chip\s*{[^}]*border:[^}]*1px[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
+  // ── Lifetime compliance banner ────────────────────────────────────────────
+
+  it('should contain the #lifetime-banner and .lifetime-count selectors', () => {
+    expect(cssContent).toContain('#lifetime-banner');
+    expect(cssContent).toContain('.lifetime-count');
   });
-
-  it('.tier-chip should use var(--text-muted) color', () => {
-    expect(/\.tier-chip\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.tier-chip should have padding: 4px 8px', () => {
-    expect(/\.tier-chip\s*{[^}]*padding:\s*4px\s+8px/.test(cssContent)).toBe(true);
-  });
-
-  it('.tier-chip should have 6px border-radius', () => {
-    expect(/\.tier-chip\s*{[^}]*border-radius:\s*6px/.test(cssContent)).toBe(true);
-  });
-
-  // ── .tier-chip--active modifier ───────────────────────────────────────────
-
-  it('.tier-chip--active should use var(--accent-sky) color', () => {
-    expect(/\.tier-chip--active\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.tier-chip--active should have border-color: var(--accent-sky)', () => {
-    expect(/\.tier-chip--active\s*{[^}]*border-color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  // ── .streak-goal ─────────────────────────────────────────────────────────
-
-  it('.streak-goal should use var(--text-muted) color', () => {
-    expect(/\.streak-goal\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-goal should use var(--font-mono)', () => {
-    expect(/\.streak-goal\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
-  });
-
-  // ── #lifetime-banner ─────────────────────────────────────────────────────
 
   it('#lifetime-banner should use var(--bg-card) background', () => {
     expect(/#lifetime-banner\s*{[^}]*background:\s*var\(--bg-card\)/.test(cssContent)).toBe(true);
@@ -359,18 +363,14 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
     expect(/#lifetime-banner\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
   });
 
-  // ── Verify --accent-sky in .tier-chip--active (no per-tier colors) ─────
+  it('.lifetime-count should use var(--accent-sky) color', () => {
+    expect(/\.lifetime-count\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
+  });
 
-  it('.tier-chip--active should contain --accent-sky (no cyan/amber accents)', () => {
-    // Extract the .tier-chip--active rule
-    const tierChipActiveMatch = cssContent.match(/\.tier-chip--active\s*{[^}]+}/);
-    if (tierChipActiveMatch) {
-      expect(tierChipActiveMatch[0]).toContain('--accent-sky');
-      // Verify no per-tier cyan or amber overrides
-      expect(tierChipActiveMatch[0]).not.toContain('--accent-cyan');
-      expect(tierChipActiveMatch[0]).not.toContain('--accent-amber');
-    }
-    expect(tierChipActiveMatch).toBeTruthy();
+  // ── .lock-badge absent ────────────────────────────────────────────────────
+
+  it('.lock-badge is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.lock-badge');
   });
 
   // ── ST-003 Restyle-boundary locks ─────────────────────────────────────────
@@ -385,17 +385,20 @@ describe('styles.css — ST-004 streak card, chips, lock badge, lifetime banner 
 
   // ── No new CSS variables introduced ──────────────────────────────────────
 
-  it('should not introduce new CSS variables beyond ST-003 tokens', () => {
-    // Extract the ST-004 section
-    const st004Match = cssContent.match(/\/\* ─── ST-004[^]*$/);
-    if (st004Match) {
-      const st004Section = st004Match[0];
+  it('should not introduce new CSS variables beyond root tokens', () => {
+    // Extract the Active Streaks card section
+    const streakSectionMatch = cssContent.match(/\/\* ─── Active Streaks card[^]*$/);
+    if (streakSectionMatch) {
+      const streakSection = streakSectionMatch[0];
       // Match all var(...) calls to get actual variable usage
-      const varMatches = st004Section.match(/var\((--[\w-]+)\)/g) || [];
+      const varMatches = streakSection.match(/var\((--[\w-]+)\)/g) || [];
       const usedVars = [...new Set(varMatches.map(m => m.match(/--[\w-]+/)[0]))];
-      
-      // All used variables must be defined in :root before ST-004
-      const rootSection = cssContent.substring(0, cssContent.indexOf('/* ─── ST-004'));
+
+      // All used variables must be defined in :root before the section
+      const rootSection = cssContent.substring(
+        0,
+        cssContent.indexOf('/* ─── Active Streaks card'),
+      );
       for (const variable of usedVars) {
         expect(rootSection).toContain(variable);
       }
@@ -552,9 +555,9 @@ describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
 });
 
 
-// ─── Task 16: ST-007a tolerance metrics, hall-of-fame, near-miss-panel ──────
+// ─── Task 16: ST-007a near-miss-panel (tolerance/hall-of-fame moved into Active Streaks card)
 
-describe('styles.css — ST-007a new selectors (Task 16)', () => {
+describe('styles.css — ST-007a near-miss-panel (Task 16)', () => {
   let cssContent;
 
   beforeAll(() => {
@@ -562,56 +565,35 @@ describe('styles.css — ST-007a new selectors (Task 16)', () => {
     cssContent = fs.readFileSync(cssPath, 'utf8');
   });
 
-  // ── New selectors present ─────────────────────────────────────────────────
-
-  it('should contain .tolerance-metrics selector', () => {
-    expect(cssContent).toContain('.tolerance-metrics');
-  });
-
-  it('should contain .tolerance-metric selector', () => {
-    expect(cssContent).toContain('.tolerance-metric');
-  });
-
-  it('should contain .hall-of-fame selector', () => {
-    expect(cssContent).toContain('.hall-of-fame');
-  });
-
-  it('should contain .hof-title selector', () => {
-    expect(cssContent).toContain('.hof-title');
-  });
-
-  it('should contain .hof-entry selector', () => {
-    expect(cssContent).toContain('.hof-entry');
-  });
-
-  it('should contain .hof-rank selector', () => {
-    expect(cssContent).toContain('.hof-rank');
-  });
-
-  it('should contain .hof-days selector', () => {
-    expect(cssContent).toContain('.hof-days');
-  });
-
-  it('should contain .hof-range selector', () => {
-    expect(cssContent).toContain('.hof-range');
-  });
-
-  it('should contain .hof-empty selector', () => {
-    expect(cssContent).toContain('.hof-empty');
-  });
+  // ── Near-miss panel present ───────────────────────────────────────────────
 
   it('should contain .near-miss-panel selector', () => {
     expect(cssContent).toContain('.near-miss-panel');
   });
 
-  it('should contain .tolerance-value selector', () => {
-    expect(cssContent).toContain('.tolerance-value');
+  // ── Legacy tolerance/hall-of-fame selectors absent ────────────────────────
+
+  it('.tolerance-metrics is absent from styles.css (moved into Active Streaks card)', () => {
+    expect(cssContent).not.toContain('.tolerance-metrics');
   });
 
-  it('.tolerance-value should have color using a CSS variable', () => {
-    expect(/\.tolerance-value\s*{[^}]*color:\s*var\(--/.test(cssContent)).toBe(true);
+  it('.tolerance-metric is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.tolerance-metric');
   });
 
+  it('.tolerance-value is absent from styles.css', () => {
+    expect(cssContent).not.toContain('.tolerance-value');
+  });
+
+  it('.hall-of-fame is absent from styles.css (rendered as Best Runs)', () => {
+    expect(cssContent).not.toContain('.hall-of-fame');
+  });
+
+  it('.hof-* selectors are absent from styles.css', () => {
+    for (const selector of ['.hof-title', '.hof-entry', '.hof-rank', '.hof-days', '.hof-range', '.hof-empty']) {
+      expect(cssContent).not.toContain(selector);
+    }
+  });
 
   // ── Removed selectors absent ──────────────────────────────────────────────
 
@@ -672,6 +654,11 @@ describe('styles.css — challenge mockup card + dashboard stacking', () => {
   beforeAll(() => {
     const cssPath = path.resolve(__dirname, '../styles.css');
     cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('lifetime banner spans the full dashboard width on row 1', () => {
+    expect(/\.dashboard-panel\s+#lifetime-banner\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/.test(cssContent)).toBe(true);
+    expect(/\.dashboard-panel\s+#lifetime-banner\s*\{[^}]*grid-row:\s*1\b/.test(cssContent)).toBe(true);
   });
 
   it('challenge card stacks in the left column below progress (grid-column: 1)', () => {

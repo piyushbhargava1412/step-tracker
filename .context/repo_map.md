@@ -33,6 +33,8 @@
 - `DOMContentLoaded` → `bootstrap()` in `src/main.js` (composition root)
 - UI event handlers (bound in `src/main.js`):
   - `#auth-btn` click → `auth.requestToken()` (from `src/auth.js`)
+  - Auto-sync on connect: `auth.onTokenReceived(...)` fires on every valid token (first connect or silent restore) → persists the `google_connected` localStorage flag and runs the same post-sync re-render pipeline as `#sync-btn`
+  - Silent session restore: on bootstrap, when `google_connected === '1'`, `auth.requestToken({ prompt: '' })` asks GSI for a fresh token without UI, which re-triggers the auto-sync hook above
   - `#sync-btn` click → `stepSync.sync()` then `progressUI.render()` (from `src/steps.js` + `src/progress-ui.js`)
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-select` `change` event → `goal.setActiveStepGoal()` then three-renderer fan-out: `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()` (from `src/goal.js` + `src/main.js`)
@@ -45,18 +47,18 @@
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
-- Auth/token state management: `src/auth.js` (`createAuth` factory)
+- Auth/token state management: `src/auth.js` (`createAuth` factory — `init`, `requestToken(options)` where `{ prompt: '' }` is a silent restore, `getAccessToken`, `onTokenReceived`)
 - Configuration validation: `src/config.js` (`VITE_CLIENT_ID` from `import.meta.env`)
 - IndexedDB setup: `src/db.js` (`createDb`, `initDB` via Dexie; `DB_VERSION = 5`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`)
 - Persistent storage request: `src/storage.js` (`requestPersistentStorage`)
 - Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
-- Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch)
+- Step sync engine: `src/steps.js` (`createStepSync` factory; `sync()` orchestrator with two-segment windows, chunked fetch, normalize/upsert, retry, backfill latch; `_upsertChunk` high-water-marks `effective_*` as `max(stored, incoming)` on non-overridden rows while `original_*` tracks the raw cloud truth)
 - Date utilities: `src/date-utils.js` (pure helpers: `_localDate`, `_addDaysUtc`; no DOM, no Dexie; extracted from `goal.js` and `streak.js`)
 - Unit conversion constants: `src/units.js` (pure constants: `KM_TO_STEPS = 1312.33`; no imports; extracted from `goal.js`)
 - Goal Commitment engine: `src/goal.js` (`createGoal` factory; `getActiveStepGoal`/`setActiveStepGoal`; persists `active_step_goal` row in Dexie `settings` store; exports `STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`, `DEFAULT_STEP_GOAL = 10000`; no km fields, no `goal_history` write)
 - Streak calculation: `src/streak.js` (`createStreak` orchestration; `computeToleranceStreaks` — 100%/95%/90% windows; `ALLOWANCE_WINDOW_95 = 20`, `ALLOWANCE_WINDOW_90 = 10`; tier/HoF/lifetime calculations; scalar step-goal lens — no per-date goal history)
-- Streak renderer: `src/streak-ui.js` (`createStreakUI` factory; `render()` builds `#lifetime-banner` and `#streak-card`; renders `tolerance`, `tiers`, `hallOfFame`, `activeStepGoal`)
+- Streak renderer: `src/streak-ui.js` (`createStreakUI` factory; `render()` builds `#lifetime-banner` (full-width lifetime compliance: met/total days + pct) and `#streak-card` — Active Streaks mockup: header + goal badge, Actual (100%) block + bar, 95%/90% allowance chips, Best Runs list; renders `tolerance`, `hallOfFame`, `lifetime`, `activeStepGoal`; no tier chips)
 - Progress computation: `src/progress.js` (pure functions: `getTodayRecord`, `computeProgress`)
 - Today's Progress card renderer: `src/progress-ui.js` (`createProgressUI` factory; `render()` builds card + step-target `<select>` into `#tab-dashboard`; imports `STEP_GOAL_OPTIONS` from `src/goal.js`)
 - Calendar engine: `src/calendar.js` (`createCalendar(db, goal)` factory; pure functions: `monthBounds`, `buildMonthGrid`, `classifyDay(record, stepGoal, isFuture)`, `computeMonthlyAggregates`, `computeNavBounds`, `buildZeroState`, `computeCommitmentHitRate`; exports `EXCEEDED_RATIO = 1.5`, `CLASSIFICATION_*` constants; step-only classification, no km)
@@ -73,7 +75,7 @@
 - Settings UI renderer: `src/settings-ui.js` (`createSettingsUI(doc, settings, reporter, confirmFn)` factory; `render()` builds settings modal DOM (header "⚙️ Settings & Data Hygiene" with compact ✕ close button; 📅 SYNC BOUNDARY section with "Track History From:" anchor-date picker; divider; 🗑️ DATA PURGE OPTIONS section with clear-all checkbox, 📊 Impact Preview, prune/wipe action button); `open()` populates date input and displays `#settings-modal`; `close()` hides modal; AbortController-scoped delegated click/change listeners; anchor auto-saved on date change via `setSyncAnchorDate`; injected `confirmFn` for prune/wipe confirmation; dispatches `data:records:mutated` on successful mutation)
 - Confirm adapter: `src/confirm.js` (`createConfirmAdapter(windowRef)` — returns a function delegating to `windowRef?.confirm?.(msg)`; injectable seam to replace `window.confirm` in tests)
 - UI structure: `index.html` (tab-bar + tab-panel layout; includes calendar skeleton with nav/summary/grid containers and day-detail drawer)
-- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls, challenge-card stacked in the left dashboard column below the progress card at grid row 3 with streak-card spanning rows 2–4 and month-overview-card at row 4; ≤760px mobile single column with `order` lifetime-banner(1) → progress(2) → streak(3) → challenge(4) → calendar(5))
+- Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls, lifetime compliance banner spanning the top dashboard row, Active Streaks card mockup styles — `.streak-header`/`.goal-badge`/`.streak-actual`/`.streak-bar`/`.streak-allowances`/`.streak-runs`, challenge-card stacked in the left dashboard column below the progress card at grid row 3 with streak-card spanning rows 2–4 and month-overview-card at row 4; ≤760px mobile single column with `order` lifetime-banner(1) → progress(2) → streak(3) → challenge(4) → calendar(5))
 - DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 5`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`)
 
 ## Testing Surfaces

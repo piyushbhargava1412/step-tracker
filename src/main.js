@@ -28,6 +28,12 @@ import { createConfirmAdapter } from './confirm.js'
 
 const MS_PER_DAY = 86_400_000
 
+// localStorage key recording that the user has connected their Google account.
+// Only a boolean flag is stored — never the access token itself. On a later
+// page load it signals the composition root to attempt a silent session
+// restore (GSI `prompt: ''`), so a refresh no longer forces a reconnect.
+export const GOOGLE_CONNECTED_KEY = 'google_connected'
+
 /**
  * Render the header's "Sync: X days ago" label from the most recently synced
  * record. Fully fail-open: a missing element or store read leaves the label at
@@ -50,7 +56,7 @@ export async function _renderLastSyncLabel(db, doc = document) {
     days === 0 ? 'Sync: just now' : `Sync: ${days} day${days === 1 ? '' : 's'} ago`
 }
 
-export async function bootstrap(doc = document) {
+export async function bootstrap(doc = document, storage = window.localStorage) {
   // 1. Build shared reporter
   const reporter = createStatusReporter(doc)
 
@@ -118,6 +124,58 @@ export async function bootstrap(doc = document) {
     authBtn.addEventListener('click', () => auth.requestToken())
   }
 
+  // 7a. Shared post-sync re-render pipeline (SF-12: re-render after each sync).
+  // Used by the sync button and by the auto-sync-on-connect hook below, so a
+  // freshly-obtained token and a manual click converge on the same refresh.
+  const runSync = async () => {
+    await stepSync.sync()
+    progressUI.render()
+    try {
+      await streakUI.render()
+    } catch (err) {
+      console.error('[main] streakUI.render failed after sync, continuing', err)
+    }
+    try {
+      await calendarUI.render()
+    } catch (err) {
+      console.error('[main] calendarUI.render failed after sync, continuing', err)
+    }
+    try {
+      await monthOverview.render()
+    } catch (err) {
+      console.error('[main] monthOverview.render failed after sync, continuing', err)
+    }
+    try {
+      await challengeUI.render()
+    } catch (err) {
+      console.error('[main] challengeUI.render failed after sync, continuing', err)
+    }
+  }
+
+  // 7b. Auto-sync the moment a token arrives — from the first connect click or
+  // a silent session restore — so the user never has to hit Sync Steps twice.
+  // The flag is persisted so the next page load knows to attempt a restore.
+  auth.onTokenReceived(async () => {
+    try {
+      storage?.setItem(GOOGLE_CONNECTED_KEY, '1')
+    } catch (err) {
+      console.error('[main] failed to persist google connection flag, continuing', err)
+    }
+    await runSync()
+  })
+
+  // 7c. Restore the connection after a refresh: when the user connected before,
+  // ask GSI to silently hand back a fresh token (`prompt: ''` never shows UI).
+  // The 7b hook fires on success and auto-syncs. If Google's session expired,
+  // the callback delivers an error and the user simply clicks Connect again.
+  try {
+    if (storage?.getItem(GOOGLE_CONNECTED_KEY) === '1') {
+      auth.requestToken({ prompt: '' })
+    }
+  } catch (err) {
+    console.error('[main] failed to read google connection flag, continuing', err)
+  }
+
   // 8. Render settings modal interior at bootstrap (before wiring the button)
   try {
     await settingsUI.render()
@@ -134,30 +192,7 @@ export async function bootstrap(doc = document) {
   // 8. Bind sync button (SF-12: re-render after each sync click)
   const syncBtn = doc.getElementById('sync-btn')
   if (syncBtn) {
-    syncBtn.addEventListener('click', async () => {
-      await stepSync.sync()
-      progressUI.render()
-      try {
-        await streakUI.render()
-      } catch (err) {
-        console.error('[main] streakUI.render failed after sync, continuing', err)
-      }
-      try {
-        await calendarUI.render()
-      } catch (err) {
-        console.error('[main] calendarUI.render failed after sync, continuing', err)
-      }
-      try {
-        await monthOverview.render()
-      } catch (err) {
-        console.error('[main] monthOverview.render failed after sync, continuing', err)
-      }
-      try {
-        await challengeUI.render()
-      } catch (err) {
-        console.error('[main] challengeUI.render failed after sync, continuing', err)
-      }
-    })
+    syncBtn.addEventListener('click', runSync)
   }
 
   // 8a. Register data:records:mutated listener for override recalculation (fail-open)
