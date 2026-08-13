@@ -3,7 +3,7 @@
 > Added: ST-015 — 2026-08-13
 
 <!-- context-meta
-verification-commit: 889018e
+verification-commit: dcb2ca9
 generated-at: 2026-08-13T00:00:00Z
 confidence: medium
 -->
