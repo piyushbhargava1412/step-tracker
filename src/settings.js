@@ -10,6 +10,12 @@ function isValidDate(dateStr) {
   return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
 }
 
+function assertValidDate(date, context) {
+  if (!isValidDate(date)) {
+    throw new TypeError(`Invalid date for ${context}: ${date}. Expected strict YYYY-MM-DD.`);
+  }
+}
+
 export function createSettings(db) {
   async function getSyncAnchorDate() {
     try {
@@ -23,11 +29,24 @@ export function createSettings(db) {
   }
 
   async function setSyncAnchorDate(date) {
-    if (!isValidDate(date)) {
-      throw new TypeError(`Invalid sync anchor date: ${date}. Expected strict YYYY-MM-DD.`);
-    }
+    assertValidDate(date, 'setSyncAnchorDate');
     await db.settings.put({ key: SYNC_ANCHOR_KEY, value: date, updated_at: new Date().toISOString() });
   }
 
-  return { getSyncAnchorDate, setSyncAnchorDate };
+  async function countRecordsBefore(date) {
+    assertValidDate(date, 'countRecordsBefore');
+    return db.daily_records.where('date').below(date).count();
+  }
+
+  async function pruneRecordsBefore(date) {
+    assertValidDate(date, 'pruneRecordsBefore');
+    try {
+      await db.daily_records.where('date').below(date).delete();
+    } catch (err) {
+      console.error('[settings]', err);
+      throw err;
+    }
+  }
+
+  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, pruneRecordsBefore };
 }

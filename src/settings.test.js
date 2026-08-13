@@ -115,3 +115,84 @@ describe('createSettings', () => {
     });
   });
 });
+
+describe('countRecordsBefore', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = {
+      settings: { get: vi.fn(), put: vi.fn() },
+      daily_records: {
+        where: vi.fn(),
+      },
+    };
+    settings = createSettings(db);
+  });
+
+  it('returns count of daily_records strictly before the given date', async () => {
+    const chain = { below: vi.fn().mockReturnThis(), count: vi.fn().mockResolvedValue(5) };
+    db.daily_records.where.mockReturnValue(chain);
+    const result = await settings.countRecordsBefore('2023-06-01');
+    expect(db.daily_records.where).toHaveBeenCalledWith('date');
+    expect(chain.below).toHaveBeenCalledWith('2023-06-01');
+    expect(result).toBe(5);
+  });
+
+  it('excludes the boundary date (records on the date are not counted)', async () => {
+    const chain = { below: vi.fn().mockReturnThis(), count: vi.fn().mockResolvedValue(3) };
+    db.daily_records.where.mockReturnValue(chain);
+    await settings.countRecordsBefore('2023-01-15');
+    expect(chain.below).toHaveBeenCalledWith('2023-01-15');
+  });
+
+  it('throws TypeError for an invalid date before any query', async () => {
+    await expect(settings.countRecordsBefore('not-a-date')).rejects.toThrow(TypeError);
+    expect(db.daily_records.where).not.toHaveBeenCalled();
+  });
+
+  it('throws TypeError for null before any query', async () => {
+    await expect(settings.countRecordsBefore(null)).rejects.toThrow(TypeError);
+    expect(db.daily_records.where).not.toHaveBeenCalled();
+  });
+});
+
+describe('pruneRecordsBefore', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = {
+      settings: { get: vi.fn(), put: vi.fn() },
+      daily_records: {
+        where: vi.fn(),
+      },
+    };
+    settings = createSettings(db);
+  });
+
+  it('deletes only records strictly before the given date', async () => {
+    const chain = { below: vi.fn().mockReturnThis(), delete: vi.fn().mockResolvedValue(2) };
+    db.daily_records.where.mockReturnValue(chain);
+    await settings.pruneRecordsBefore('2023-06-01');
+    expect(db.daily_records.where).toHaveBeenCalledWith('date');
+    expect(chain.below).toHaveBeenCalledWith('2023-06-01');
+    expect(chain.delete).toHaveBeenCalled();
+  });
+
+  it('re-throws errors instead of swallowing them', async () => {
+    const chain = { below: vi.fn().mockReturnThis(), delete: vi.fn().mockRejectedValue(new Error('DB error')) };
+    db.daily_records.where.mockReturnValue(chain);
+    await expect(settings.pruneRecordsBefore('2023-06-01')).rejects.toThrow('DB error');
+  });
+
+  it('throws TypeError for invalid date before any delete', async () => {
+    await expect(settings.pruneRecordsBefore('bad-date')).rejects.toThrow(TypeError);
+    expect(db.daily_records.where).not.toHaveBeenCalled();
+  });
+
+  it('throws TypeError for empty string before any delete', async () => {
+    await expect(settings.pruneRecordsBefore('')).rejects.toThrow(TypeError);
+    expect(db.daily_records.where).not.toHaveBeenCalled();
+  });
+});
