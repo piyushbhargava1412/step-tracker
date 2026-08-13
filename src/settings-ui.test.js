@@ -286,3 +286,230 @@ describe('createSettingsUI — guard clauses', () => {
     expect(() => ui.close()).not.toThrow();
   });
 });
+
+// ── Task 7: Prune action with confirmFn ──────────────────────────────────────
+
+describe('createSettingsUI — prune action', () => {
+  it('confirmFn returns true → pruneRecordsBefore called and data:records:mutated dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ count: 3 });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter, confirmFn);
+    await ui.render();
+    await ui.open();
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    // Set a date and click prune
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '2024-06-01';
+
+    const pruneBtn = doc.querySelector('[data-action="prune"]');
+    pruneBtn.click();
+
+    await vi.waitFor(() => expect(settings.pruneRecordsBefore).toHaveBeenCalledWith('2024-06-01'));
+    expect(confirmFn).toHaveBeenCalled();
+    await vi.waitFor(() => expect(events.length).toBeGreaterThan(0));
+  });
+
+  it('confirmFn returns false → pruneRecordsBefore not called, no event dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(false);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ count: 3 });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter, confirmFn);
+    await ui.render();
+    await ui.open();
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const pruneBtn = doc.querySelector('[data-action="prune"]');
+    pruneBtn.click();
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(settings.pruneRecordsBefore).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('pruneRecordsBefore throws → reporter.db called, no event dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    settings.pruneRecordsBefore = vi.fn().mockRejectedValue(new Error('Prune failed'));
+    const reporter = makeMockReporter();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ui = createSettingsUI(doc, settings, reporter, confirmFn);
+    await ui.render();
+    await ui.open();
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '2024-06-01';
+    const pruneBtn = doc.querySelector('[data-action="prune"]');
+    pruneBtn.click();
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    expect(events.length).toBe(0);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+});
+
+// ── Task 7: Clear-All hazard mode ────────────────────────────────────────────
+
+describe('createSettingsUI — Clear-All hazard mode', () => {
+  it('checking Clear-All disables date picker and switches button to 🔥 Clear Entire Database', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+
+    const checkbox = doc.querySelector('[data-action="toggle-clear-all"]');
+    expect(checkbox).not.toBeNull();
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    expect(input.classList.contains('opacity-50')).toBe(true);
+    expect(input.classList.contains('pointer-events-none')).toBe(true);
+
+    const wipeBtn = doc.querySelector('[data-action="wipe"]');
+    expect(wipeBtn).not.toBeNull();
+    expect(wipeBtn.textContent).toBe('🔥 Clear Entire Database');
+  });
+
+  it('unchecking Clear-All restores prune mode', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+
+    const checkbox = doc.querySelector('[data-action="toggle-clear-all"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 10));
+
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 10));
+
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    expect(input.classList.contains('opacity-50')).toBe(false);
+    expect(input.classList.contains('pointer-events-none')).toBe(false);
+
+    const actionBtn = doc.querySelector('[data-action="prune"]');
+    expect(actionBtn).not.toBeNull();
+    expect(actionBtn.textContent).not.toContain('🔥');
+  });
+
+  it('Clear-All checked → impact counter is disabled', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+
+    const checkbox = doc.querySelector('[data-action="toggle-clear-all"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 10));
+
+    const preview = doc.querySelector('[data-preview="impact"]');
+    const isDisabled = preview.getAttribute('aria-disabled') === 'true'
+      || preview.classList.contains('disabled')
+      || preview.dataset.disabled === 'true';
+    expect(isDisabled).toBe(true);
+  });
+});
+
+// ── Task 7: Wipe action with confirmFn ───────────────────────────────────────
+
+describe('createSettingsUI — wipe action', () => {
+  async function openHazardMode(doc, settings, reporter, confirmFn) {
+    const ui = createSettingsUI(doc, settings, reporter, confirmFn);
+    await ui.render();
+    await ui.open();
+    const checkbox = doc.querySelector('[data-action="toggle-clear-all"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 10));
+    return ui;
+  }
+
+  it('confirmFn returns true in wipe mode → wipeDatabase called and data:records:mutated dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    await openHazardMode(doc, settings, reporter, confirmFn);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const wipeBtn = doc.querySelector('[data-action="wipe"]');
+    expect(wipeBtn).not.toBeNull();
+    wipeBtn.click();
+
+    await vi.waitFor(() => expect(settings.wipeDatabase).toHaveBeenCalled());
+    expect(confirmFn).toHaveBeenCalled();
+    await vi.waitFor(() => expect(events.length).toBeGreaterThan(0));
+  });
+
+  it('confirmFn returns false in wipe mode → wipeDatabase not called, no event', async () => {
+    const confirmFn = vi.fn().mockReturnValue(false);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    await openHazardMode(doc, settings, reporter, confirmFn);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const wipeBtn = doc.querySelector('[data-action="wipe"]');
+    wipeBtn.click();
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(settings.wipeDatabase).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('wipeDatabase throws → reporter.db called; no event dispatched', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    settings.wipeDatabase = vi.fn().mockRejectedValue(new Error('Wipe failed'));
+    const reporter = makeMockReporter();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await openHazardMode(doc, settings, reporter, confirmFn);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const wipeBtn = doc.querySelector('[data-action="wipe"]');
+    wipeBtn.click();
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    expect(events.length).toBe(0);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+});
+
+// ── Task 7: no window.confirm file-content assertion ─────────────────────────
+
+describe('settings-ui.js — no window.confirm', () => {
+  const sourceFile = path.resolve(__dirname, 'settings-ui.js');
+  const source = fs.readFileSync(sourceFile, 'utf-8');
+
+  it('source never calls window.confirm', () => {
+    expect(source).not.toContain('window.confirm');
+    expect(source).not.toMatch(/\bconfirm\s*\(/);
+  });
+});
