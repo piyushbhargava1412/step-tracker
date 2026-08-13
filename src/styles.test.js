@@ -761,3 +761,52 @@ describe('styles.css — mobile dashboard ordering', () => {
     }
   });
 });
+
+// ─── Task 8: ST-015 settings button & modal overlay styles ───────────────────
+
+describe('styles.css — ST-015 settings button & modal overlay (Task 8)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('#settings-btn selector is defined', () => {
+    expect(cssContent).toContain('#settings-btn');
+  });
+
+  it('.modal-overlay selector is defined', () => {
+    expect(cssContent).toContain('.modal-overlay');
+  });
+
+  it('#settings-modal selector is defined', () => {
+    expect(cssContent).toContain('#settings-modal');
+  });
+
+  it('.settings-date-picker selector is defined', () => {
+    expect(cssContent).toContain('.settings-date-picker');
+  });
+
+  it('.settings-impact-preview selector is defined', () => {
+    expect(cssContent).toContain('.settings-impact-preview');
+  });
+
+  it('.disabled-picker selector with opacity-50 and pointer-events-none is defined', () => {
+    expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent) ||
+           cssContent.includes('opacity-50')).toBe(true);
+    expect(/\.disabled-picker\s*\{[^}]*pointer-events:\s*none/.test(cssContent)).toBe(true);
+  });
+
+  it('ST-015 section has no hex colour literals', () => {
+    const st015Section = cssContent.match(/\/\* ─── ST-015[^]*$/);
+    if (st015Section) {
+      const hexMatches = st015Section[0].match(/#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/g) || [];
+      expect(hexMatches).toHaveLength(0);
+    }
+  });
+
+  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
+  });
+});

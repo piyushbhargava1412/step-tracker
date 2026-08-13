@@ -31,6 +31,7 @@
         <div class="header-actions">
             <button id="auth-btn" class="btn btn-secondary">Connect Google Account</button>
             <button id="sync-btn" class="btn btn-primary">Sync Steps</button>
+            <button id="settings-btn" class="btn btn-secondary" aria-label="Settings">⚙️ Settings</button>
             <span id="sync-status" class="sync-status" aria-live="polite"></span>
         </div>
     </header>
@@ -62,6 +63,43 @@
         <div id="tab-search" style="display:none"></div>
         <div id="tab-spatial" style="display:none"></div>
     </main>
+
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title" hidden>
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h2 id="settings-modal-title">⚙️ Settings</h2>
+                <button class="close-btn" data-action="close-settings" aria-label="Close settings">✕</button>
+            </div>
+            <div class="modal-body">
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Sync Horizon</h3>
+                    <label for="settings-anchor-date" class="settings-label">Sync from date</label>
+                    <input type="date" id="settings-anchor-date" class="settings-date-picker" data-settings="anchor-date" />
+                    <button class="btn btn-primary" data-action="save-anchor">Save Anchor Date</button>
+                </section>
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Database Management</h3>
+                    <div class="settings-impact-preview" data-settings="impact-preview">
+                        <span data-settings="impact-count">0</span> records before selected date
+                    </div>
+                    <div class="settings-action-row">
+                        <button class="btn btn-danger" data-action="prune">🗑️ Prune Records Before Date</button>
+                    </div>
+                    <div class="settings-clear-all-row">
+                        <label class="settings-label">
+                            <input type="checkbox" data-action="clear-all" />
+                            Enable Clear-All (Hazard Mode)
+                        </label>
+                    </div>
+                    <div class="settings-action-row">
+                        <button class="btn btn-hazard" data-action="wipe">🔥 Clear Entire Database</button>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
 
     <!-- FOOTER -->
     <footer class="app-footer">

@@ -130,3 +130,74 @@ describe('index.html tabbed shell contract', () => {
     expect(calendar.style.display).toBe('none');
   });
 });
+
+describe('index.html — ST-015 settings button & modal (Task 8)', () => {
+  it('#settings-btn is present inside .header-actions', () => {
+    const btn = document.getElementById('settings-btn');
+    expect(btn).not.toBeNull();
+    expect(btn.closest('.header-actions')).not.toBeNull();
+  });
+
+  it('#settings-btn appears after #sync-btn in .header-actions', () => {
+    const actions = document.querySelector('.header-actions');
+    const children = Array.from(actions.children);
+    const syncIdx = children.findIndex(el => el.id === 'sync-btn');
+    const settingsIdx = children.findIndex(el => el.id === 'settings-btn');
+    expect(settingsIdx).toBeGreaterThan(syncIdx);
+  });
+
+  it('#settings-modal is present with correct ARIA attributes', () => {
+    const modal = document.getElementById('settings-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.getAttribute('role')).toBe('dialog');
+    expect(modal.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('#settings-modal is a direct child of div.container appended after <main>', () => {
+    const container = document.querySelector('div.container');
+    const modal = document.getElementById('settings-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.parentElement).toBe(container);
+    const main = container.querySelector('main');
+    // modal comes after main in DOM order
+    const containerChildren = Array.from(container.children);
+    const mainIdx = containerChildren.indexOf(main);
+    const modalIdx = containerChildren.indexOf(modal);
+    expect(modalIdx).toBeGreaterThan(mainIdx);
+  });
+
+  it('#settings-modal has .modal-overlay class', () => {
+    const modal = document.getElementById('settings-modal');
+    expect(modal.classList.contains('modal-overlay')).toBe(true);
+  });
+
+  it('#settings-modal contains a date picker input', () => {
+    const modal = document.getElementById('settings-modal');
+    const datePicker = modal.querySelector('input[type="date"]');
+    expect(datePicker).not.toBeNull();
+  });
+
+  it('#settings-modal contains an impact preview element', () => {
+    const modal = document.getElementById('settings-modal');
+    const preview = modal.querySelector('[data-settings="impact-preview"]');
+    expect(preview).not.toBeNull();
+  });
+
+  it('#settings-modal contains a Prune button (danger action)', () => {
+    const modal = document.getElementById('settings-modal');
+    const pruneBtn = modal.querySelector('[data-action="prune"]');
+    expect(pruneBtn).not.toBeNull();
+  });
+
+  it('#settings-modal contains a Clear-All checkbox (hazard toggle)', () => {
+    const modal = document.getElementById('settings-modal');
+    const clearAll = modal.querySelector('[data-action="clear-all"]');
+    expect(clearAll).not.toBeNull();
+  });
+
+  it('#settings-modal contains a wipe/clear button', () => {
+    const modal = document.getElementById('settings-modal');
+    const wipeBtn = modal.querySelector('[data-action="wipe"]');
+    expect(wipeBtn).not.toBeNull();
+  });
+});
