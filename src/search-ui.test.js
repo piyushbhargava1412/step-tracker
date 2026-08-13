@@ -238,7 +238,7 @@ describe('createSearchUI — behaviour', () => {
     expect(grid.querySelectorAll('[data-row]').length).toBe(3);
   });
 
-  it('override-note preview cell uses textContent (not innerHTML)', async () => {
+  it('grid renders date/steps/distance cells, no override-note cell', async () => {
     const doc = buildDoc(makeSearchTab());
     const record = makeRecord({ is_overridden: true, override: { note: '<b>hi</b>' } });
     const search = makeMockSearch();
@@ -247,21 +247,11 @@ describe('createSearchUI — behaviour', () => {
     const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
     render();
     await clickAction(doc, 'execute');
-    const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
-    expect(noteCell.textContent).toBe('<b>hi</b>');
-  });
-
-  it('non-overridden record shows — in override cell', async () => {
-    const doc = buildDoc(makeSearchTab());
-    const record = makeRecord({ is_overridden: false });
-    const search = makeMockSearch();
-    search.executeQuery = vi.fn().mockResolvedValue({ records: [record], preFilterSet: [{}] });
-    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, cumulativeDistanceKm: 6.5, avgSteps: 8000 });
-    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
-    render();
-    await clickAction(doc, 'execute');
-    const noteCell = doc.querySelector('[data-row] [data-cell="override-note"]');
-    expect(noteCell.textContent).toBe('—');
+    const row = doc.querySelector('[data-row]');
+    expect(row.querySelector('[data-cell="date"]').textContent).toBe(record.date);
+    expect(row.querySelector('[data-cell="effective-steps"]').textContent).toBe(String(record.effective_steps));
+    expect(row.querySelector('[data-cell="effective-distance"]')).not.toBeNull();
+    expect(row.querySelector('[data-cell="override-note"]')).toBeNull();
   });
 
   it('summary card updated with values from computeResultSummary after Execute', async () => {

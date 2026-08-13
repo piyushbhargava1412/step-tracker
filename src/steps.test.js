@@ -1921,9 +1921,10 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const fetchCalls = fetchMock.mock.calls.length;
     const messageCount = reporter.sync.mock.calls.length;
 
-    // The first run must genuinely be in flight — one fetch issued, hanging.
+    // The first run must genuinely be in flight — one fetch issued, hanging,
+    // with no status line written yet.
     expect(fetchCalls).toBe(1);
-    expect(messageCount).toBe(1);
+    expect(messageCount).toBe(0);
 
     await engine.sync();
 
@@ -1934,7 +1935,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     await first;
   });
 
-  it('a re-entrant sync() does not overwrite the in-flight #sync-status message', async () => {
+  it('a re-entrant sync() does not emit status while the first run is in flight', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(TODAY);
     db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
@@ -1952,14 +1953,14 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const first = engine.sync();
 
     await vi.advanceTimersByTimeAsync(0);
-    const inFlight = lastSyncMessage();
+    const inFlightCount = reporter.sync.mock.calls.length;
 
-    // The first run must genuinely be in flight — a progress line was written.
-    expect(inFlight).toContain('⏳');
+    // The first run must genuinely be in flight — no status line written yet.
+    expect(inFlightCount).toBe(0);
 
     await engine.sync();
 
-    expect(lastSyncMessage()).toBe(inFlight);
+    expect(reporter.sync.mock.calls.length).toBe(inFlightCount);
     expect(reporter.sync).not.toHaveBeenCalledWith(
       '🔑 Connect your Google Account first'
     );
@@ -2051,7 +2052,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     );
   });
 
-  it('a per-chunk ⏳ progress message is written for every chunk with the phase label and date range', async () => {
+  it('no per-chunk progress status lines are written during an incremental sync', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(TODAY);
     db = makeScriptedDb({
@@ -2065,10 +2066,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     await engine.sync();
 
     const progress = messages().filter((m) => m.startsWith('⏳'));
-    expect(progress).toEqual([
-      '⏳ Incremental sync — chunk 1/2 (2025-05-17 → 2025-06-16)…',
-      '⏳ Incremental sync — chunk 2/2 (2025-04-28 → 2025-05-17)…',
-    ]);
+    expect(progress).toEqual([]);
   });
 
   // ── Per-chunk persistence and sequentiality ───────────────────────────────

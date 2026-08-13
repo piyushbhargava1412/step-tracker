@@ -777,14 +777,11 @@ export function createStepSync(auth, db, reporter, doc = document) {
       }
       const total = chunks.length;
 
-      // 6. Sequential fetch → normalize → upsert, one status line per chunk.
+      // 6. Sequential fetch → normalize → upsert.
       for (let i = 0; i < total; i += 1) {
         const chunk = chunks[i];
         const index = i + 1;
         lastChunk = { index, total };
-        reporter.sync(
-          `⏳ ${chunk.phase} — chunk ${index}/${total} (${_formatLocalDate(chunk.startMs)} → ${_formatLocalDate(chunk.endMs)})…`
-        );
 
         const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
         const records = _normalizeBuckets(raw.bucket ?? []);

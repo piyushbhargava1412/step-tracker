@@ -38,7 +38,6 @@ describe('createRecords', () => {
       await records.overrideRecord('2024-01-15', {
         effective_steps: 8000,
         effective_distance_km: 6.1,
-        note: 'Treadmill session',
         proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
@@ -47,7 +46,7 @@ describe('createRecords', () => {
       expect(putArg.effective_steps).toBe(8000);
       expect(putArg.effective_distance_km).toBe(6.1);
       expect(putArg.is_overridden).toBe(true);
-      expect(putArg.override.note).toBe('Treadmill session');
+      expect(putArg.override.note).toBeUndefined();
       expect(putArg.override.proof_image_base64).toBe('data:image/jpeg;base64,abc');
       expect(putArg.override.updated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
@@ -58,7 +57,7 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-01-15', {
         effective_steps: 8000,
-        note: 'Test',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       const putArg = db.daily_records.put.mock.calls[0][0];
@@ -72,7 +71,7 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-01-15', {
         effective_steps: 8000,
-        note: 'Test',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       const putArg = db.daily_records.put.mock.calls[0][0];
@@ -85,7 +84,7 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-01-15', {
         effective_steps: 6566,
-        note: 'No distance provided',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       const putArg = db.daily_records.put.mock.calls[0][0];
@@ -99,7 +98,7 @@ describe('createRecords', () => {
       await records.overrideRecord('2024-01-15', {
         effective_steps: 6566,
         effective_distance_km: 2.5,
-        note: 'Explicit distance',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       const putArg = db.daily_records.put.mock.calls[0][0];
@@ -111,23 +110,30 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 0, note: 'Rest day' })
+        records.overrideRecord('2024-01-15', { effective_steps: 0, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).resolves.not.toThrow();
 
       expect(db.daily_records.put).toHaveBeenCalledOnce();
     });
 
-    it('stores proof_image_base64 = null when proof is omitted', async () => {
+    it('throws TypeError when proof_image_base64 is omitted', async () => {
       const db = makeMockDb({ ...BASE_ROW });
       const records = createRecords(db);
 
-      await records.overrideRecord('2024-01-15', {
-        effective_steps: 8000,
-        note: 'No proof',
-      });
+      await expect(
+        records.overrideRecord('2024-01-15', { effective_steps: 8000 })
+      ).rejects.toThrow(TypeError);
+      expect(db.daily_records.put).not.toHaveBeenCalled();
+    });
 
-      const putArg = db.daily_records.put.mock.calls[0][0];
-      expect(putArg.override.proof_image_base64).toBeNull();
+    it('throws TypeError when proof_image_base64 is an empty string', async () => {
+      const db = makeMockDb({ ...BASE_ROW });
+      const records = createRecords(db);
+
+      await expect(
+        records.overrideRecord('2024-01-15', { effective_steps: 8000, proof_image_base64: '' })
+      ).rejects.toThrow(TypeError);
+      expect(db.daily_records.put).not.toHaveBeenCalled();
     });
 
     it('passes through proof_image_base64 when provided', async () => {
@@ -137,7 +143,6 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-01-15', {
         effective_steps: 8000,
-        note: 'With proof',
         proof_image_base64: proof,
       });
 
@@ -151,7 +156,7 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-01-15', {
         effective_steps: 8000,
-        note: 'Test',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       const putArg = db.daily_records.put.mock.calls[0][0];
@@ -168,7 +173,7 @@ describe('createRecords', () => {
 
       await records.overrideRecord('2024-03-01', {
         effective_steps: 4200,
-        note: 'Manual log — no synced baseline',
+        proof_image_base64: 'data:image/jpeg;base64,abc',
       });
 
       expect(db.daily_records.put).toHaveBeenCalledOnce();
@@ -188,7 +193,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: -1, note: 'Bad' })
+        records.overrideRecord('2024-01-15', { effective_steps: -1, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
@@ -198,7 +203,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 2.7, note: 'Bad' })
+        records.overrideRecord('2024-01-15', { effective_steps: 2.7, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
@@ -208,7 +213,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: NaN, note: 'Bad' })
+        records.overrideRecord('2024-01-15', { effective_steps: NaN, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
@@ -218,7 +223,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: Infinity, note: 'Bad' })
+        records.overrideRecord('2024-01-15', { effective_steps: Infinity, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
@@ -231,28 +236,18 @@ describe('createRecords', () => {
         records.overrideRecord('2024-01-15', {
           effective_steps: 8000,
           effective_distance_km: -0.1,
-          note: 'Bad',
+          proof_image_base64: 'data:image/jpeg;base64,abc',
         })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
 
-    it('throws TypeError for empty note', async () => {
+    it('throws TypeError for missing proof_image_base64', async () => {
       const db = makeMockDb({ ...BASE_ROW });
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 8000, note: '' })
-      ).rejects.toThrow(TypeError);
-      expect(db.daily_records.put).not.toHaveBeenCalled();
-    });
-
-    it('throws TypeError for whitespace-only note', async () => {
-      const db = makeMockDb({ ...BASE_ROW });
-      const records = createRecords(db);
-
-      await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 8000, note: '   ' })
+        records.overrideRecord('2024-01-15', { effective_steps: 8000 })
       ).rejects.toThrow(TypeError);
       expect(db.daily_records.put).not.toHaveBeenCalled();
     });
@@ -268,7 +263,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 8000, note: 'Test' })
+        records.overrideRecord('2024-01-15', { effective_steps: 8000, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow('DB error');
 
       expect(consoleSpy).toHaveBeenCalledWith('[records]', expect.any(Error));
@@ -285,7 +280,7 @@ describe('createRecords', () => {
       const records = createRecords(db);
 
       await expect(
-        records.overrideRecord('2024-01-15', { effective_steps: 8000, note: 'Test' })
+        records.overrideRecord('2024-01-15', { effective_steps: 8000, proof_image_base64: 'data:image/jpeg;base64,abc' })
       ).rejects.toThrow('DB put error');
 
       expect(consoleSpy).toHaveBeenCalledWith('[records]', expect.any(Error));

@@ -18,13 +18,11 @@ export function createRecords(db) {
    * @param {object} params
    * @param {number} params.effective_steps — required finite integer >= 0
    * @param {number} [params.effective_distance_km] — optional finite >= 0; derived if omitted
-   * @param {string} params.note — required non-empty justification
-   * @param {string|null} [params.proof_image_base64] — optional proof image
+   * @param {string|null} [params.proof_image_base64] — required proof image
    */
   async function overrideRecord(date, {
     effective_steps,
     effective_distance_km,
-    note,
     proof_image_base64,
   } = {}) {
     // Guard-clause validation (fail-fast, throws TypeError)
@@ -48,9 +46,8 @@ export function createRecords(db) {
       );
     }
 
-    const trimmedNote = typeof note === 'string' ? note.trim() : '';
-    if (!trimmedNote) {
-      throw new TypeError('[records] overrideRecord: note must be a non-empty string');
+    if (typeof proof_image_base64 !== 'string' || proof_image_base64 === '') {
+      throw new TypeError('[records] overrideRecord: proof_image_base64 must be a non-empty string');
     }
 
     // Derive distance if not provided
@@ -68,8 +65,7 @@ export function createRecords(db) {
         effective_distance_km: resolvedDistance,
         is_overridden: true,
         override: {
-          note: trimmedNote,
-          proof_image_base64: proof_image_base64 ?? null,
+          proof_image_base64,
           updated_at: new Date().toISOString(),
         },
         // synced_at, original_steps, original_distance_km intentionally NOT touched

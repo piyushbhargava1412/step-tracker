@@ -25,6 +25,9 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
   let state = { year: new Date().getFullYear(), month: new Date().getMonth() };
   let controller = null;
 
+  // Currently-open proof lightbox element (null when closed)
+  let lightboxEl = null;
+
   /**
    * Idempotent render: aborts previous listeners, loads month data,
    * builds nav + summary + grid, re-attaches delegated listeners.
@@ -219,8 +222,6 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     );
     const cells = [
       { label: 'Total Steps', value: payload.aggregates.totalSteps },
-      { label: 'Total Distance', value: payload.aggregates.totalDistanceKm != null
-        ? payload.aggregates.totalDistanceKm.toFixed(2) + ' km' : null },
       { label: 'Avg Daily Steps', value: payload.aggregates.averageDailySteps },
       { label: 'Hit Rate', value: hitRate != null ? hitRate + '%' : null },
     ];
@@ -370,21 +371,16 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     h2.textContent = headerDate;
     drawer.appendChild(h2);
 
+    // Action row — Edit / Override always; Revert to Synced when overridden
+    const actionRow = doc.createElement('div');
+    actionRow.className = 'drawer-actions';
+
     if (day.record) {
       // Populated drawer
       const rows = [
         { label: 'Effective Steps', value: day.record.effective_steps },
-        { label: 'Effective Distance', value: day.record.effective_distance_km },
-        { label: 'Synced (Google Fit)', value: `${day.record.original_steps} / ${day.record.original_distance_km}` },
+        { label: 'Synced (Google Fit)', value: day.record.original_steps },
       ];
-
-      // Verified Manual row: show effective values only if overridden
-      if (day.record.is_overridden && day.record.override) {
-        rows.push({ label: 'Verified Manual', value: day.record.effective_steps });
-        rows.push({ label: 'Override note', value: day.record.override.note });
-      } else {
-        rows.push({ label: 'Verified Manual', value: null });
-      }
 
       // Override status
       if (day.record.is_overridden) {
@@ -404,6 +400,24 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         drawer.appendChild(rowDiv);
       }
 
+      // Saved proof thumbnail — clickable to open the full-size lightbox
+      if (day.record.override && day.record.override.proof_image_base64) {
+        const thumbWrap = doc.createElement('button');
+        thumbWrap.type = 'button';
+        thumbWrap.className = 'proof-thumb-wrap';
+        thumbWrap.dataset.action = 'view-proof';
+        thumbWrap.setAttribute('aria-label', 'View full-size proof image');
+        const thumb = doc.createElement('img');
+        thumb.className = 'proof-thumb';
+        thumb.src = day.record.override.proof_image_base64;
+        thumb.alt = 'Proof image thumbnail';
+        thumbWrap.appendChild(thumb);
+        thumbWrap.addEventListener('click', () => {
+          _openLightbox(day.record.override.proof_image_base64);
+        }, { signal: controller.signal });
+        drawer.appendChild(thumbWrap);
+      }
+
       // Revert button — only when record is overridden and records module is available
       if (day.record.is_overridden && records) {
         const revertBtn = doc.createElement('button');
@@ -421,8 +435,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
             reporter.db('\u274C Revert failed');
             console.error('[calendar-ui]', err);
           }
-        }, { signal: controller.signal });
-        drawer.appendChild(revertBtn);
+          }, { signal: controller.signal });
+        actionRow.appendChild(revertBtn);
       }
     } else {
       // Zero-state: no synced data for this date
@@ -431,8 +445,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       drawer.appendChild(noDataText);
 
       const metricLabels = [
-        'Effective Steps', 'Effective Distance',
-        'Synced (Google Fit)', 'Verified Manual',
+        'Effective Steps',
+        'Synced (Google Fit)',
       ];
       for (const label of metricLabels) {
         const rowDiv = doc.createElement('div');
@@ -462,7 +476,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         _mountOverrideForm(drawer, day);
       }, { signal: controller.signal });
     }
-    drawer.appendChild(editBtn);
+    actionRow.appendChild(editBtn);
+    drawer.appendChild(actionRow);
 
     // Close button
     const closeBtn = doc.createElement('button');
@@ -513,47 +528,112 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     stepsLabel.appendChild(stepsInput);
     form.appendChild(stepsLabel);
 
-    // Effective distance input (optional)
-    const distLabel = doc.createElement('label');
-    distLabel.textContent = 'Effective Distance (km)';
-    const distInput = doc.createElement('input');
-    distInput.type = 'number';
-    distInput.min = '0';
-    distInput.step = 'any';
-    distInput.dataset.field = 'effective-distance';
-    if (day.record) {
-      distInput.value = String(day.record.effective_distance_km);
-    }
-    distLabel.appendChild(distInput);
-    form.appendChild(distLabel);
+    // Proof image — mandatory. An existing proof is reused when re-editing; a
+    // newly selected file replaces it. Removing the proof re-disables Save.
+    const existingProof = day.record && day.record.override && day.record.override.proof_image_base64
+      ? day.record.override.proof_image_base64
+      : null;
+    let currentProof = existingProof;
+    let processing = false;
 
-    // Note textarea (required)
-    const noteLabel = doc.createElement('label');
-    noteLabel.textContent = 'Justification Note';
-    const noteTextarea = doc.createElement('textarea');
-    noteTextarea.dataset.field = 'note';
-    noteTextarea.required = true;
-    if (day.record && day.record.override && day.record.override.note) {
-      noteTextarea.value = day.record.override.note;
-    }
-    noteLabel.appendChild(noteTextarea);
-    form.appendChild(noteLabel);
-
-    // Proof image file input (optional)
-    const fileLabel = doc.createElement('label');
-    fileLabel.textContent = 'Proof Image (optional)';
+    const proofLabel = doc.createElement('label');
+    proofLabel.textContent = 'Proof Image (required)';
     const fileInput = doc.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/png,image/jpeg,image/webp';
     fileInput.dataset.field = 'proof-image';
-    fileLabel.appendChild(fileInput);
-    form.appendChild(fileLabel);
+    proofLabel.appendChild(fileInput);
+    form.appendChild(proofLabel);
+
+    // Proof preview area: empty hint, clickable thumbnail, remove button
+    const proofArea = doc.createElement('div');
+    proofArea.className = 'proof-area';
+
+    const proofHint = doc.createElement('span');
+    proofHint.className = 'proof-area__hint';
+    proofHint.textContent = 'No proof image uploaded';
+
+    const thumbWrap = doc.createElement('button');
+    thumbWrap.type = 'button';
+    thumbWrap.className = 'proof-thumb-wrap';
+    thumbWrap.dataset.action = 'view-proof';
+    thumbWrap.setAttribute('aria-label', 'View full-size proof image');
+    const thumb = doc.createElement('img');
+    thumb.className = 'proof-thumb';
+    thumb.alt = 'Proof image thumbnail';
+    thumbWrap.appendChild(thumb);
+
+    const deleteBtn = doc.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'proof-delete-btn';
+    deleteBtn.dataset.action = 'delete-proof';
+    deleteBtn.textContent = 'Remove image';
+
+    proofArea.appendChild(proofHint);
+    proofArea.appendChild(thumbWrap);
+    proofArea.appendChild(deleteBtn);
+    form.appendChild(proofArea);
 
     // Submit button
     const submitBtn = doc.createElement('button');
     submitBtn.type = 'submit';
     submitBtn.textContent = 'Save Override';
     form.appendChild(submitBtn);
+
+    function updateProofUI() {
+      proofHint.hidden = currentProof != null;
+      thumbWrap.hidden = currentProof == null;
+      deleteBtn.hidden = currentProof == null;
+      if (currentProof) thumb.src = currentProof;
+    }
+
+    function updateSaveState() {
+      submitBtn.disabled = processing || currentProof == null;
+      submitBtn.textContent = processing ? 'Processing\u2026' : 'Save Override';
+    }
+
+    updateProofUI();
+    updateSaveState();
+
+    // File change → downsize immediately (≤1024 px) so the thumbnail reflects
+    // exactly what will be stored; Save stays disabled while processing.
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+      if (!file) return;
+      if (!processImage) {
+        reporter.db('\u274C Image processing unavailable');
+        fileInput.value = '';
+        return;
+      }
+      const previousProof = currentProof;
+      processing = true;
+      updateSaveState();
+      try {
+        currentProof = await processImage(file);
+      } catch (err) {
+        reporter.db('\u274C Image processing failed');
+        console.error('[calendar-ui]', err);
+        currentProof = previousProof;
+        fileInput.value = '';
+      } finally {
+        processing = false;
+        updateProofUI();
+        updateSaveState();
+      }
+    }, { signal: controller.signal });
+
+    // Remove current proof → no proof state, Save disabled until re-upload
+    deleteBtn.addEventListener('click', () => {
+      currentProof = null;
+      fileInput.value = '';
+      updateProofUI();
+      updateSaveState();
+    }, { signal: controller.signal });
+
+    // Click thumbnail → full-size lightbox
+    thumbWrap.addEventListener('click', () => {
+      if (currentProof) _openLightbox(currentProof);
+    }, { signal: controller.signal });
 
     // Submit handler registered under controller.signal
     form.addEventListener('submit', async (e) => {
@@ -562,9 +642,6 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       const stepsRaw = stepsInput.value.trim();
       const stepsNum = stepsRaw !== '' ? Number(stepsRaw) : NaN;
       const stepsVal = stepsNum;
-      const distVal = distInput.value.trim() !== '' ? parseFloat(distInput.value) : undefined;
-      const noteVal = noteTextarea.value;
-      const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
 
       // Guard-clause: validate inputs before calling overrideRecord
       // steps: required, must be a finite integer >= 0 (empty string, floats, negatives all rejected)
@@ -575,23 +652,19 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       }
       stepsInput.setCustomValidity('');
 
-      if (noteVal.trim() === '') {
-        noteTextarea.setCustomValidity('Justification note is required');
-        noteTextarea.reportValidity();
+      // Proof is mandatory — button is normally disabled, but implicit form
+      // submission (e.g. Enter key) can bypass that, so guard here too.
+      if (currentProof == null) {
+        fileInput.setCustomValidity('A proof image is required');
+        fileInput.reportValidity();
         return;
       }
-      noteTextarea.setCustomValidity('');
+      fileInput.setCustomValidity('');
 
-      let proofBase64 = null;
       try {
-        if (file && processImage) {
-          proofBase64 = await processImage(file);
-        }
         await records.overrideRecord(day.date, {
           effective_steps: stepsVal,
-          effective_distance_km: distVal,
-          note: noteVal,
-          proof_image_base64: proofBase64,
+          proof_image_base64: currentProof,
         });
         doc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: day.date } }));
       } catch (err) {
@@ -603,11 +676,65 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     drawer.appendChild(form);
   }
 
+  /**
+   * Open a full-size proof image in a modal lightbox.
+   * @param {string} src - data URL of the stored proof image
+   */
+  function _openLightbox(src) {
+    _closeLightbox();
+    const panel = doc.getElementById('tab-calendar') || doc.body;
+    if (!panel) return;
+
+    const overlay = doc.createElement('div');
+    overlay.className = 'proof-lightbox';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Full-size proof image');
+
+    const frame = doc.createElement('div');
+    frame.className = 'proof-lightbox__frame';
+
+    const img = doc.createElement('img');
+    img.className = 'proof-lightbox__img';
+    img.src = src;
+    img.alt = 'Proof image';
+
+    const closeBtn = doc.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'proof-lightbox__close';
+    closeBtn.textContent = '\u00D7';
+    closeBtn.setAttribute('aria-label', 'Close proof image');
+
+    frame.appendChild(img);
+    frame.appendChild(closeBtn);
+    overlay.appendChild(frame);
+    panel.appendChild(overlay);
+    lightboxEl = overlay;
+
+    closeBtn.addEventListener('click', _closeLightbox, { once: true });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) _closeLightbox();
+    }, { once: true });
+    doc.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') _closeLightbox();
+    }, { once: true });
+
+    closeBtn.focus();
+  }
+
+  function _closeLightbox() {
+    if (lightboxEl) {
+      lightboxEl.remove();
+      lightboxEl = null;
+    }
+  }
+
   function _closeDrawer(tile) {
     const drawer = doc.getElementById('day-drawer');
     const overlayEl = doc.querySelector('.drawer-overlay');
     if (!drawer) return;
 
+    _closeLightbox();
     drawer.classList.remove('drawer--open');
     drawer.setAttribute('hidden', '');
     if (overlayEl) overlayEl.setAttribute('hidden', '');
@@ -626,6 +753,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     const overlay = doc.querySelector('.drawer-overlay');
     if (!drawer) return;
 
+    _closeLightbox();
     drawer.classList.remove('drawer--open');
     drawer.setAttribute('hidden', '');
     if (overlay) overlay.setAttribute('hidden', '');

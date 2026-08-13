@@ -137,11 +137,6 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
         : '—';
       row.appendChild(distCell);
 
-      const noteCell = doc.createElement('span');
-      noteCell.dataset.cell = 'override-note';
-      noteCell.textContent = record.is_overridden ? (record.override?.note ?? '') : '—';
-      row.appendChild(noteCell);
-
       grid.appendChild(row);
     }
   }

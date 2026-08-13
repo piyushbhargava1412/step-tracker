@@ -1,7 +1,7 @@
 import { _localDate } from './date-utils.js';
 
 export const CSV_HEADERS =
-  'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note';
+  'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden';
 
 export const EXPORT_FILENAME_PREFIX = 'step-tracker-export-';
 
@@ -20,7 +20,6 @@ export function _toExportRow(record) {
     Effective_Steps: record.effective_steps,
     Effective_Distance_KM: record.effective_distance_km,
     Is_Overridden: record.is_overridden === true,
-    Override_Note: record.override?.note ?? '',
   };
 }
 

@@ -274,7 +274,7 @@ describe('render() — summary', async () => {
     expect(values[0].textContent).toBe('12,345');
   });
 
-  it('populated month renders total distance as toFixed(2) + " km"', async () => {
+  it('summary shows NO distance cell', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     payload.aggregates.totalDistanceKm = 8.4;
@@ -283,8 +283,9 @@ describe('render() — summary', async () => {
     const { render } = createCalendarUI(doc, null, engine, reporter);
     await render();
 
-    const values = doc.querySelectorAll('#calendar-summary .value');
-    expect(values[1].textContent).toBe('8.40 km');
+    const labels = Array.from(doc.querySelectorAll('#calendar-summary .summary-cell span:first-child'));
+    expect(labels.some((el) => el.textContent === 'Total Distance')).toBe(false);
+    expect(doc.querySelector('#calendar-summary .value')).not.toBeNull();
   });
 
   it('populated month renders elapsed-day commitment hit rate as integer + "%" ', async () => {
@@ -297,7 +298,7 @@ describe('render() — summary', async () => {
     await render();
 
     const values = doc.querySelectorAll('#calendar-summary .value');
-    expect(values[3].textContent).toBe('100%');
+    expect(values[2].textContent).toBe('100%');
   });
 
   it('hit rate uses elapsed classified days rather than record aggregates', async () => {
@@ -314,7 +315,7 @@ describe('render() — summary', async () => {
     await render();
 
     const values = doc.querySelectorAll('#calendar-summary .value');
-    expect(values[3].textContent).toBe('100%');
+    expect(values[2].textContent).toBe('100%');
   });
 
   it('caption reads "August 2026" for (2026, 7)', async () => {
@@ -462,7 +463,7 @@ describe('render() — drawer', async () => {
     expect(stepsRow.querySelector('.value').textContent).toBe('5000');
   });
 
-  it('Non-overridden record → "—" in Verified Manual row', async () => {
+  it('drawer has no Effective Distance row; Synced (Google Fit) shows steps only', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     const engine = makeMockEngine(payload);
@@ -474,8 +475,32 @@ describe('render() — drawer', async () => {
     tile.click();
 
     const rows = doc.querySelectorAll('#day-drawer .metric-row');
-    const manualRow = Array.from(rows).find(r => r.querySelector('span').textContent === 'Verified Manual');
-    expect(manualRow.querySelector('.value').textContent).toBe('\u2014');
+    const labels = Array.from(rows).map(r => r.querySelector('span').textContent);
+    expect(labels).not.toContain('Effective Distance');
+
+    const syncedRow = rows && Array.from(rows).find(r => r.querySelector('span').textContent === 'Synced (Google Fit)');
+    expect(syncedRow.querySelector('.value').textContent).toBe('4800');
+  });
+
+  it('zero-state drawer has no Effective Distance row', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayload();
+    payload.days[14] = {
+      ...payload.days[14],
+      isFuture: false,
+      record: null,
+      classification: { state: 0, isOverridden: false },
+    };
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const { render } = createCalendarUI(doc, null, engine, reporter);
+    await render();
+
+    doc.querySelector('[data-date="2026-08-15"]').click();
+
+    const labels = Array.from(doc.querySelectorAll('#day-drawer .metric-row span'))
+      .map(el => el.textContent);
+    expect(labels).not.toContain('Effective Distance');
   });
 
   it('Close button closes drawer', async () => {
@@ -512,7 +537,7 @@ describe('render() — drawer', async () => {
     expect(editBtn.disabled).toBe(true);
   });
 
-  it('XSS guard: note with <img> appears as literal text', async () => {
+  it('drawer has no Verified Manual or Override note rows', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     payload.days[0] = {
@@ -533,7 +558,11 @@ describe('render() — drawer', async () => {
     const tile = doc.querySelector('[data-date="2026-08-01"]');
     tile.click();
 
-    expect(doc.querySelector('#day-drawer img')).toBeNull();
+    const drawer = doc.getElementById('day-drawer');
+    const labels = Array.from(drawer.querySelectorAll('.metric-row span')).map(el => el.textContent);
+    expect(labels).not.toContain('Verified Manual');
+    expect(labels).not.toContain('Override note');
+    expect(drawer.textContent).not.toContain('<img src=x onerror=alert(1)>');
   });
 
   it('no-data past day → zero-state drawer', async () => {
@@ -663,6 +692,46 @@ function makeSamplePayloadWithRecord(overrideData = null) {
   return payload;
 }
 
+function makeSamplePayloadWithProof(proofBase64) {
+  return makeSamplePayloadWithRecord({
+    note: 'Existing override with proof',
+    proof_image_base64: proofBase64,
+    updated_at: '2026-08-05T14:00:00Z',
+  });
+}
+
+const PROOF_SRC = 'data:image/jpeg;base64,EXISTING_PROOF';
+
+async function openEditForm(doc, payload, records, processImage) {
+  const engine = makeMockEngine(payload);
+  const reporter = makeMockReporter();
+  const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+  await render();
+
+  doc.querySelector('[data-date="2026-08-05"]').click();
+  doc.querySelector('[data-action="edit-day"]').click();
+
+  const drawer = doc.getElementById('day-drawer');
+  return {
+    drawer,
+    reporter,
+    render,
+    stepsInput: drawer.querySelector('input[data-field="effective-steps"]'),
+    fileInput: drawer.querySelector('input[data-field="proof-image"]'),
+    submitBtn: drawer.querySelector('button[type="submit"]'),
+    deleteBtn: drawer.querySelector('[data-action="delete-proof"]'),
+    thumbWrap: drawer.querySelector('[data-action="view-proof"]'),
+    form: drawer.querySelector('form[data-form="override"]'),
+  };
+}
+
+async function selectFile(fileInput, processImage, file) {
+  const mockFile = file || new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+  Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+  fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+  await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
+}
+
 describe('Task 4 — Edit button activation', () => {
   it('Edit button is enabled (disabled === false) after ST-006 activation', async () => {
     const doc = buildDoc(getBaseHTML());
@@ -682,7 +751,7 @@ describe('Task 4 — Edit button activation', () => {
     expect(editBtn.disabled).toBe(false);
   });
 
-  it('Clicking Edit button mounts form with steps, distance, note, and file inputs', async () => {
+  it('Clicking Edit button mounts form with steps and file inputs (no distance, no note)', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const engine = makeMockEngine(payload);
@@ -705,13 +774,13 @@ describe('Task 4 — Edit button activation', () => {
     const fileInput = drawer.querySelector('input[type="file"]');
 
     expect(stepsInput).not.toBeNull();
-    expect(distInput).not.toBeNull();
-    expect(noteTextarea).not.toBeNull();
+    expect(distInput).toBeNull();
+    expect(noteTextarea).toBeNull();
     expect(fileInput).not.toBeNull();
     expect(fileInput.accept).toBe('image/png,image/jpeg,image/webp');
   });
 
-  it('Form pre-populates with current effective_steps and effective_distance_km for overridden day', async () => {
+  it('Form pre-populates with current effective_steps for overridden day', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord({ note: 'Treadmill session', proof_image_base64: null, updated_at: '2026-08-05T14:00:00Z' });
     const engine = makeMockEngine(payload);
@@ -733,8 +802,8 @@ describe('Task 4 — Edit button activation', () => {
     const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
 
     expect(stepsInput.value).toBe('6000');
-    expect(distInput.value).toBe('4.5');
-    expect(noteTextarea.value).toBe('Treadmill session');
+    expect(distInput).toBeNull();
+    expect(noteTextarea).toBeNull();
   });
 
   it('createCalendarUI factory signature accepts records and processImage params without error', () => {
@@ -748,92 +817,198 @@ describe('Task 4 — Edit button activation', () => {
 });
 
 describe('Task 4 — Override form submit', () => {
-  async function openDrawerAndClickEdit(doc, payload, records, processImage) {
-    const engine = makeMockEngine(payload);
-    const reporter = makeMockReporter();
-    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
-    await render();
-
-    const tile = doc.querySelector('[data-date="2026-08-05"]');
-    tile.click();
-
-    const editBtn = doc.querySelector('[data-action="edit-day"]');
-    editBtn.click();
-
-    return { reporter, render };
-  }
-
-  it('Valid submit without file calls overrideRecord with proof_image_base64=null; processImage not called', async () => {
+  it('Save button is disabled until a proof image is uploaded', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { reporter } = await openDrawerAndClickEdit(doc, payload, records, processImage);
+    const { submitBtn } = await openEditForm(doc, payload, records, processImage);
 
-    const drawer = doc.getElementById('day-drawer');
-    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
-    const form = drawer.querySelector('form[data-form="override"]');
+    expect(submitBtn.disabled).toBe(true);
+  });
+
+  it('Submitting without a proof image does NOT call overrideRecord', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, stepsInput } = await openEditForm(doc, payload, records, processImage);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
     stepsInput.value = '7000';
-    noteTextarea.value = 'Corrected entry';
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(processImage).not.toHaveBeenCalled();
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('Selecting a file calls processImage then enables Save; submit passes the processed base64', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { form, fileInput, submitBtn, stepsInput } = await openEditForm(doc, payload, records, processImage);
+
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalledWith(mockFile));
+    await vi.waitFor(() => expect(submitBtn.disabled).toBe(false));
+
+    stepsInput.value = '7500';
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());
+    const callArgs = records.overrideRecord.mock.calls[0];
+    expect(callArgs[0]).toBe('2026-08-05');
+    expect(callArgs[1].effective_steps).toBe(7500);
+    expect(callArgs[1].note).toBeUndefined();
+    expect(callArgs[1].proof_image_base64).toBe('data:image/jpeg;base64,PROCESSED');
+    expect(callArgs[1].effective_distance_km).toBeUndefined();
+  });
+
+  it('Editing a day with a saved proof reuses it: Save enabled on mount, no processImage call, submit passes existing base64', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { submitBtn, form, stepsInput } = await openEditForm(doc, payload, records, processImage);
+
+    expect(submitBtn.disabled).toBe(false);
+
+    stepsInput.value = '6100';
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());
     expect(processImage).not.toHaveBeenCalled();
-    const callArgs = records.overrideRecord.mock.calls[0];
-    expect(callArgs[0]).toBe('2026-08-05');
-    expect(callArgs[1].effective_steps).toBe(7000);
-    expect(callArgs[1].note).toBe('Corrected entry');
-    expect(callArgs[1].proof_image_base64).toBeNull();
+    expect(records.overrideRecord.mock.calls[0][1].proof_image_base64).toBe(PROOF_SRC);
   });
 
-  it('Valid submit with file calls processImage then overrideRecord with processed base64', async () => {
+  it('Delete removes the saved proof → Save disabled until a new image is uploaded', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { form, deleteBtn, submitBtn, fileInput, stepsInput } = await openEditForm(doc, payload, records, processImage);
+
+    deleteBtn.click();
+    expect(submitBtn.disabled).toBe(true);
+    expect(deleteBtn.hidden).toBe(true);
+
+    stepsInput.value = '6200';
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 50));
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+
+    // Upload a replacement → Save re-enables
+    const mockFile = new File(['test'], 'new.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
+    await vi.waitFor(() => expect(submitBtn.disabled).toBe(false));
+  });
+
+  it('Delete of a fresh selection → Save disabled', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const records = makeMockRecords();
     const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
-    const { reporter } = await openDrawerAndClickEdit(doc, payload, records, processImage);
+    const { fileInput, deleteBtn, submitBtn } = await openEditForm(doc, payload, records, processImage);
 
-    const drawer = doc.getElementById('day-drawer');
-    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
-    const fileInput = drawer.querySelector('input[type="file"]');
-    const form = drawer.querySelector('form[data-form="override"]');
-
-    stepsInput.value = '7500';
-    noteTextarea.value = 'With proof';
-
-    // Simulate file selection
-    const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
     Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(submitBtn.disabled).toBe(false));
 
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    deleteBtn.click();
+    expect(submitBtn.disabled).toBe(true);
+    expect(deleteBtn.hidden).toBe(true);
+  });
 
-    await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());
-    expect(processImage).toHaveBeenCalledWith(mockFile);
-    const callArgs = records.overrideRecord.mock.calls[0];
-    expect(callArgs[1].proof_image_base64).toBe('data:image/jpeg;base64,PROCESSED');
+  it('While processing, Save is disabled and shows "Processing…"; re-enabled on success', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    let resolveProcessing;
+    const processImage = vi.fn().mockReturnValue(new Promise((resolve) => { resolveProcessing = resolve; }));
+    const { fileInput, submitBtn } = await openEditForm(doc, payload, records, processImage);
+
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
+    expect(submitBtn.disabled).toBe(true);
+    expect(submitBtn.textContent).toBe('Processing\u2026');
+
+    resolveProcessing('data:image/jpeg;base64,DONE');
+    await vi.waitFor(() => expect(submitBtn.disabled).toBe(false));
+    expect(submitBtn.textContent).toBe('Save Override');
+  });
+
+  it('processImage rejection → ❌ reporter, Save stays disabled, overrideRecord NOT called, no event', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    const processImage = vi.fn().mockRejectedValue(new Error('Bad image'));
+    const { fileInput, submitBtn, reporter } = await openEditForm(doc, payload, records, processImage);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const mockFile = new File(['test'], 'bad.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌'));
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[calendar-ui]', expect.any(Error));
+    expect(submitBtn.disabled).toBe(true);
+    expect(records.overrideRecord).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+  });
+
+  it('processImage rejection while replacing an existing proof keeps the existing proof', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = vi.fn().mockRejectedValue(new Error('Bad image'));
+    const { fileInput, submitBtn, reporter } = await openEditForm(doc, payload, records, processImage);
+
+    const mockFile = new File(['test'], 'bad.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    // Existing proof survives the failed replacement → Save remains enabled
+    expect(submitBtn.disabled).toBe(false);
   });
 
   it('Successful override submit dispatches data:records:mutated with { date }', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const records = makeMockRecords();
-    const processImage = makeMockProcessImage();
-    const { reporter } = await openDrawerAndClickEdit(doc, payload, records, processImage);
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { form, fileInput, stepsInput } = await openEditForm(doc, payload, records, processImage);
 
     const events = [];
     doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
-    const drawer = doc.getElementById('day-drawer');
-    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
-    const form = drawer.querySelector('form[data-form="override"]');
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
 
     stepsInput.value = '8000';
-    noteTextarea.value = 'Event test';
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
@@ -841,55 +1016,23 @@ describe('Task 4 — Override form submit', () => {
     expect(events[0].detail.date).toBe('2026-08-05');
   });
 
-  it('processImage rejection surfaces ❌ reporter status; console.error called; event NOT dispatched', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const payload = makeSamplePayloadWithRecord();
-    const records = makeMockRecords();
-    const processImage = vi.fn().mockRejectedValue(new Error('Bad image'));
-    const { reporter } = await openDrawerAndClickEdit(doc, payload, records, processImage);
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const events = [];
-    doc.addEventListener('data:records:mutated', (e) => events.push(e));
-
-    const drawer = doc.getElementById('day-drawer');
-    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
-    const fileInput = drawer.querySelector('input[type="file"]');
-    const form = drawer.querySelector('form[data-form="override"]');
-
-    stepsInput.value = '7000';
-    noteTextarea.value = 'Test note';
-    const mockFile = new File(['test'], 'bad.jpg', { type: 'image/jpeg' });
-    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
-
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-
-    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
-    expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌'));
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[calendar-ui]', expect.any(Error));
-    expect(events.length).toBe(0);
-    expect(records.overrideRecord).not.toHaveBeenCalled();
-  });
-
   it('records.overrideRecord rejection surfaces ❌ reporter; event NOT dispatched', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const records = { overrideRecord: vi.fn().mockRejectedValue(new Error('DB write failed')), revertRecord: vi.fn() };
-    const processImage = makeMockProcessImage();
-    const { reporter } = await openDrawerAndClickEdit(doc, payload, records, processImage);
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { form, fileInput, stepsInput, reporter } = await openEditForm(doc, payload, records, processImage);
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const events = [];
     doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
-    const drawer = doc.getElementById('day-drawer');
-    const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
-    const form = drawer.querySelector('form[data-form="override"]');
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
 
     stepsInput.value = '7000';
-    noteTextarea.value = 'Test note';
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
@@ -903,34 +1046,36 @@ describe('Task 4 — Override form submit', () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayloadWithRecord();
     const records = makeMockRecords();
-    const processImage = makeMockProcessImage();
-    const engine = makeMockEngine(payload);
-    const reporter = makeMockReporter();
-    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { render } = await openEditForm(doc, payload, records, processImage);
 
-    // First render, open drawer, click edit, submit
-    await render();
-    doc.querySelector('[data-date="2026-08-05"]').click();
-    doc.querySelector('[data-action="edit-day"]').click();
-
-    const drawer = doc.getElementById('day-drawer');
+    // First render: select file + submit
+    let drawer = doc.getElementById('day-drawer');
     drawer.querySelector('input[data-field="effective-steps"]').value = '7000';
-    drawer.querySelector('textarea[data-field="note"]').value = 'First';
-    const form1 = drawer.querySelector('form[data-form="override"]');
-    form1.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-
+    const fileInput1 = drawer.querySelector('input[data-field="proof-image"]');
+    const mockFile1 = new File(['test'], 'a.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput1, 'files', { value: [mockFile1], configurable: true });
+    fileInput1.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalledTimes(1));
+    drawer.querySelector('form[data-form="override"]')
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalledTimes(1));
 
-    // Second render, open drawer, click edit, submit
+    // Second render: select file + submit
     records.overrideRecord.mockClear();
+    processImage.mockClear();
     await render();
     doc.querySelector('[data-date="2026-08-05"]').click();
     doc.querySelector('[data-action="edit-day"]').click();
-    const drawer2 = doc.getElementById('day-drawer');
-    drawer2.querySelector('input[data-field="effective-steps"]').value = '8000';
-    drawer2.querySelector('textarea[data-field="note"]').value = 'Second';
-    const form2 = drawer2.querySelector('form[data-form="override"]');
-    form2.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    drawer = doc.getElementById('day-drawer');
+    drawer.querySelector('input[data-field="effective-steps"]').value = '8000';
+    const fileInput2 = drawer.querySelector('input[data-field="proof-image"]');
+    const mockFile2 = new File(['test'], 'b.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput2, 'files', { value: [mockFile2], configurable: true });
+    fileInput2.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalledTimes(1));
+    drawer.querySelector('form[data-form="override"]')
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalledTimes(1));
     // Should only be called once (not duplicated from old handler)
@@ -1053,6 +1198,137 @@ describe('Task 4 — Revert button', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Proof thumbnail & full-size lightbox
+// ---------------------------------------------------------------------------
+
+describe('Proof thumbnail & lightbox', () => {
+  it('form shows a thumbnail of the uploaded image with the processed base64 src', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { fileInput, thumbWrap } = await openEditForm(doc, payload, records, processImage);
+
+    expect(thumbWrap.hidden).toBe(true);
+
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => expect(thumbWrap.hidden).toBe(false));
+    const thumb = thumbWrap.querySelector('.proof-thumb');
+    expect(thumb).not.toBeNull();
+    expect(thumb.src).toBe('data:image/jpeg;base64,PROCESSED');
+  });
+
+  it('form shows thumbnail of the existing saved proof when re-editing', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { thumbWrap } = await openEditForm(doc, payload, records, processImage);
+
+    expect(thumbWrap.hidden).toBe(false);
+    expect(thumbWrap.querySelector('.proof-thumb').src).toBe(PROOF_SRC);
+  });
+
+  it('clicking the form thumbnail opens the lightbox; close button dismisses it', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord();
+    const records = makeMockRecords();
+    const processImage = vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED');
+    const { fileInput, thumbWrap } = await openEditForm(doc, payload, records, processImage);
+
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(thumbWrap.hidden).toBe(false));
+
+    thumbWrap.click();
+
+    const lightbox = doc.querySelector('.proof-lightbox');
+    expect(lightbox).not.toBeNull();
+    expect(lightbox.querySelector('img').src).toBe('data:image/jpeg;base64,PROCESSED');
+
+    lightbox.querySelector('.proof-lightbox__close').click();
+    expect(doc.querySelector('.proof-lightbox')).toBeNull();
+  });
+
+  it('lightbox closes on overlay click and on Escape', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { thumbWrap } = await openEditForm(doc, payload, records, processImage);
+
+    thumbWrap.click();
+    const lightbox = doc.querySelector('.proof-lightbox');
+    expect(lightbox).not.toBeNull();
+
+    // Escape closes
+    doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(doc.querySelector('.proof-lightbox')).toBeNull();
+
+    // Re-open, overlay click closes
+    thumbWrap.click();
+    const lightbox2 = doc.querySelector('.proof-lightbox');
+    lightbox2.click();
+    expect(doc.querySelector('.proof-lightbox')).toBeNull();
+  });
+
+  it('read-only drawer shows a clickable thumbnail for a day with a saved proof', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    await render();
+
+    doc.querySelector('[data-date="2026-08-05"]').click();
+
+    const drawer = doc.getElementById('day-drawer');
+    const thumbWrap = drawer.querySelector('.proof-thumb-wrap');
+    expect(thumbWrap).not.toBeNull();
+    expect(thumbWrap.querySelector('.proof-thumb').src).toBe(PROOF_SRC);
+
+    thumbWrap.click();
+    expect(doc.querySelector('.proof-lightbox')).not.toBeNull();
+    expect(doc.querySelector('.proof-lightbox img').src).toBe(PROOF_SRC);
+  });
+
+  it('read-only drawer shows no thumbnail when the override has no proof', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithRecord({ note: 'No proof here', proof_image_base64: null, updated_at: '2026-08-05T12:00:00Z' });
+    const engine = makeMockEngine(payload);
+    const reporter = makeMockReporter();
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { render } = createCalendarUI(doc, null, engine, reporter, records, processImage);
+    await render();
+
+    doc.querySelector('[data-date="2026-08-05"]').click();
+
+    expect(doc.getElementById('day-drawer').querySelector('.proof-thumb-wrap')).toBeNull();
+  });
+
+  it('closing the drawer also closes an open lightbox', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const payload = makeSamplePayloadWithProof(PROOF_SRC);
+    const records = makeMockRecords();
+    const processImage = makeMockProcessImage();
+    const { thumbWrap } = await openEditForm(doc, payload, records, processImage);
+
+    thumbWrap.click();
+    expect(doc.querySelector('.proof-lightbox')).not.toBeNull();
+
+    doc.querySelector('.close-btn').click();
+    expect(doc.querySelector('.proof-lightbox')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Task 15 — Client-side form validation before overrideRecord
 // ---------------------------------------------------------------------------
 
@@ -1072,23 +1348,30 @@ describe('Task 15 — Form validation before overrideRecord', () => {
       drawer,
       reporter,
       stepsInput: drawer.querySelector('input[data-field="effective-steps"]'),
-      noteTextarea: drawer.querySelector('textarea[data-field="note"]'),
       fileInput: drawer.querySelector('input[type="file"]'),
+      submitBtn: drawer.querySelector('button[type="submit"]'),
       form: drawer.querySelector('form[data-form="override"]'),
     };
+  }
+
+  async function attachValidProof(fileInput, processImage) {
+    const mockFile = new File(['test'], 'proof.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(processImage).toHaveBeenCalled());
   }
 
   it('empty steps (NaN) → overrideRecord NOT called; no data:records:mutated event', async () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+    const { form, fileInput, stepsInput } = await openFormForDay(doc, records, processImage);
+    await attachValidProof(fileInput, processImage);
 
     const events = [];
     doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
     stepsInput.value = '';       // parseInt('') → NaN
-    noteTextarea.value = 'Valid note';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await new Promise(r => setTimeout(r, 50));
@@ -1100,13 +1383,13 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+    const { form, fileInput, stepsInput } = await openFormForDay(doc, records, processImage);
+    await attachValidProof(fileInput, processImage);
 
     const events = [];
     doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
     stepsInput.value = '3.5';    // parseInt gives 3, but Number.isInteger(parseFloat('3.5')) is false
-    noteTextarea.value = 'Valid note';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await new Promise(r => setTimeout(r, 50));
@@ -1118,13 +1401,13 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+    const { form, fileInput, stepsInput } = await openFormForDay(doc, records, processImage);
+    await attachValidProof(fileInput, processImage);
 
     const events = [];
     doc.addEventListener('data:records:mutated', (e) => events.push(e));
 
     stepsInput.value = '-1';
-    noteTextarea.value = 'Valid note';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await new Promise(r => setTimeout(r, 50));
@@ -1132,39 +1415,18 @@ describe('Task 15 — Form validation before overrideRecord', () => {
     expect(events.length).toBe(0);
   });
 
-  it('empty note (whitespace-only) → overrideRecord NOT called; no data:records:mutated event', async () => {
+  it('invalid steps → overrideRecord NOT called even after a valid proof is uploaded', async () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
-
-    const events = [];
-    doc.addEventListener('data:records:mutated', (e) => events.push(e));
-
-    stepsInput.value = '7000';
-    noteTextarea.value = '   ';  // whitespace only
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-
-    await new Promise(r => setTimeout(r, 50));
-    expect(records.overrideRecord).not.toHaveBeenCalled();
-    expect(events.length).toBe(0);
-  });
-
-  it('invalid steps → processImage NOT called even when file is attached', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const records = makeMockRecords();
-    const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea, fileInput } = await openFormForDay(doc, records, processImage);
+    const { form, fileInput, stepsInput } = await openFormForDay(doc, records, processImage);
+    await attachValidProof(fileInput, processImage);
 
     stepsInput.value = '';
-    noteTextarea.value = 'Valid note';
-    const mockFile = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
-    Object.defineProperty(fileInput, 'files', { value: [mockFile], configurable: true });
 
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await new Promise(r => setTimeout(r, 50));
-    expect(processImage).not.toHaveBeenCalled();
     expect(records.overrideRecord).not.toHaveBeenCalled();
   });
 
@@ -1183,25 +1445,23 @@ describe('Task 15 — Form validation before overrideRecord', () => {
 
     const drawer = doc.getElementById('day-drawer');
     const stepsInput = drawer.querySelector('input[data-field="effective-steps"]');
-    const noteTextarea = drawer.querySelector('textarea[data-field="note"]');
     const form = drawer.querySelector('form[data-form="override"]');
 
     stepsInput.value = '';
-    noteTextarea.value = '';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await new Promise(r => setTimeout(r, 50));
     expect(reporter.db).not.toHaveBeenCalled();
   });
 
-  it('valid input (steps=0, non-empty note) → overrideRecord IS called', async () => {
+  it('valid input (steps=0, proof uploaded) → overrideRecord IS called', async () => {
     const doc = buildDoc(getBaseHTML());
     const records = makeMockRecords();
     const processImage = makeMockProcessImage();
-    const { form, stepsInput, noteTextarea } = await openFormForDay(doc, records, processImage);
+    const { form, fileInput, stepsInput } = await openFormForDay(doc, records, processImage);
+    await attachValidProof(fileInput, processImage);
 
     stepsInput.value = '0';
-    noteTextarea.value = 'Rest day';
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => expect(records.overrideRecord).toHaveBeenCalled());

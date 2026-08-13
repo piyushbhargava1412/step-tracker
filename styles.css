@@ -853,6 +853,18 @@ button {
     font-size: 0.85rem;
 }
 
+#day-drawer .drawer-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+#day-drawer .drawer-actions > button {
+    flex: 1 1 0;
+    margin: 0;
+    width: auto;
+}
+
 #day-drawer button[data-action="edit-day"] {
     background: var(--accent-sky);
     color: #ffffff;
@@ -861,8 +873,6 @@ button {
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
-    width: 100%;
-    margin: 12px 0 0;
 }
 
 #day-drawer button[data-action="edit-day"][disabled] {
@@ -872,14 +882,15 @@ button {
 }
 
 #day-drawer .close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
     background: transparent;
     border: 1px solid var(--bg-card-border);
     color: var(--text-muted);
     padding: 4px 12px;
     border-radius: 6px;
     cursor: pointer;
-    float: right;
-    margin: -10px -10px 10px 0;
     font-size: 1rem;
 }
 
@@ -925,19 +936,125 @@ button {
     font-weight: 700;
 }
 
+[data-form="override"] button[type="submit"]:disabled {
+    background: var(--bg-card-border);
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
 .revert-btn {
     background: transparent;
     border: 1px solid var(--accent-amber);
     color: var(--accent-amber);
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 8px 16px;
     cursor: pointer;
-    font-size: 0.85rem;
-    margin-top: 8px;
+    font-weight: 600;
+    font-size: 1rem;
 }
 
 .revert-btn:hover {
     background: rgba(251, 191, 36, 0.1);
+}
+
+/* ─── Proof image thumbnail, delete control & full-size lightbox ────────────── */
+
+.proof-area {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.proof-area__hint {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.proof-thumb-wrap {
+    background: var(--bg-body);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    padding: 4px;
+    cursor: pointer;
+    display: block;
+    width: fit-content;
+    margin: 0 auto;
+    line-height: 0;
+}
+
+.proof-thumb-wrap:hover {
+    border-color: var(--accent-sky);
+}
+
+.proof-thumb {
+    max-width: 160px;
+    max-height: 120px;
+    border-radius: 6px;
+    display: block;
+}
+
+.proof-delete-btn {
+    background: transparent;
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-danger, #f87171);
+    border-radius: 6px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    width: fit-content;
+}
+
+.proof-delete-btn:hover {
+    border-color: #f87171;
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.proof-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.proof-lightbox__frame {
+    position: relative;
+    max-width: 92vw;
+    max-height: 92vh;
+}
+
+.proof-lightbox__img {
+    display: block;
+    max-width: 92vw;
+    max-height: 92vh;
+    border-radius: 8px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+}
+
+.proof-lightbox__close {
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-primary);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.proof-lightbox__close:hover {
+    border-color: var(--accent-amber);
+    color: var(--accent-amber);
 }
 
 /* ─── Challenge widget & transient badges ──────────────────────────────────── */
@@ -1219,7 +1336,7 @@ button {
 
 .search-results-table [data-row] {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 2fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--bg-card-border);
@@ -1245,11 +1362,6 @@ button {
 .search-results-table [data-cell="effective-distance"] {
     font-family: var(--font-mono);
     color: var(--text-muted);
-}
-
-.search-results-table [data-cell="override-note"] {
-    color: var(--accent-amber);
-    font-size: 0.8rem;
 }
 
 /* Summary row — mirrors .summary-cell / #calendar-summary idiom */

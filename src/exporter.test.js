@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe('createExporter — serialisers', () => {
   // --- _toExportRow ---
-  it('maps all 7 fields with exact header casing for overridden record', () => {
+  it('maps all 6 fields with exact header casing for overridden record', () => {
     const record = {
       date: '2026-01-15',
       original_steps: 8000,
@@ -28,7 +28,7 @@ describe('createExporter — serialisers', () => {
       effective_steps: 9000,
       effective_distance_km: 7.2,
       is_overridden: true,
-      override: { note: 'Good run' },
+      override: {},
     };
     const row = _toExportRow(record);
     expect(row.Date).toBe('2026-01-15');
@@ -37,10 +37,9 @@ describe('createExporter — serialisers', () => {
     expect(row.Effective_Steps).toBe(9000);
     expect(row.Effective_Distance_KM).toBe(7.2);
     expect(row.Is_Overridden).toBe(true);
-    expect(row.Override_Note).toBe('Good run');
   });
 
-  it('maps non-overridden record: Is_Overridden=false, Override_Note=""', () => {
+  it('maps non-overridden record: Is_Overridden=false', () => {
     const record = {
       date: '2026-01-16',
       original_steps: 5000,
@@ -52,10 +51,10 @@ describe('createExporter — serialisers', () => {
     };
     const row = _toExportRow(record);
     expect(row.Is_Overridden).toBe(false);
-    expect(row.Override_Note).toBe('');
+    expect(row.Override_Note).toBeUndefined();
   });
 
-  it('maps override object present but note absent → Override_Note=""', () => {
+  it('maps override object present but note absent → no note field', () => {
     const record = {
       date: '2026-01-17',
       original_steps: 5000,
@@ -66,7 +65,7 @@ describe('createExporter — serialisers', () => {
       override: {},
     };
     const row = _toExportRow(record);
-    expect(row.Override_Note).toBe('');
+    expect(row.Override_Note).toBeUndefined();
   });
 
   // --- _csvCell ---
@@ -139,7 +138,7 @@ describe('createExporter — serialisers', () => {
     };
     const output = _toCsv([record]);
     expect(output.split('\r\n')[0]).toBe(
-      'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden,Override_Note'
+      'Date,Original_Steps,Original_Distance_KM,Effective_Steps,Effective_Distance_KM,Is_Overridden'
     );
   });
 
@@ -162,7 +161,7 @@ describe('createExporter — serialisers', () => {
     expect(output).toBe(CSV_HEADERS);
   });
 
-  it('_toCsv note with comma and quote round-trips uncorrupted (RFC-4180)', () => {
+  it('_toCsv row values round-trip without corruption', () => {
     const record = {
       date: '2026-01-15',
       original_steps: 8000,
@@ -170,37 +169,11 @@ describe('createExporter — serialisers', () => {
       effective_steps: 9000,
       effective_distance_km: 7.2,
       is_overridden: true,
-      override: { note: 'a,b"c' },
+      override: {},
     };
     const csv = _toCsv([record]);
     const dataLine = csv.split('\r\n')[1];
-    // Last field is Override_Note quoted as "a,b""c"
-    const match = dataLine.match(/"((?:[^"]|"")*)"$/);
-    expect(match).not.toBeNull();
-    const recovered = match[1].replace(/""/g, '"');
-    expect(recovered).toBe('a,b"c');
-  });
-
-  it('_toCsv note with comma, quote, and newline round-trips (RFC-4180 DoD)', () => {
-    const note = 'hello,world\n"quoted"';
-    const record = {
-      date: '2026-01-15',
-      original_steps: 8000,
-      original_distance_km: 6.4,
-      effective_steps: 9000,
-      effective_distance_km: 7.2,
-      is_overridden: true,
-      override: { note },
-    };
-    const csv = _toCsv([record]);
-    // The whole CSV line will span two text lines due to embedded \n; join them to find the field
-    const rawCell = _csvCell(note);
-    expect(csv).toContain(rawCell);
-    // Confirm it's wrapped in quotes and the original content is preserved
-    expect(rawCell.startsWith('"')).toBe(true);
-    expect(rawCell.endsWith('"')).toBe(true);
-    const inner = rawCell.slice(1, -1).replace(/""/g, '"');
-    expect(inner).toBe(note);
+    expect(dataLine).toBe('2026-01-15,8000,6.4,9000,7.2,true');
   });
 
   // --- _toJson ---
