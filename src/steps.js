@@ -13,6 +13,9 @@
 
 // ── Constants (exported for testability) ─────────────────────────────────────
 
+import { DEFAULT_SYNC_ANCHOR } from './settings.js';
+export { DEFAULT_SYNC_ANCHOR };
+
 /**
  * Oldest possible sync start: local midnight on 2013-01-01.
  * Constructed via numeric args — never new Date('2013-01-01'), which is
@@ -49,13 +52,6 @@ export const MAX_RETRY_AFTER_MS = 30_000;
 
 /** Key in the Dexie `settings` store that latches a completed backfill. */
 export const BACKFILL_COMPLETE_KEY = 'initial_backfill_complete';
-
-/**
- * Default sync anchor date string used when no user-configured anchor is stored.
- * This is the fallback for _determineSyncWindows when sync_anchor_date is absent,
- * empty, or unreadable.
- */
-export const DEFAULT_SYNC_ANCHOR = '2018-01-01';
 
 /** Phase tag for a window that walks history back to HISTORY_ANCHOR_DATE. */
 export const PHASE_FULL_HISTORY = 'Full history sync';

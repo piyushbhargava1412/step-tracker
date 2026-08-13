@@ -719,6 +719,11 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     expect(DEFAULT_SYNC_ANCHOR).toBe('2018-01-01');
   });
 
+  it('DEFAULT_SYNC_ANCHOR in steps.js is the same value as DEFAULT_SYNC_ANCHOR in settings.js (single source of truth)', async () => {
+    const { DEFAULT_SYNC_ANCHOR: settingsAnchor } = await import('./settings.js');
+    expect(DEFAULT_SYNC_ANCHOR).toBe(settingsAnchor);
+  });
+
   // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
 });
 

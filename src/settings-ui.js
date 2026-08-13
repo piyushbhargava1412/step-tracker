@@ -292,6 +292,11 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     const input = modal.querySelector('[data-field="anchor-date"]');
     const date = input ? input.value : '';
 
+    if (!date) {
+      reporter.db('⚠️ Please select a date before pruning');
+      return;
+    }
+
     if (confirmFn && !confirmFn('Prune all records before ' + date + '?')) {
       return;
     }

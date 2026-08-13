@@ -225,6 +225,28 @@ describe('createSettingsUI — impact preview', () => {
     });
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
+
+  it('prune with empty date reports validation message and never calls pruneRecordsBefore', async () => {
+    const confirmFn = vi.fn().mockReturnValue(true);
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter, confirmFn);
+    await ui.render();
+    await ui.open();
+
+    // Ensure date input is empty
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '';
+
+    const pruneBtn = doc.querySelector('[data-action="prune"]');
+    pruneBtn.click();
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(settings.pruneRecordsBefore).not.toHaveBeenCalled();
+    expect(confirmFn).not.toHaveBeenCalled();
+    expect(reporter.db).toHaveBeenCalledWith(expect.stringMatching(/date/i));
+  });
 });
 
 // ── AbortController / listener teardown ──────────────────────────────────────
