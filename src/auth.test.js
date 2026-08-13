@@ -77,6 +77,52 @@ describe('createAuth', () => {
     expect(mockTokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
   });
 
+  it('requestToken({ prompt: "" }) delegates the silent-restore options to tokenClient', () => {
+    auth.requestToken({ prompt: '' });
+    expect(mockTokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
+    expect(mockTokenClient.requestAccessToken).toHaveBeenCalledWith({ prompt: '' });
+  });
+
+  it('requestToken({ prompt: "" }) is passed through as-is (empty prompt must not be dropped)', () => {
+    auth.requestToken({ prompt: '' });
+    const [args] = mockTokenClient.requestAccessToken.mock.calls[0];
+    expect(args.prompt).toBe('');
+  });
+
+  it('requestToken() before init() is guarded and does not throw', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const uninitialized = createAuth(config, reporter, mockGsi);
+    expect(() => uninitialized.requestToken()).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[auth] requestToken() called before init()'
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('onTokenReceived registers a listener invoked with the token on valid callback', () => {
+    const listener = vi.fn();
+    auth.onTokenReceived(listener);
+    capturedCallback({ access_token: 'tok-456' });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('tok-456');
+  });
+
+  it('onTokenReceived listener is not invoked when the callback carries no token', () => {
+    const listener = vi.fn();
+    auth.onTokenReceived(listener);
+    capturedCallback({ error: 'access_denied' });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('onTokenReceived listener fires after the Connected report', () => {
+    const order = [];
+    reporter.auth.mockImplementation(() => order.push('report'));
+    const listener = vi.fn(() => order.push('listener'));
+    auth.onTokenReceived(listener);
+    capturedCallback({ access_token: 'tok-789' });
+    expect(order).toEqual(['report', 'listener']);
+  });
+
   it('token is not exposed on window', () => {
     capturedCallback({ access_token: 'tok-123' });
     expect(window.accessToken).toBeUndefined();

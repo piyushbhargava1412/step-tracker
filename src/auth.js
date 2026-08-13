@@ -3,6 +3,7 @@ const SCOPES = 'https://www.googleapis.com/auth/fitness.activity.read https://ww
 export function createAuth(config, reporter, gsi = google) {
   let accessToken = null;
   let tokenClient = null;
+  let onTokenListener = null;
 
   function init() {
     tokenClient = gsi.accounts.oauth2.initTokenClient({
@@ -12,6 +13,7 @@ export function createAuth(config, reporter, gsi = google) {
         if (resp?.access_token) {
           accessToken = resp.access_token;
           reporter.auth('✅ Connected');
+          if (onTokenListener) onTokenListener(resp.access_token);
         } else {
           accessToken = null;
         }
@@ -19,17 +21,42 @@ export function createAuth(config, reporter, gsi = google) {
     });
   }
 
-  function requestToken() {
+  /**
+   * Request an access token.
+   *
+   * With no argument, `tokenClient.requestAccessToken()` runs Google's
+   * interactive consent flow. With `{ prompt: '' }` it asks GSI to silently
+   * return a fresh token using the user's existing Google session (used to
+   * restore the connection after a page refresh without any UI).
+   *
+   * @param {{ prompt?: string }} [options]  OverridableTokenClientConfig subset.
+   */
+  function requestToken(options) {
     if (!tokenClient) {
       console.error('[auth] requestToken() called before init()');
       return;
     }
-    tokenClient.requestAccessToken();
+    if (options) {
+      tokenClient.requestAccessToken(options);
+    } else {
+      tokenClient.requestAccessToken();
+    }
   }
 
   function getAccessToken() {
     return accessToken;
   }
 
-  return { init, requestToken, getAccessToken };
+  /**
+   * Register a listener invoked with the access token every time a valid
+   * token arrives — from the interactive connect flow or a silent restore.
+   * Lets the composition root run a sync the moment the user is connected.
+   *
+   * @param {(token: string) => void} listener
+   */
+  function onTokenReceived(listener) {
+    onTokenListener = listener;
+  }
+
+  return { init, requestToken, getAccessToken, onTokenReceived };
 }

@@ -99,10 +99,12 @@ vi.mock('./storage.js', () => ({
   requestPersistentStorage: vi.fn(() => Promise.resolve())
 }))
 
+let mockOnTokenHandler
 const mockAuthInstance = {
   init: vi.fn(),
   requestToken: vi.fn(),
-  getAccessToken: vi.fn()
+  getAccessToken: vi.fn(),
+  onTokenReceived: vi.fn((cb) => { mockOnTokenHandler = cb })
 }
 vi.mock('./auth.js', () => ({
   createAuth: vi.fn(() => mockAuthInstance)
@@ -163,7 +165,7 @@ import { createConfirmAdapter } from './confirm.js'
 import { bootstrap } from './main.js'
 
 // Helper: set up DOM and call bootstrap directly
-async function boot() {
+async function boot(storage) {
   document.body.innerHTML = `
     <button id="auth-btn">Connect</button>
     <button id="sync-btn">Sync Steps</button>
@@ -172,7 +174,19 @@ async function boot() {
     <div id="auth-status"></div>
     <span id="sync-status"></span>
   `
-  await bootstrap(document)
+  await bootstrap(document, storage)
+}
+
+// Minimal in-memory Storage substitute — the jsdom environment in this repo
+// does not expose a working localStorage global, and injection is the
+// established DI seam for collaborator-provided state in main.js.
+function makeStorage() {
+  const store = new Map()
+  return {
+    getItem: vi.fn((key) => (store.has(key) ? store.get(key) : null)),
+    setItem: vi.fn((key, value) => { store.set(key, String(value)) }),
+    clear: vi.fn(() => store.clear()),
+  }
 }
 
 describe('main.js — composition root bootstrap', () => {
@@ -337,6 +351,114 @@ describe('main.js — Task 11 step sync wiring', () => {
     `
     await expect(bootstrap(document)).resolves.toBeUndefined()
     expect(createStepSync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('main.js — auto-sync on connect + silent session restore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    mockOnTokenHandler = null
+  })
+
+  it('registers an onTokenReceived hook during bootstrap', async () => {
+    await boot(makeStorage())
+    expect(mockAuthInstance.onTokenReceived).toHaveBeenCalledTimes(1)
+    expect(typeof mockOnTokenHandler).toBe('function')
+  })
+
+  it('bootstrap with no previous connection does not attempt a silent restore', async () => {
+    await boot(makeStorage())
+    expect(mockAuthInstance.requestToken).not.toHaveBeenCalled()
+  })
+
+  it('bootstrap with a persisted connection flag requests a silent token (prompt: "")', async () => {
+    const storage = makeStorage()
+    storage.setItem('google_connected', '1')
+    await boot(storage)
+    expect(mockAuthInstance.requestToken).toHaveBeenCalledTimes(1)
+    expect(mockAuthInstance.requestToken).toHaveBeenCalledWith({ prompt: '' })
+  })
+
+  it('a connection flag read failure is fail-open (no silent restore, bootstrap continues)', async () => {
+    const storage = makeStorage()
+    storage.getItem.mockImplementation(() => { throw new Error('storage locked') })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await boot(storage)
+    expect(mockAuthInstance.requestToken).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] failed to read google connection flag, continuing',
+      expect.any(Error)
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('the onTokenReceived hook persists the connection flag and triggers a sync', async () => {
+    const storage = makeStorage()
+    await boot(storage)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    await mockOnTokenHandler()
+    expect(storage.setItem).toHaveBeenCalledWith('google_connected', '1')
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('the onTokenReceived hook runs the full post-sync re-render pipeline', async () => {
+    await boot(makeStorage())
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    await mockOnTokenHandler()
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('the onTokenReceived hook runs the sync before re-rendering (ordering)', async () => {
+    await boot(makeStorage())
+    vi.clearAllMocks()
+    let syncResolved = false
+    mockStepSyncInstance.sync.mockImplementation(() =>
+      new Promise(res => setTimeout(() => { syncResolved = true; res() }, 10))
+    )
+    let progressRenderedAfterSync = false
+    mockProgressUIInstance.render.mockImplementation(() => {
+      progressRenderedAfterSync = syncResolved
+      return Promise.resolve()
+    })
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    await mockOnTokenHandler()
+    expect(progressRenderedAfterSync).toBe(true)
+  })
+
+  it('the onTokenReceived hook writes only the boolean flag — never a token', async () => {
+    const storage = makeStorage()
+    await boot(storage)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    await mockOnTokenHandler()
+    expect(storage.setItem).toHaveBeenCalledTimes(1)
+    expect(storage.setItem).toHaveBeenCalledWith('google_connected', '1')
   })
 })
 
