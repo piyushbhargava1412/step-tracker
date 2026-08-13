@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _localDate, _addDaysUtc } from './date-utils.js';
+import { _localDate, _addDaysUtc, _formatReadableDate } from './date-utils.js';
 
 // ---------------------------------------------------------------------------
 // _localDate
@@ -107,5 +107,24 @@ describe('_addDaysUtc', () => {
   it('handles large negative deltas', () => {
     // 2024 is a leap year, so 365 days back from 2024-06-15 lands on 2023-06-16
     expect(_addDaysUtc('2024-06-15', -365)).toBe('2023-06-16');
+  });
+});
+
+describe('_formatReadableDate', () => {
+  it('formats 2018-01-01 as "Jan 1, 2018"', () => {
+    expect(_formatReadableDate('2018-01-01')).toBe('Jan 1, 2018');
+  });
+
+  it('formats December dates with the full month name', () => {
+    expect(_formatReadableDate('2023-12-31')).toBe('Dec 31, 2023');
+  });
+
+  it('zero-pads nothing — day is not zero-padded', () => {
+    expect(_formatReadableDate('2024-03-05')).toBe('Mar 5, 2024');
+  });
+
+  it('throws TypeError on non-strict dates', () => {
+    expect(() => _formatReadableDate('not-a-date')).toThrow(TypeError);
+    expect(() => _formatReadableDate(null)).toThrow(TypeError);
   });
 });

@@ -13,6 +13,9 @@
 
 // ── Constants (exported for testability) ─────────────────────────────────────
 
+import { DEFAULT_SYNC_ANCHOR } from './settings.js';
+export { DEFAULT_SYNC_ANCHOR };
+
 /**
  * Oldest possible sync start: local midnight on 2013-01-01.
  * Constructed via numeric args — never new Date('2013-01-01'), which is
@@ -225,7 +228,19 @@ export function _chunkWindow(startDate, endDate) {
  *          Windows in processing order.
  */
 export async function _determineSyncWindows(db) {
-  const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+  // Read user-configured sync anchor; fall back to DEFAULT_SYNC_ANCHOR on
+  // absence, empty value, or a thrown error (fail-open: mirrors the adjacent
+  // BACKFILL_COMPLETE_KEY read pattern).
+  let anchorDateStr = DEFAULT_SYNC_ANCHOR;
+  try {
+    const anchorRow = await db.settings.get('sync_anchor_date');
+    if (anchorRow?.value) {
+      anchorDateStr = anchorRow.value;
+    }
+  } catch (err) {
+    console.error('[steps]', err);
+  }
+  const anchorMs = _localMidnight(anchorDateStr).getTime();
   const endMs = _addDays(_localMidnight(new Date()), 1).getTime();
 
   let backfillComplete = false;

@@ -761,3 +761,76 @@ describe('styles.css — mobile dashboard ordering', () => {
     }
   });
 });
+
+// ─── Task 8: ST-015 settings button & modal overlay styles ───────────────────
+
+describe('styles.css — ST-015 settings button & modal overlay (Task 8)', () => {
+  let cssContent;
+
+  beforeAll(() => {
+    const cssPath = path.resolve(__dirname, '../styles.css');
+    cssContent = fs.readFileSync(cssPath, 'utf8');
+  });
+
+  it('#settings-btn selector is defined', () => {
+    expect(cssContent).toContain('#settings-btn');
+  });
+
+  it('.modal-overlay selector is defined', () => {
+    expect(cssContent).toContain('.modal-overlay');
+  });
+
+  it('#settings-modal selector is defined', () => {
+    expect(cssContent).toContain('#settings-modal');
+  });
+
+  it('.settings-date-picker selector is defined', () => {
+    expect(cssContent).toContain('.settings-date-picker');
+  });
+
+  it('.settings-impact-preview selector is defined', () => {
+    expect(cssContent).toContain('.settings-impact-preview');
+  });
+
+  it('.settings-close-btn selector is defined (compact ✕, not the pill .btn)', () => {
+    expect(cssContent).toContain('.settings-close-btn');
+    expect(/\.settings-close-btn\s*\{[^}]*border-radius:\s*50%/.test(cssContent)).toBe(true);
+  });
+
+  it('.settings-divider selector is defined', () => {
+    expect(cssContent).toContain('.settings-divider');
+  });
+
+  it('.settings-impact-label selector is defined', () => {
+    expect(cssContent).toContain('.settings-impact-label');
+  });
+
+  it('.settings-label-text selector is defined', () => {
+    expect(cssContent).toContain('.settings-label-text');
+  });
+
+  it('.disabled-picker selector with opacity-50 and pointer-events-none is defined', () => {
+    expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent)).toBe(true);
+    expect(/\.disabled-picker\s*\{[^}]*pointer-events:\s*none/.test(cssContent)).toBe(true);
+  });
+
+  it('.modal-dialog selector is defined for the settings modal', () => {
+    expect(cssContent).toMatch(/#settings-modal\s+\.modal-dialog/);
+  });
+
+  it('.modal-header selector is defined for the settings modal', () => {
+    expect(cssContent).toMatch(/#settings-modal\s+\.modal-header/);
+  });
+
+  it('ST-015 section has no hex colour literals', () => {
+    const st015Section = cssContent.match(/\/\* ─── ST-015[^]*$/);
+    if (st015Section) {
+      const hexMatches = st015Section[0].match(/#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/g) || [];
+      expect(hexMatches).toHaveLength(0);
+    }
+  });
+
+  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
+    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
+  });
+});

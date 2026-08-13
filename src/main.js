@@ -22,6 +22,9 @@ import { createSearchUI } from './search-ui.js'
 import { createExporter } from './exporter.js'
 import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
+import { createSettings } from './settings.js'
+import { createSettingsUI } from './settings-ui.js'
+import { createConfirmAdapter } from './confirm.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -89,6 +92,8 @@ export async function bootstrap(doc = document) {
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
   const challenge = createChallenge(db)
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)
+  const settings = createSettings(db)
+  const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
@@ -111,6 +116,19 @@ export async function bootstrap(doc = document) {
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
     authBtn.addEventListener('click', () => auth.requestToken())
+  }
+
+  // 8. Render settings modal interior at bootstrap (before wiring the button)
+  try {
+    await settingsUI.render()
+  } catch (err) {
+    console.error('[main] settingsUI.render failed, continuing', err)
+  }
+
+  // 8. Bind settings button
+  const settingsBtn = doc.getElementById('settings-btn')
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => settingsUI.open())
   }
 
   // 8. Bind sync button (SF-12: re-render after each sync click)
@@ -168,6 +186,11 @@ export async function bootstrap(doc = document) {
       await challengeUI.render()
     } catch (err) {
       console.error('[main] challengeUI.render failed after mutation, continuing', err)
+    }
+    try {
+      await searchUI.render()
+    } catch (err) {
+      console.error('[main]', err)
     }
   })
 

@@ -50,8 +50,8 @@ describe('DB constants', () => {
   it('DB_NAME equals StepTrackerDB', () => {
     expect(DB_NAME).toBe('StepTrackerDB');
   });
-  it('DB_VERSION equals 4', () => {
-    expect(DB_VERSION).toBe(4);
+  it('DB_VERSION equals 5', () => {
+    expect(DB_VERSION).toBe(5);
   });
 });
 
@@ -345,8 +345,9 @@ describe('initDB() - edge case', () => {
 // ─── Task 18: Dexie v4 migration ─────────────────────────────────────────────
 
 describe('DB constants — v4', () => {
-  it('DB_VERSION equals 4', () => {
-    expect(DB_VERSION).toBe(4);
+  it('DB_VERSION equals 5 (bumped from 4 to accommodate v5 migration)', () => {
+    // DB_VERSION was bumped to 5 in ST-015 Task 1; this block retained for v4 chain coverage
+    expect(DB_VERSION).toBe(5);
   });
 });
 
@@ -467,5 +468,119 @@ describe('createDb() — v4 upgrade handler (atomic transaction)', () => {
     expect(db.settings.delete).toHaveBeenCalledWith('active_goal');
     expect(db.settings.put).toHaveBeenCalledTimes(2);
     expect(db.settings.put).toHaveBeenCalledWith({ key: 'active_step_goal', target_steps: 10000 });
+  });
+});
+
+// ─── Task 1 (ST-015): v5 migration — seed sync_anchor_date ───────────────────
+
+describe('DB constants — v5', () => {
+  it('DB_VERSION equals 5', () => {
+    expect(DB_VERSION).toBe(5);
+  });
+});
+
+describe('createDb() — v5 version chain', () => {
+  it('calls version(5) in addition to v2, v3, and v4', async () => {
+    const db = createDb();
+    const calls = db.version.mock.calls.map(([v]) => v);
+    expect(calls).toContain(5);
+  });
+
+  it('v5 registers an upgrade function', async () => {
+    const db = createDb();
+    // version() calls: v2=0, v3=1, v4=2, v5=3
+    const v5Upgrade = db.version.mock.results[3].value.upgrade;
+    expect(v5Upgrade).toHaveBeenCalled();
+    expect(typeof v5Upgrade.mock.calls[0][0]).toBe('function');
+  });
+});
+
+describe('createDb() — v5 upgrade handler (sync_anchor_date seeding)', () => {
+  function getV5Handler(db) {
+    return db.version.mock.results[3].value.upgrade.mock.calls[0][0];
+  }
+
+  it('seeds sync_anchor_date with value "2018-01-01" when absent', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const getFn = vi.fn().mockResolvedValue(undefined);
+    const putFn = vi.fn().mockResolvedValue(undefined);
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await handler(tx);
+    expect(putFn).toHaveBeenCalledTimes(1);
+    const written = putFn.mock.calls[0][0];
+    expect(written.key).toBe('sync_anchor_date');
+    expect(written.value).toBe('2018-01-01');
+    expect(typeof written.updated_at).toBe('string');
+  });
+
+  it('seeds a valid ISO updated_at timestamp', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const getFn = vi.fn().mockResolvedValue(undefined);
+    const putFn = vi.fn().mockResolvedValue(undefined);
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await handler(tx);
+    const written = putFn.mock.calls[0][0];
+    expect(() => new Date(written.updated_at).toISOString()).not.toThrow();
+  });
+
+  it('does NOT overwrite an existing user sync_anchor_date (idempotent)', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const getFn = vi.fn().mockResolvedValue({ key: 'sync_anchor_date', value: '2022-06-15', updated_at: '2022-06-15T00:00:00.000Z' });
+    const putFn = vi.fn().mockResolvedValue(undefined);
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await handler(tx);
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it('does NOT overwrite when existing value is a non-empty string', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const getFn = vi.fn().mockResolvedValue({ key: 'sync_anchor_date', value: '2020-01-01' });
+    const putFn = vi.fn();
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await handler(tx);
+    expect(putFn).not.toHaveBeenCalled();
+  });
+
+  it('seeds when existing row has an empty value (treats as absent)', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const getFn = vi.fn().mockResolvedValue({ key: 'sync_anchor_date', value: '' });
+    const putFn = vi.fn().mockResolvedValue(undefined);
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await handler(tx);
+    expect(putFn).toHaveBeenCalledTimes(1);
+    expect(putFn.mock.calls[0][0].value).toBe('2018-01-01');
+  });
+
+  it('resolves without rethrowing when settings.get rejects', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = { table: () => ({ get: vi.fn().mockRejectedValue(new Error('read error')) }) };
+    await expect(handler(tx)).resolves.toBeUndefined();
+  });
+
+  it('logs [db] to console.error when an error is thrown', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    const error = new Error('read error');
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tx = { table: () => ({ get: vi.fn().mockRejectedValue(error) }) };
+    await handler(tx);
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('resolves without rethrowing when settings.put rejects', async () => {
+    const db = createDb();
+    const handler = getV5Handler(db);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const getFn = vi.fn().mockResolvedValue(undefined);
+    const putFn = vi.fn().mockRejectedValue(new Error('put failed'));
+    const tx = { table: () => ({ get: getFn, put: putFn }) };
+    await expect(handler(tx)).resolves.toBeUndefined();
   });
 });

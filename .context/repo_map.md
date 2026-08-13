@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `774e287`
-- generated-at: `2026-08-12T10:00:00Z`
+- verification-commit: `889018e`
+- generated-at: `2026-08-13T00:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -37,14 +37,17 @@
   - `.tab-bar` click (delegated) → `switchTab()` (from `src/tabs.js`)
   - `#goal-select` `change` event → `goal.setActiveStepGoal()` then three-renderer fan-out: `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()` (from `src/goal.js` + `src/main.js`)
   - `data:records:mutated` custom event → `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `challengeUI.render()` (fail-open, registered in `src/main.js`)
-  - `#tab-search` delegated click (`data-action`) → execute/reset/export-csv/export-json actions (from `src/search-ui.js`)
-- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `searchUI.render()`, and `challengeUI.render()` on load
+   - `#tab-search` delegated click (`data-action`) → execute/reset/export-csv/export-json actions (from `src/search-ui.js`)
+   - `#settings-btn` click → `settingsUI.open()` (from `src/settings-ui.js`)
+    - `#settings-modal` delegated click/change (`data-action`, `data-field`) → prune / wipe / close-settings / toggle-clear-all actions + auto-save anchor on date change (from `src/settings-ui.js`)
+- `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `searchUI.render()`, `challengeUI.render()`, and `settingsUI.render()` on load
+- `data:records:mutated` fan-out now also calls `searchUI.render()` (in addition to progressUI, streakUI, calendarUI, monthOverview, challengeUI)
 
 ## Implementation Areas
 - Composition root / bootstrap: `src/main.js`
 - Auth/token state management: `src/auth.js` (`createAuth` factory)
 - Configuration validation: `src/config.js` (`VITE_CLIENT_ID` from `import.meta.env`)
-- IndexedDB setup: `src/db.js` (`createDb`, `initDB` via Dexie; `DB_VERSION = 4`)
+- IndexedDB setup: `src/db.js` (`createDb`, `initDB` via Dexie; `DB_VERSION = 5`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`)
 - Persistent storage request: `src/storage.js` (`requestPersistentStorage`)
 - Tab navigation: `src/tabs.js` (`initTabs`, `switchTab`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
@@ -66,12 +69,15 @@
 - CSV/JSON exporter: `src/exporter.js` (`createExporter(doc)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and trigger a `<a download>` click; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
 - Challenge engine: `src/challenge.js` (`createChallenge(db)` factory; `getActiveChallenge()` — reads `active_challenge` key from Dexie `settings` store; `setActiveChallenge(options)` — persists with `RangeError` guard when `end_date < start_date`, fail-open on DB write errors; `computeChallengeMetrics(challenge, records)` — pure function, "Latest Day" = today-1 while active or `end_date` once completed, plus cumulative total, elapsed/total days, avg pace; `formatChallengeUpdate(metrics, name)` — formats clipboard export text; `ACTIVE_CHALLENGE_KEY = 'active_challenge'`)
 - Challenge UI renderer: `src/challenge-ui.js` (`createChallengeUI(doc, challenge, db, reporter)` factory; idempotent `render()` inserts `#challenge-card` into `#tab-dashboard`; AbortController-scoped delegated listener per render; always renders the mockup metric layout (title + date-range subtitle, ⚙️ gear + Copy Update actions, four metric tiles Latest Day / Cumulative / Day Progress / Avg. Pace); the gear toggles a collapsible start/end date config — open by default when unconfigured, hidden once configured; Save handler persists via `challenge.setActiveChallenge()`; Copy handler writes formatted update to clipboard via `navigator.clipboard.writeText()`; fail-open on missing container)
+- Settings engine: `src/settings.js` (`createSettings(db)` factory; `getSyncAnchorDate()` — reads `sync_anchor_date` from Dexie `settings` (fallback `DEFAULT_SYNC_ANCHOR = '2018-01-01'`); `setSyncAnchorDate(date)` — validates strict YYYY-MM-DD, persists; `countRecordsBefore(date)` — returns count of `daily_records` rows before date; `countAllRecords()` — returns total `daily_records` count (wipe impact preview); `pruneRecordsBefore(date)` — deletes those rows; `wipeDatabase()` — clears all `daily_records`, deletes `initial_backfill_complete`, resets `sync_anchor_date`; exports `SYNC_ANCHOR_KEY`, `DEFAULT_SYNC_ANCHOR`)
+- Settings UI renderer: `src/settings-ui.js` (`createSettingsUI(doc, settings, reporter, confirmFn)` factory; `render()` builds settings modal DOM (header "⚙️ Settings & Data Hygiene" with compact ✕ close button; 📅 SYNC BOUNDARY section with "Track History From:" anchor-date picker; divider; 🗑️ DATA PURGE OPTIONS section with clear-all checkbox, 📊 Impact Preview, prune/wipe action button); `open()` populates date input and displays `#settings-modal`; `close()` hides modal; AbortController-scoped delegated click/change listeners; anchor auto-saved on date change via `setSyncAnchorDate`; injected `confirmFn` for prune/wipe confirmation; dispatches `data:records:mutated` on successful mutation)
+- Confirm adapter: `src/confirm.js` (`createConfirmAdapter(windowRef)` — returns a function delegating to `windowRef?.confirm?.(msg)`; injectable seam to replace `window.confirm` in tests)
 - UI structure: `index.html` (tab-bar + tab-panel layout; includes calendar skeleton with nav/summary/grid containers and day-detail drawer)
 - Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls, challenge-card stacked in the left dashboard column below the progress card at grid row 3 with streak-card spanning rows 2–4 and month-overview-card at row 4; ≤760px mobile single column with `order` lifetime-banner(1) → progress(2) → streak(3) → challenge(4) → calendar(5))
-- DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 4`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`)
+- DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 5`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, search, search-ui, exporter, date-utils, units, challenge, challenge-ui
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, search, search-ui, exporter, date-utils, units, challenge, challenge-ui, settings, settings-ui, confirm
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

@@ -1,8 +1,8 @@
 # Flow: Historical Step Sync (Chunked Google Fit Aggregate Fetch)
 
 <!-- context-meta
-verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
-generated-at: 2026-08-10T15:55:56Z
+verification-commit: 889018e
+generated-at: 2026-08-13T00:00:00Z
 confidence: high
 -->
 
@@ -16,10 +16,10 @@ confidence: high
 
 ## Core Path
 1. `#sync-btn` click invokes `stepSync.sync()` (wired in `src/main.js` as `async () => { await stepSync.sync(); progressUI.render(); await streakUI.render(); }`), which pre-flight-checks `auth.getAccessToken()` (null token → `🔑 Connect your Google Account first`), then guards against re-entry with a closure-scoped `isSyncing` flag and disables the button. On completion, both the Today's Progress card and streak dashboard are refreshed with the newly-persisted step data.
-2. `_determineSyncWindows(db)` resolves the two-segment window model from persisted state alone:
-   - Empty DB → a single `[2013-01-01 → tomorrow's local midnight]` full-history window.
+2. `_determineSyncWindows(db)` resolves the two-segment window model from persisted state alone. First it reads the user-configured sync anchor from `db.settings.get('sync_anchor_date')` (fail-open: falls back to `DEFAULT_SYNC_ANCHOR = '2018-01-01'` on absent row or thrown error):
+   - Empty DB → a single `[anchor → tomorrow's local midnight]` full-history window.
    - Non-empty DB → an incremental `[latest stored date − 3 days → tomorrow]` window (the 3-day `SAFETY_BUFFER_DAYS` catches late-arriving wearable/Health Connect data), always.
-   - A full-history backfill `[2013-01-01 → oldest stored date + 1 day]` window is appended only while the backfill is not complete.
+   - A full-history backfill `[anchor → oldest stored date + 1 day]` window is appended only while the backfill is not complete.
 3. Each window is flattened into ≤`CHUNK_DAYS` (30)-day chunks via `_chunkWindow` (newest-first, boundaries on local midnight — DST-safe), then processed strictly sequentially with a `fetch → normalize → upsert` loop; one emoji-prefixed status line is written per chunk via `reporter.sync()`.
 4. Each chunk `POST`s to Google Fit `users/me/dataset:aggregate` with `Authorization: Bearer <token>`, `Content-Type: application/json`, and a body of exactly two `aggregateBy` entries — `com.google.step_count.delta` and `com.google.distance.delta` — with no `dataSourceId` (broad multi-device / Health Connect compatibility), `bucketByTime: { durationMillis: 86400000 }`, and `startTimeMillis`/`endTimeMillis` at **local midnight** (00:00:00.000 local time), never UTC zero-hour.
 5. `_normalizeBuckets` turns each bucket into one `daily_records` row (zero-filled; dual data type: steps from `step_count.delta` intVal, distance from `distance.delta` fpVal metres → km at 3 decimals, falling back to `steps × 0.000762` km when distance data is absent). Buckets whose resolved start time is not finite (missing both `startTimeMillis` and `startTimeNanos`, or a non-numeric value) are skipped rather than persisted under a NaN primary key.
@@ -50,6 +50,7 @@ confidence: high
 - `src/steps.test.js` — factory shape, DST-safe date helpers, window resolution, chunking, normalisation, retry policy, transactional upsert/override preservation, and the backfill latch.
 
 ## Notes
-- The history anchor `HISTORY_ANCHOR_DATE = new Date(2013, 0, 1)` (2013-01-01). The first sync spans ~13 years (~166 chunks) and can take several minutes; the app shows a `⏳ Full history sync` message and asks the user to keep the tab open.
+- The sync anchor is user-configurable via `src/settings.js` / `#settings-modal`; the default `DEFAULT_SYNC_ANCHOR = '2018-01-01'` is seeded in `settings` at DB v5. Previously the anchor was a hard-coded `HISTORY_ANCHOR_DATE = new Date(2013, 0, 1)`.
+- The first sync spans from the anchor date to today (~166 chunks at the 2013 default); it can take several minutes; the app shows a `⏳ Full history sync` message and asks the user to keep the tab open.
 - An interrupted backfill is fail-stop but resume-friendly: already-persisted chunks are kept and the next click resumes at the correct older date — the run always walks to the anchor via the persisted state, not a fixed 365-day loop.
 - The `initial_backfill_complete` latch lives in the existing `settings` store (declared at DB_VERSION 1) — no schema bump.

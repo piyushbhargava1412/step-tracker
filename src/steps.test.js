@@ -12,6 +12,7 @@ import {
   RETRY_BACKOFF_MS,
   MAX_RETRY_AFTER_MS,
   BACKFILL_COMPLETE_KEY,
+  DEFAULT_SYNC_ANCHOR,
   STEP_API_URL,
   PHASE_FULL_HISTORY,
   PHASE_INCREMENTAL,
@@ -368,10 +369,15 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
    * @param {object=} opts.flagRow        Row returned by settings.get(key)
    * @param {Error=}  opts.settingsError  When set, settings.get rejects with it
    */
-  function makeDb({ oldest, latest, flagRow, settingsError } = {}) {
-    const get = settingsError
-      ? vi.fn().mockRejectedValue(settingsError)
-      : vi.fn().mockResolvedValue(flagRow);
+  function makeDb({ oldest, latest, flagRow, anchorRow, settingsError, anchorError } = {}) {
+    const get = vi.fn((key) => {
+      if (settingsError) return Promise.reject(settingsError);
+      if (key === 'sync_anchor_date') {
+        if (anchorError) return Promise.reject(anchorError);
+        return Promise.resolve(anchorRow);
+      }
+      return Promise.resolve(flagRow);
+    });
     return {
       settings: { get, put: vi.fn() },
       daily_records: {
@@ -405,7 +411,7 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     const windows = await _determineSyncWindows(db);
 
     expect(windows.length).toBe(1);
-    expect(windows[0].startMs).toBe(_localMidnight(HISTORY_ANCHOR_DATE).getTime());
+    expect(windows[0].startMs).toBe(_localMidnight(DEFAULT_SYNC_ANCHOR).getTime());
     expect(windows[0].endMs).toBe(tomorrowMs());
     expect(windows[0].phase).toBe(PHASE_FULL_HISTORY);
     expect(PHASE_FULL_HISTORY).toBe('Full history sync');
@@ -470,7 +476,7 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
     const [incremental, backfill] = await _determineSyncWindows(db);
 
-    expect(backfill.startMs).toBe(_localMidnight(HISTORY_ANCHOR_DATE).getTime());
+    expect(backfill.startMs).toBe(_localMidnight(DEFAULT_SYNC_ANCHOR).getTime());
     expect(backfill.endMs).toBeGreaterThan(oldestMidnightMs);
     expect(incremental.startMs).toBeLessThanOrEqual(latestMidnightMs);
     expect(incremental.endMs).toBe(tomorrowMs());
@@ -637,8 +643,85 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
   // ── Regression ─────────────────────────────────────────────────────────────
 
-  it('db.js exports DB_VERSION = 4 (ST-007a schema bump)', () => {
-    expect(DB_VERSION).toBe(4);
+  it('db.js exports DB_VERSION = 5 (ST-015 schema bump from 4 to 5)', () => {
+    expect(DB_VERSION).toBe(5);
+  });
+
+
+  // ── Task 5: Dynamic anchor read in _determineSyncWindows ──────────────────
+
+  it('uses stored sync_anchor_date as window start when present', async () => {
+    const db = makeDb({
+      oldest: undefined,
+      latest: undefined,
+      anchorRow: { key: 'sync_anchor_date', value: '2020-06-01' },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows.length).toBe(1);
+    expect(windows[0].startMs).toBe(_localMidnight('2020-06-01').getTime());
+  });
+
+  it('falls back to DEFAULT_SYNC_ANCHOR when sync_anchor_date row is absent', async () => {
+    const db = makeDb({
+      oldest: undefined,
+      latest: undefined,
+      anchorRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows[0].startMs).toBe(_localMidnight(DEFAULT_SYNC_ANCHOR).getTime());
+  });
+
+  it('falls back to DEFAULT_SYNC_ANCHOR when sync_anchor_date value is empty string', async () => {
+    const db = makeDb({
+      oldest: undefined,
+      latest: undefined,
+      anchorRow: { key: 'sync_anchor_date', value: '' },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows[0].startMs).toBe(_localMidnight(DEFAULT_SYNC_ANCHOR).getTime());
+  });
+
+  it('falls back to DEFAULT_SYNC_ANCHOR on DB read throw; console.error("[steps]", err) called', async () => {
+    const anchorError = new Error('IDB anchor read failed');
+    const db = makeDb({
+      oldest: undefined,
+      latest: undefined,
+      anchorError,
+      flagRow: undefined,
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows[0].startMs).toBe(_localMidnight(DEFAULT_SYNC_ANCHOR).getTime());
+    expect(console.error).toHaveBeenCalled();
+    expect(console.error.mock.calls.some(call => call[0] === '[steps]')).toBe(true);
+  });
+
+  it('an anchor earlier than 2018 (e.g. 2015-03-10) is honored as-is — no clamp', async () => {
+    const db = makeDb({
+      oldest: undefined,
+      latest: undefined,
+      anchorRow: { key: 'sync_anchor_date', value: '2015-03-10' },
+    });
+
+    const windows = await _determineSyncWindows(db);
+
+    expect(windows[0].startMs).toBe(_localMidnight('2015-03-10').getTime());
+  });
+
+  it('DEFAULT_SYNC_ANCHOR is exported as the string "2018-01-01"', () => {
+    expect(DEFAULT_SYNC_ANCHOR).toBe('2018-01-01');
+  });
+
+  it('DEFAULT_SYNC_ANCHOR in steps.js is the same value as DEFAULT_SYNC_ANCHOR in settings.js (single source of truth)', async () => {
+    const { DEFAULT_SYNC_ANCHOR: settingsAnchor } = await import('./settings.js');
+    expect(DEFAULT_SYNC_ANCHOR).toBe(settingsAnchor);
   });
 
   // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
@@ -2040,6 +2123,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       firstSeq: [undefined, { date: '2013-01-01' }, { date: '2013-01-01' }],
       latestValue: undefined,
       flagRow: undefined,
+      anchorRow: { key: 'sync_anchor_date', value: '2013-01-01' },
     });
     stubFetch();
 
@@ -2083,6 +2167,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       ],
       latestValue: { date: '2025-06-14' },
       flagRow: undefined,
+      anchorRow: { key: 'sync_anchor_date', value: '2013-01-01' },
     });
     stubFetch();
 
@@ -2135,7 +2220,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
   it('a mid-backfill failure leaves the latch unwritten and the next sync resumes at the correct older date', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(TODAY);
-    db = makeStatefulDb({ seed: [seedRow('2024-01-10'), seedRow('2025-06-14')] });
+    db = makeStatefulDb({ seed: [seedRow('2024-01-10'), seedRow('2025-06-14')], syncAnchor: '2013-01-01' });
 
     let callNo = 0;
     let failMidBackfill = true;

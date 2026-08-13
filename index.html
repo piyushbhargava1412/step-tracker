@@ -31,6 +31,7 @@
         <div class="header-actions">
             <button id="auth-btn" class="btn btn-secondary">Connect Google Account</button>
             <button id="sync-btn" class="btn btn-primary">Sync Steps</button>
+            <button id="settings-btn" class="btn btn-secondary" aria-label="Settings">⚙️ Settings</button>
             <span id="sync-status" class="sync-status" aria-live="polite"></span>
         </div>
     </header>
@@ -62,6 +63,10 @@
         <div id="tab-search" style="display:none"></div>
         <div id="tab-spatial" style="display:none"></div>
     </main>
+
+
+    <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
+    <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden></div>
 
     <!-- FOOTER -->
     <footer class="app-footer">

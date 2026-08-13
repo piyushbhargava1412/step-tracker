@@ -39,3 +39,24 @@ export function _addDaysUtc(dateStr, delta) {
   const dd = String(shifted.getUTCDate()).padStart(2, '0');
   return `${yy}-${MM}-${dd}`;
 }
+
+/**
+ * Human-readable formatter for a strict YYYY-MM-DD string.
+ * Renders the local-calendar components ("2018-01-01" → "Jan 1, 2018").
+ *
+ * @param {string} dateStr - strict YYYY-MM-DD
+ * @returns {string} e.g. "Jan 1, 2018"
+ */
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function _formatReadableDate(dateStr) {
+  if (typeof dateStr !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new TypeError(`Invalid date for _formatReadableDate: ${dateStr}. Expected strict YYYY-MM-DD.`);
+  }
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const probe = new Date(y, m - 1, d);
+  if (probe.getFullYear() !== y || probe.getMonth() !== m - 1 || probe.getDate() !== d) {
+    throw new TypeError(`Invalid date for _formatReadableDate: ${dateStr}. Expected strict YYYY-MM-DD.`);
+  }
+  return `${MONTH_ABBR[m - 1]} ${d}, ${y}`;
+}
