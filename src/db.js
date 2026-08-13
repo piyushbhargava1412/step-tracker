@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import { _localDate } from './date-utils.js';
 
 export const DB_NAME = 'StepTrackerDB';
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 const DAILY_RECORDS_STORES = 'date,effective_steps,effective_distance_km,is_overridden,synced_at';
 const SETTINGS_STORES = 'key';
@@ -78,7 +78,7 @@ export function createDb() {
   // a process kill between delete and put would otherwise silently discard the prior goal.
   // The current schema version is driven by the DB_VERSION constant — bump it here when a new
   // migration is added so the constant and the head of the chain cannot drift.
-  db.version(DB_VERSION)
+  db.version(4)
     .stores({
       daily_records: DAILY_RECORDS_STORES,
       settings: SETTINGS_STORES,
@@ -95,6 +95,29 @@ export function createDb() {
         await db.transaction('rw', db.settings, async () => {
           await db.settings.delete('active_goal');
           await db.settings.put({ key: 'active_step_goal', target_steps: 10000 });
+        });
+      } catch (err) {
+        // Never rethrow — a throwing upgrade blocks db.open()
+        console.error('[db]', err);
+      }
+    });
+
+  // v5: seed sync_anchor_date in settings if absent
+  // Guard is idempotent: re-running upgrade does not overwrite an existing user value.
+  // Follows the v2 idempotency pattern (check-before-put).
+  db.version(5)
+    .stores({
+      daily_records: DAILY_RECORDS_STORES,
+      settings: SETTINGS_STORES,
+    })
+    .upgrade(async (tx) => {
+      try {
+        const row = await tx.table('settings').get('sync_anchor_date');
+        if (row && row.value) return; // already seeded — do not overwrite user value
+        await tx.table('settings').put({
+          key: 'sync_anchor_date',
+          value: '2018-01-01',
+          updated_at: new Date().toISOString(),
         });
       } catch (err) {
         // Never rethrow — a throwing upgrade blocks db.open()
