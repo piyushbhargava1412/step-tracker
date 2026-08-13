@@ -53,7 +53,7 @@ tile <button data-date="YYYY-MM-DD"> click (delegated listener on #calendar-grid
        ├─ populate #day-drawer: date h2, metric rows, Edit/Override button, optional Revert button
        ├─ if record.is_overridden && records injected → show "Revert to Synced" button
        │    └─ revert click: window.confirm → records.revertRecord(date) → dispatch data:records:mutated
-       ├─ if records injected → Edit / Override button is active (click → _mountOverrideForm)
+       ├─ if records injected → Edit / Override button is active (click → editBtn.remove(); overrideForm.mount(drawer, day, { signal }))
        │    else → Edit button disabled (title: 'Editing arrives in ST-006')
        ├─ if record == null: zero-state ("No synced data for this date", all metrics → '—')
        ├─ drawer.classList.add('drawer--open'), remove hidden from drawer + overlay
@@ -63,20 +63,22 @@ tile <button data-date="YYYY-MM-DD"> click (delegated listener on #calendar-grid
             overlay click    → _closeDrawer(tile)
             doc keydown Escape → _closeDrawer(tile)
 
-_mountOverrideForm(drawer, day)
-  ├─ removes Edit button from drawer
+overrideForm.mount(drawer, day)   ← shared src/override-form.js (same form the Search Lab mounts)
+  ├─ caller removes Edit button before mounting
   ├─ builds <form data-form="override"> with:
   │    ├─ <input type="number" data-field="effective-steps"> (required, ≥0 integer)
-  │    ├─ <input type="number" data-field="effective-distance"> (optional float ≥0)
-  │    ├─ <textarea data-field="note"> (required, non-empty)
   │    ├─ <input type="file" data-field="proof-image"> (optional; accept PNG/JPEG/WebP)
   │    └─ <button type="submit"> Save Override
+  ├─ proof is mandatory: existing proof reused when re-editing; new selection
+  │    → processImage(file) (≤1024 px JPEG base64); delete re-disables Save
   └─ submit handler (under controller.signal):
-       ├─ guard clauses: steps integer ≥0, note non-empty
-       ├─ if file && processImage injected → proofBase64 = await processImage(file)
-       ├─ await records.overrideRecord(date, { effective_steps, effective_distance_km, note, proof_image_base64 })
+       ├─ guard clauses: steps integer ≥0, proof present
+       ├─ await records.overrideRecord(date, { effective_steps, proof_image_base64 })
        ├─ dispatch CustomEvent('data:records:mutated', { detail: { date } })
-       └─ on error: reporter.db('❌ Override failed') + console.error('[calendar-ui]', err)
+       └─ on error: reporter.db('❌ Override failed') + console.error('[override-form]', err)
+
+Full-size proof lightbox is also shared: createProofLightbox(doc) → open(src, panel) / close(),
+appended inside #tab-calendar; _closeDrawer/_closeDrawerInternal call proofLightbox.close().
 
 _closeDrawer(tile)
   ├─ drawer.classList.remove('drawer--open'), set hidden on drawer + overlay
@@ -89,7 +91,8 @@ _closeDrawer(tile)
 | Module | Role |
 |---|---|
 | `src/calendar.js` | Pure engine: grid arithmetic, step-based classification, aggregates, nav clamping, I/O surface |
-| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts override form |
+| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts the shared override form |
+| `src/override-form.js` | Shared override form + proof lightbox (`createOverrideForm`, `createProofLightbox`) — reused by calendar drawer and Search Lab Edit Day |
 | `src/records.js` | Override/revert capability: `createRecords(db)` → `{ overrideRecord, revertRecord }` |
 | `src/image-processor.js` | Proof-image resize: `processImage(file)` → JPEG base64 data URL ≤1024 px |
 | `src/month-overview.js` | Reusable month overview renderer: heatmap tiles + commitment hit-rate card for both dashboard and calendar tabs |

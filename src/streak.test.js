@@ -84,7 +84,7 @@ describe('_sortByDate', () => {
 describe('TIER_STEP_THRESHOLDS', () => {
   it('is structurally equal to STEP_GOAL_OPTIONS (single source of truth)', () => {
     expect(TIER_STEP_THRESHOLDS).toEqual(STEP_GOAL_OPTIONS);
-    expect(TIER_STEP_THRESHOLDS).toEqual([5000, 7500, 10000, 15000]);
+    expect(TIER_STEP_THRESHOLDS).toEqual([4000, 6000, 8500, 10000]);
   });
 
   it('is the same array reference as STEP_GOAL_OPTIONS (guards against reference drift)', () => {
@@ -113,38 +113,38 @@ describe('computeTierStreaks — AC Scenario 3 (varying step counts per tier)', 
 
   /**
    * Fixture (steps chosen so active differs per tier, mirroring the km-era
-   * fixture's shape one-for-one across the new [5000, 7500, 10000, 15000]
+   * fixture's shape one-for-one across the new [4000, 6000, 8500, 10000]
    * ladder):
-   *   2026-08-06: 11000 steps — passes 5000, 7500, 10000 (fails 15000)
-   *   2026-08-07:  6000 steps — passes 5000                (fails 7500, 10000, 15000)
-   *   2026-08-08: 16000 steps — passes all
-   *   2026-08-09: 12000 steps — passes 5000, 7500, 10000 (fails 15000)
-   *   2026-08-10:  8000 steps — passes 5000, 7500         (fails 10000, 15000)
+   *   2026-08-06: 10500 steps — passes all four
+   *   2026-08-07:  5000 steps — passes 4000                (fails 6000, 8500, 10000)
+   *   2026-08-08: 13000 steps — passes all
+   *   2026-08-09:  9500 steps — passes 4000, 6000, 8500    (fails 10000)
+   *   2026-08-10:  7500 steps — passes 4000, 6000          (fails 8500, 10000)
    *
    * Expected active (backward from today):
-   *    5000: 8000≥5000, 12000≥5000, 16000≥5000, 6000≥5000, 11000≥5000 → 5
-   *    7500: 8000≥7500, 12000≥7500, 16000≥7500, 6000<7500→stop → 3
-   *   10000: 8000<10000→skip today, 12000≥10000, 16000≥10000, 6000<10000→stop → 2
-   *   15000: 8000<15000→skip today, 12000<15000→stop → 0
+   *    4000: 7500≥4000, 9500≥4000, 13000≥4000, 5000≥4000, 10500≥4000 → 5
+   *    6000: 7500≥6000, 9500≥6000, 13000≥6000, 5000<6000→stop → 3
+   *    8500: 7500<8500→skip today, 9500≥8500, 13000≥8500, 5000<8500→stop → 2
+   *   10000: 7500<10000→skip today, 9500<10000→stop → 0
    *
    * Expected best (full history scan):
-   *    5000: 11000,6000,16000,12000,8000 all≥5000 consecutively → 5
-   *    7500: 11000≥7500(1), 6000<7500(0), 16000≥7500(1), 12000≥7500(2), 8000≥7500(3) → 3
-   *   10000: 11000≥10000(1), 6000<10000(0), 16000≥10000(1), 12000≥10000(2), 8000<10000(0) → 2
-   *   15000: 11000<15000(0), 6000<15000(0), 16000≥15000(1), 12000<15000(0), 8000<15000(0) → 1
+   *    4000: 10500,5000,13000,9500,7500 all≥4000 consecutively → 5
+   *    6000: 10500≥6000(1), 5000<6000(0), 13000≥6000(1), 9500≥6000(2), 7500≥6000(3) → 3
+   *    8500: 10500≥8500(1), 5000<8500(0), 13000≥8500(1), 9500≥8500(2), 7500<8500(0) → 2
+   *   10000: 10500≥10000(1), 5000<10000(0), 13000≥10000(1), 9500<10000(0), 7500<10000(0) → 1
    */
   const RECORDS = [
-    { date: '2026-08-06', effective_steps: 11000 },
-    { date: '2026-08-07', effective_steps: 6000 },
-    { date: '2026-08-08', effective_steps: 16000 },
-    { date: '2026-08-09', effective_steps: 12000 },
-    { date: '2026-08-10', effective_steps: 8000 },
+    { date: '2026-08-06', effective_steps: 10500 },
+    { date: '2026-08-07', effective_steps: 5000 },
+    { date: '2026-08-08', effective_steps: 13000 },
+    { date: '2026-08-09', effective_steps: 9500 },
+    { date: '2026-08-10', effective_steps: 7500 },
   ];
 
   it('returns four entries in TIER_STEP_THRESHOLDS order each with { threshold, active, best }', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
     expect(result).toHaveLength(4);
-    expect(result.map((r) => r.threshold)).toEqual([5000, 7500, 10000, 15000]);
+    expect(result.map((r) => r.threshold)).toEqual([4000, 6000, 8500, 10000]);
     result.forEach((entry) => {
       expect(entry).toHaveProperty('threshold');
       expect(entry).toHaveProperty('active');
@@ -152,24 +152,24 @@ describe('computeTierStreaks — AC Scenario 3 (varying step counts per tier)', 
     });
   });
 
-  it('active streak for 5000-step threshold = 5 (all five days pass)', () => {
+  it('active streak for 4000-step threshold = 5 (all five days pass)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[0]).toEqual({ threshold: 5000, active: 5, best: 5 });
+    expect(result[0]).toEqual({ threshold: 4000, active: 5, best: 5 });
   });
 
-  it('active streak for 7500-step threshold = 3 (past 6000-step day terminates)', () => {
+  it('active streak for 6000-step threshold = 3 (past 5000-step day terminates)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[1]).toEqual({ threshold: 7500, active: 3, best: 3 });
+    expect(result[1]).toEqual({ threshold: 6000, active: 3, best: 3 });
   });
 
-  it('active streak for 10000-step threshold = 2 (today skipped; past 6000-step day terminates)', () => {
+  it('active streak for 8500-step threshold = 2 (today skipped; past 5000-step day terminates)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[2]).toEqual({ threshold: 10000, active: 2, best: 2 });
+    expect(result[2]).toEqual({ threshold: 8500, active: 2, best: 2 });
   });
 
-  it('active streak for 15000-step threshold = 0; best = 1 (only the 16000-step day qualifies)', () => {
+  it('active streak for 10000-step threshold = 0 (today skipped; past 9500-step day terminates)', () => {
     const result = computeTierStreaks(RECORDS, TODAY);
-    expect(result[3]).toEqual({ threshold: 15000, active: 0, best: 1 });
+    expect(result[3]).toEqual({ threshold: 10000, active: 0, best: 1 });
   });
 });
 
@@ -180,14 +180,14 @@ describe('computeTierStreaks — today skip rules (SF-9)', () => {
   const TODAY = '2026-08-10';
 
   it('today below threshold → skip today, active count preserved from yesterday', () => {
-    // 08-09 and 08-08 both pass (>= 7500); 08-10 below
+    // 08-09 and 08-08 both pass (>= 6000); 08-10 below
     const records = [
       { date: '2026-08-08', effective_steps: 8000 },
       { date: '2026-08-09', effective_steps: 8000 },
-      { date: '2026-08-10', effective_steps: 3000 }, // below 7500
+      { date: '2026-08-10', effective_steps: 3000 }, // below 6000
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 7500);
+    const tier = result.find((r) => r.threshold === 6000);
     expect(tier.active).toBe(2); // only 08-09 and 08-08
   });
 
@@ -198,18 +198,18 @@ describe('computeTierStreaks — today skip rules (SF-9)', () => {
       { date: '2026-08-09', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 7500);
+    const tier = result.find((r) => r.threshold === 6000);
     expect(tier.active).toBe(2);
   });
 
   it('today at/above threshold → counted in active streak (SF-8 >=)', () => {
     // today passes exactly at threshold (boundary)
     const records = [
-      { date: '2026-08-09', effective_steps: 7500 },
-      { date: '2026-08-10', effective_steps: 7500 }, // exact
+      { date: '2026-08-09', effective_steps: 6000 },
+      { date: '2026-08-10', effective_steps: 6000 }, // exact
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 7500);
+    const tier = result.find((r) => r.threshold === 6000);
     expect(tier.active).toBe(2);
   });
 });
@@ -221,7 +221,7 @@ describe('computeTierStreaks — active streak termination', () => {
   const TODAY = '2026-08-10';
 
   it('past failing day terminates the active streak', () => {
-    // 08-10 & 08-09 pass (>= 7500); 08-08 fails (3000 < 7500); 08-07 passes but unreachable
+    // 08-10 & 08-09 pass (>= 6000); 08-08 fails (3000 < 6000); 08-07 passes but unreachable
     const records = [
       { date: '2026-08-07', effective_steps: 9000 },
       { date: '2026-08-08', effective_steps: 3000 }, // fails
@@ -229,7 +229,7 @@ describe('computeTierStreaks — active streak termination', () => {
       { date: '2026-08-10', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 7500);
+    const tier = result.find((r) => r.threshold === 6000);
     expect(tier.active).toBe(2); // only 08-10 and 08-09
   });
 
@@ -242,7 +242,7 @@ describe('computeTierStreaks — active streak termination', () => {
       { date: '2026-08-10', effective_steps: 8000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 7500);
+    const tier = result.find((r) => r.threshold === 6000);
     expect(tier.active).toBe(2); // only 08-10 and 08-09
   });
 });
@@ -255,7 +255,7 @@ describe('computeTierStreaks — best-ever', () => {
 
   it('best-ever spans a historical run that ended before today', () => {
     /**
-     * Fixture for threshold 15000:
+     * Fixture for threshold 10000:
      *   2026-07-01 .. 2026-07-05: 16000 steps each (5-day run, ends before today)
      *   2026-07-06: 1000 steps (fails — breaks best run)
      *   gap: 2026-07-07 .. 2026-08-08 missing
@@ -271,7 +271,7 @@ describe('computeTierStreaks — best-ever', () => {
       { date: '2026-08-09', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 15000);
+    const tier = result.find((r) => r.threshold === 10000);
     expect(tier.active).toBe(1); // only 08-09 (today missing → skipped; 08-08 missing → terminate)
     expect(tier.best).toBe(5);  // the historical run in July
   });
@@ -281,7 +281,7 @@ describe('computeTierStreaks — best-ever', () => {
       { date: '2026-08-09', effective_steps: 16000 },
     ];
     const result = computeTierStreaks(records, TODAY);
-    const tier = result.find((r) => r.threshold === 15000);
+    const tier = result.find((r) => r.threshold === 10000);
     expect(tier.best).toBe(1);
   });
 
@@ -372,7 +372,7 @@ describe('computeTierStreaks — zero-state and guards', () => {
     ];
     const result = computeTierStreaks(records, TODAY);
     // Only the valid record counts
-    const tier = result.find((r) => r.threshold === 15000);
+    const tier = result.find((r) => r.threshold === 10000);
     expect(tier.active).toBe(1);
     expect(tier.best).toBe(1);
   });

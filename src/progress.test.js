@@ -106,10 +106,10 @@ describe('computeProgress — happy path (step goal)', () => {
   });
 
   it('honours every STEP_GOAL_OPTIONS value as the denominator', () => {
-    expect(computeProgress({ effective_steps: 2500 }, 5000).pct).toBe(50);
-    expect(computeProgress({ effective_steps: 2500 }, 7500).pct).toBe(33);
+    expect(computeProgress({ effective_steps: 2500 }, 4000).pct).toBe(63);
+    expect(computeProgress({ effective_steps: 2500 }, 6000).pct).toBe(42);
+    expect(computeProgress({ effective_steps: 2500 }, 8500).pct).toBe(29);
     expect(computeProgress({ effective_steps: 2500 }, 10000).pct).toBe(25);
-    expect(computeProgress({ effective_steps: 2500 }, 15000).pct).toBe(17);
   });
 });
 

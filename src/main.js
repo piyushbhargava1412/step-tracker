@@ -94,7 +94,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const monthOverview = createMonthOverview(doc, calendar, reporter)
   const search = createSearch(db)
   const exporter = createExporter(doc)
-  const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses)
+  const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
   const challenge = createChallenge(db)
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)

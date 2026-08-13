@@ -1487,6 +1487,24 @@ button {
     color: var(--text-muted);
 }
 
+/* Editable rows (missed-outcome search) — 4th column hosts the Edit Day button */
+.search-results-table.search-results-table--editable [data-row] {
+    grid-template-columns: 1fr 1fr 1fr auto;
+    align-items: center;
+}
+
+.search-results-table .row-edit-btn {
+    justify-self: end;
+    background: transparent;
+    border: 1px solid var(--accent-sky);
+    color: var(--accent-sky);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
 /* Summary row — mirrors .summary-cell / #calendar-summary idiom */
 .search-summary {
     display: grid;
@@ -1512,6 +1530,48 @@ button {
     padding: 16px;
     margin-top: 12px;
     font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.near-miss-header {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.near-miss-empty {
+    color: var(--text-muted);
+    padding: 8px 0;
+}
+
+.near-miss-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--bg-card-border);
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.near-miss-row:last-child {
+    border-bottom: none;
+}
+
+.near-miss-panel [data-cell="nm-date"] {
+    font-family: var(--font-mono);
+    color: var(--accent-cyan);
+}
+
+.near-miss-panel [data-cell="nm-steps"] {
+    font-family: var(--font-mono);
+    color: var(--accent-sky);
+    font-weight: 700;
+}
+
+.near-miss-panel [data-cell="nm-shortfall"] {
+    font-family: var(--font-mono);
     color: var(--text-muted);
 }
 

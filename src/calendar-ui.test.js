@@ -971,7 +971,7 @@ describe('Task 4 — Override form submit', () => {
 
     await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
     expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌'));
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[calendar-ui]', expect.any(Error));
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[override-form]', expect.any(Error));
     expect(submitBtn.disabled).toBe(true);
     expect(records.overrideRecord).not.toHaveBeenCalled();
     expect(events.length).toBe(0);
@@ -1038,7 +1038,7 @@ describe('Task 4 — Override form submit', () => {
 
     await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
     expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌'));
-    expect(consoleErrorSpy).toHaveBeenCalledWith('[calendar-ui]', expect.any(Error));
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[override-form]', expect.any(Error));
     expect(events.length).toBe(0);
   });
 

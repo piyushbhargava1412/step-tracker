@@ -33,7 +33,7 @@ const GOAL_10K = 10000;
 /**
  * Alternate active step goal used to prove the denominator is data-driven.
  */
-const GOAL_5K = 5000;
+const GOAL_4K = 4000;
 
 /**
  * Build a mock goal object exposing the step-lens surface consumed by render()
@@ -209,20 +209,20 @@ describe('createProgressUI', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Denominator is data-driven — a 5,000 step goal
+  // Denominator is data-driven — a 4,000 step goal
   // -------------------------------------------------------------------------
-  describe('alternate step goal (2500/5000 steps)', () => {
-    it('renders "2,500 / 5,000 steps" and 50%', async () => {
+  describe('alternate step goal (2500/4000 steps)', () => {
+    it('renders "2,500 / 4,000 steps" and 63%', async () => {
       const doc = buildDoc();
-      const goal = makeGoal(GOAL_5K);
+      const goal = makeGoal(GOAL_4K);
       const db = makeDb({ effective_steps: 2500 });
       const reporter = { db: vi.fn() };
 
       const ui = createProgressUI(doc, goal, db, reporter);
       await ui.render();
 
-      expect(doc.querySelector('.metric-value').textContent).toBe('2,500 / 5,000 steps');
-      expect(doc.querySelector('.progress-pct').textContent).toBe('50%');
+      expect(doc.querySelector('.metric-value').textContent).toBe('2,500 / 4,000 steps');
+      expect(doc.querySelector('.progress-pct').textContent).toBe('63%');
     });
   });
 
@@ -403,7 +403,7 @@ describe('createProgressUI', () => {
       expect(doc.getElementById('goal-selector')).not.toBeNull();
     });
 
-    it('exactly one #goal-select with 4 options valued 5000/7500/10000/15000', async () => {
+    it('exactly one #goal-select with 4 options valued 4000/6000/8500/10000', async () => {
       const doc = buildDoc();
       const goal = makeGoal(GOAL_10K);
       const db = makeDb(null);
@@ -420,14 +420,14 @@ describe('createProgressUI', () => {
       const options = selects[0].querySelectorAll('option');
       expect(options.length).toBe(4);
       expect(Array.from(options).map((o) => o.value)).toEqual([
-        '5000',
-        '7500',
+        '4000',
+        '6000',
+        '8500',
         '10000',
-        '15000',
       ]);
     });
 
-    it('option labels are comma-formatted step counts', async () => {
+    it('option labels are comma-formatted step counts with km hints', async () => {
       const doc = buildDoc();
       const goal = makeGoal(GOAL_10K);
       const db = makeDb(null);
@@ -438,10 +438,10 @@ describe('createProgressUI', () => {
 
       const options = doc.querySelectorAll('#goal-select option');
       expect(Array.from(options).map((o) => o.textContent)).toEqual([
-        '5,000 steps',
-        '7,500 steps',
-        '10,000 steps',
-        '15,000 steps',
+        '4,000 steps (~3km)',
+        '6,000 steps (~5km)',
+        '8,500 steps (~7km)',
+        '10,000 steps (~8km)',
       ]);
     });
 
@@ -484,19 +484,19 @@ describe('createProgressUI', () => {
 
     it("select's value is preset to the active goal (target_steps) on render", async () => {
       const doc = buildDoc();
-      const goal = makeGoal(GOAL_5K);
+      const goal = makeGoal(GOAL_4K);
       const db = makeDb(null);
       const reporter = { db: vi.fn() };
 
       const ui = createProgressUI(doc, goal, db, reporter);
       await ui.render();
 
-      expect(doc.getElementById('goal-select').value).toBe('5000');
+      expect(doc.getElementById('goal-select').value).toBe('4000');
     });
   });
 
   describe('goal selector — change event', () => {
-    it('dispatching change with value 7500 calls setActiveStepGoal(7500) as a number, then re-renders, then invokes onGoalApplied exactly once, in that order', async () => {
+    it('dispatching change with value 6000 calls setActiveStepGoal(6000) as a number, then re-renders, then invokes onGoalApplied exactly once, in that order', async () => {
       const doc = buildDoc();
       const callOrder = [];
       const goalObj = makeGoal(GOAL_10K);
@@ -505,7 +505,7 @@ describe('createProgressUI', () => {
       });
       goalObj.getActiveStepGoal = vi.fn()
         .mockResolvedValueOnce(GOAL_10K)
-        .mockResolvedValue(7500);
+        .mockResolvedValue(6000);
       const db = makeDb(null);
       const reporter = { db: vi.fn() };
       let renderedTargetAtCallback = null;
@@ -518,16 +518,16 @@ describe('createProgressUI', () => {
       await ui.render();
 
       const select = doc.getElementById('goal-select');
-      select.value = '7500';
+      select.value = '6000';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(goalObj.setActiveStepGoal).toHaveBeenCalledWith(7500);
+      expect(goalObj.setActiveStepGoal).toHaveBeenCalledWith(6000);
       expect(goalObj.setActiveStepGoal).toHaveBeenCalledTimes(1);
       expect(onGoalApplied).toHaveBeenCalledTimes(1);
       expect(callOrder).toEqual(['setActiveStepGoal', 'onGoalApplied']);
       // Re-render happened before the callback fired
-      expect(renderedTargetAtCallback).toBe('/ 7,500 steps');
+      expect(renderedTargetAtCallback).toBe('/ 6,000 steps');
     });
 
     it('setActiveStepGoal rejection sets #goal-error to the save-error text and does not invoke onGoalApplied', async () => {
@@ -542,7 +542,7 @@ describe('createProgressUI', () => {
       await ui.render();
 
       const select = doc.getElementById('goal-select');
-      select.value = '5000';
+      select.value = '4000';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
 
@@ -569,7 +569,7 @@ describe('createProgressUI', () => {
       await ui.render();
 
       const select = doc.getElementById('goal-select');
-      select.value = '15000';
+      select.value = '8500';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
 
@@ -584,7 +584,7 @@ describe('createProgressUI', () => {
       goalObj.setActiveStepGoal = vi.fn().mockResolvedValue(undefined);
       goalObj.getActiveStepGoal = vi.fn()
         .mockResolvedValueOnce(GOAL_10K)
-        .mockResolvedValue(15000);
+        .mockResolvedValue(8500);
       const db = makeDb(null);
       const reporter = { db: vi.fn() };
 
@@ -592,11 +592,11 @@ describe('createProgressUI', () => {
       await ui.render();
 
       const select = doc.getElementById('goal-select');
-      select.value = '15000';
+      select.value = '8500';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
 
-      expect(doc.getElementById('goal-select').value).toBe('15000');
+      expect(doc.getElementById('goal-select').value).toBe('8500');
     });
   });
 
@@ -626,7 +626,7 @@ describe('createProgressUI', () => {
       await ui.render(); // second render — stale container replaced
 
       const select = doc.getElementById('goal-select');
-      select.value = '7500';
+      select.value = '6000';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 20));
 
@@ -658,7 +658,7 @@ describe('createProgressUI', () => {
       await ui.render();
 
       const select = doc.getElementById('goal-select');
-      select.value = '5000';
+      select.value = '4000';
       select.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 0));
 

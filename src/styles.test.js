@@ -511,6 +511,16 @@ describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
     expect(/\.search-results-table\s+\[data-row\][^{]*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
   });
 
+  // ── .search-results-table--editable (Edit Day) ──────────────────────────
+
+  it('editable grid rows add a 4th column for the Edit Day button', () => {
+    expect(/\.search-results-table\.search-results-table--editable\s+\[data-row\][^{]*{[^}]*grid-template-columns:\s*1fr\s+1fr\s+1fr\s+auto/.test(cssContent)).toBe(true);
+  });
+
+  it('.row-edit-btn selector is styled', () => {
+    expect(cssContent).toMatch(/\.search-results-table\s+\.row-edit-btn\s*\{/);
+  });
+
   // ── .search-summary extends summary-cell idiom ───────────────────────────
 
   it('.search-summary should have display: grid', () => {
@@ -569,6 +579,36 @@ describe('styles.css — ST-007a near-miss-panel (Task 16)', () => {
 
   it('should contain .near-miss-panel selector', () => {
     expect(cssContent).toContain('.near-miss-panel');
+  });
+
+  // ── Near-miss panel anatomy ───────────────────────────────────────────────
+
+  it('should contain .near-miss-header selector', () => {
+    expect(cssContent).toContain('.near-miss-header');
+  });
+
+  it('should contain .near-miss-empty selector', () => {
+    expect(cssContent).toContain('.near-miss-empty');
+  });
+
+  it('.near-miss-row should define a grid layout', () => {
+    expect(/\.near-miss-row\s*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
+  });
+
+  it('near-miss rows should use three equal columns for date/steps/shortfall', () => {
+    expect(/\.near-miss-row\s*{[^}]*grid-template-columns:\s*1fr\s+1fr\s+1fr/.test(cssContent)).toBe(true);
+  });
+
+  it('nm-date cell should be styled', () => {
+    expect(cssContent).toMatch(/\[data-cell="nm-date"\]\s*{/);
+  });
+
+  it('nm-steps cell should be styled', () => {
+    expect(cssContent).toMatch(/\[data-cell="nm-steps"\]\s*{/);
+  });
+
+  it('nm-shortfall cell should be styled', () => {
+    expect(cssContent).toMatch(/\[data-cell="nm-shortfall"\]\s*{/);
   });
 
   // ── Legacy tolerance/hall-of-fame selectors absent ────────────────────────

@@ -1,8 +1,21 @@
-export function createSearchUI(doc, search, exporter, reporter, computeNearMisses) {
+import { createOverrideForm, createProofLightbox } from './override-form.js';
+
+export function createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage) {
   let controller = null;
   let currentRecords = null;
+  let lastFilters = null;
+  let hasExecuted = false;
 
-  function render() {
+  // Override capability is optional: without records/processImage the Search Lab
+  // renders as a read-only query surface (no Edit Day buttons, no override form).
+  const proofLightbox = records ? createProofLightbox(doc) : null;
+  const overrideForm = records
+    ? createOverrideForm(doc, records, processImage, reporter, {
+        onViewProof: (src) => proofLightbox.open(src, doc.getElementById('tab-search') || doc.body),
+      })
+    : null;
+
+  async function render() {
     const panel = doc.getElementById('tab-search');
     if (!panel) {
       console.warn('[search]', 'Missing #tab-search — skipping render');
@@ -33,11 +46,26 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       else if (action === 'reset') _handleReset(panel);
       else if (action === 'export-csv') _handleExportCsv();
       else if (action === 'export-json') _handleExportJson();
+      else if (action === 'edit-day') _handleEditDay(panel, target);
     }, { signal });
+
+    // Retain-and-replay: a re-render (e.g. after a record mutation) restores the
+    // last executed query so the results reflect fresh data instead of a blank
+    // panel. `_handleReset` clears `hasExecuted`, so this path is a no-op then.
+    if (hasExecuted && lastFilters) {
+      _populateFilters(panel, lastFilters);
+      await _handleExecute(panel);
+    }
   }
 
   async function _handleExecute(panel) {
     const filters = _readFilters(panel);
+    lastFilters = filters;
+    hasExecuted = true;
+    await _runQuery(panel, filters);
+  }
+
+  async function _runQuery(panel, filters) {
 
     // Warn when outcome filter is set but no step target provided
     if (filters.targetOutcome && filters.targetOutcome !== 'all' && !Number.isFinite(filters.stepTarget)) {
@@ -47,7 +75,8 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     try {
       const result = await search.executeQuery(filters);
       currentRecords = result.records;
-      _renderGrid(panel, result.records);
+      const editable = filters.targetOutcome === 'missed' && !!overrideForm;
+      _renderGrid(panel, result.records, editable);
       const summary = search.computeResultSummary(result.records, result.preFilterSet);
       _renderSummary(panel, summary);
 
@@ -62,19 +91,52 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       currentRecords = null;
       console.error('[search]', err);
       reporter.db('❌ Search query failed');
-      _renderGrid(panel, []);
+      _renderGrid(panel, [], false);
       _renderNearMissPanel(panel, { count: 0, days: [] });
     }
   }
 
   function _handleReset(panel) {
     currentRecords = null;
+    lastFilters = null;
+    hasExecuted = false;
     panel.querySelectorAll('[data-field]').forEach((el) => {
       el.value = '';
     });
     _renderGrid(panel, []);
     _renderSummary(panel, { count: 0, matchPct: null, cumulativeDistanceKm: 0, avgSteps: null });
     _renderNearMissPanel(panel, { count: 0, days: [] });
+  }
+
+  function _handleEditDay(panel, target) {
+    if (!overrideForm) return;
+    const date = target.dataset.date;
+    const record = currentRecords ? currentRecords.find((r) => r.date === date) : null;
+    if (!record) return;
+    const row = target.closest('[data-row]');
+    if (!row) return;
+    row.replaceChildren();
+    overrideForm.mount(row, { date, record }, { signal: controller.signal });
+  }
+
+  function _populateFilters(panel, filters) {
+    const numberFields = {
+      startDate: 'start-date',
+      endDate: 'end-date',
+      minSteps: 'min-steps',
+      maxSteps: 'max-steps',
+      stepTarget: 'step-target',
+    };
+    for (const [key, field] of Object.entries(numberFields)) {
+      const el = panel.querySelector(`[data-field="${field}"]`);
+      if (el && filters[key] !== undefined && filters[key] !== null) {
+        el.value = String(filters[key]);
+      }
+    }
+    const overrideEl = panel.querySelector('[data-field="override-status"]');
+    if (overrideEl) overrideEl.value = filters.overrideStatus ?? 'all';
+    const outcomeEl = panel.querySelector('[data-field="target-outcome"]');
+    if (outcomeEl) outcomeEl.value = filters.targetOutcome ?? 'all';
   }
 
   function _handleExportCsv() {
@@ -113,8 +175,9 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     return filters;
   }
 
-  function _renderGrid(panel, records) {
+  function _renderGrid(panel, records, editable) {
     const grid = panel.querySelector('.search-results-table');
+    grid.classList.toggle('search-results-table--editable', editable === true);
     while (grid.firstChild) grid.removeChild(grid.firstChild);
     for (const record of records) {
       const row = doc.createElement('div');
@@ -136,6 +199,16 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
         ? String(record.effective_distance_km)
         : '—';
       row.appendChild(distCell);
+
+      if (editable === true) {
+        const editBtn = doc.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'row-edit-btn';
+        editBtn.dataset.action = 'edit-day';
+        editBtn.dataset.date = record.date;
+        editBtn.textContent = 'Edit Day';
+        row.appendChild(editBtn);
+      }
 
       grid.appendChild(row);
     }

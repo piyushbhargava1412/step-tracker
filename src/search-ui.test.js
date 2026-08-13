@@ -644,3 +644,178 @@ describe('Task 15 — Near-Miss panel', () => {
     expect(searchUiSource).not.toMatch(/innerHTML/);
   });
 });
+
+describe('createSearchUI — retained query re-run on re-render', () => {
+  function makeSearchWithRecords() {
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({
+      records: [makeRecord({ date: '2025-10-02', effective_steps: 4837 })],
+      preFilterSet: [makeRecord({ date: '2025-10-02', effective_steps: 4837 })],
+    });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 1, matchPct: 100, totalDays: 1, cumulativeDistanceKm: 3.6, avgSteps: 4837 });
+    return search;
+  }
+
+  it('re-render after a successful execute re-runs the retained query and repopulates filters', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithRecords();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+
+    doc.querySelector('[data-field="start-date"]').value = '2025-01-13';
+    doc.querySelector('[data-field="end-date"]').value = '2026-08-12';
+    doc.querySelector('[data-field="min-steps"]').value = '5000';
+    await clickAction(doc, 'execute');
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+    expect(search.executeQuery).toHaveBeenCalledWith(expect.objectContaining({
+      startDate: '2025-01-13',
+      endDate: '2026-08-12',
+      minSteps: 5000,
+    }));
+
+    await render();
+    expect(search.executeQuery).toHaveBeenCalledTimes(2);
+    expect(search.executeQuery).toHaveBeenLastCalledWith(expect.objectContaining({
+      startDate: '2025-01-13',
+      endDate: '2026-08-12',
+      minSteps: 5000,
+    }));
+    expect(doc.querySelector('[data-field="start-date"]').value).toBe('2025-01-13');
+    expect(doc.querySelector('[data-field="min-steps"]').value).toBe('5000');
+  });
+
+  it('render() with no prior execute does not invoke executeQuery', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithRecords();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    await render();
+    await render();
+    expect(search.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it('reset clears retention — re-render after reset does not re-run the query', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithRecords();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+
+    doc.querySelector('[data-field="min-steps"]').value = '5000';
+    await clickAction(doc, 'execute');
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+
+    await clickAction(doc, 'reset');
+    await render();
+    expect(search.executeQuery).toHaveBeenCalledTimes(1);
+    expect(doc.querySelector('[data-field="min-steps"]').value).toBe('');
+  });
+
+  it('re-render retains select values (override status / target outcome)', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithRecords();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+
+    doc.querySelector('[data-field="override-status"]').value = 'not-overridden';
+    doc.querySelector('[data-field="target-outcome"]').value = 'missed';
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+
+    await render();
+    expect(search.executeQuery).toHaveBeenCalledTimes(2);
+    expect(search.executeQuery).toHaveBeenLastCalledWith(expect.objectContaining({
+      overrideStatus: 'not-overridden',
+      targetOutcome: 'missed',
+      stepTarget: 5000,
+    }));
+    expect(doc.querySelector('[data-field="override-status"]').value).toBe('not-overridden');
+    expect(doc.querySelector('[data-field="target-outcome"]').value).toBe('missed');
+    expect(doc.querySelector('[data-field="step-target"]').value).toBe('5000');
+  });
+});
+
+describe('createSearchUI — Edit Day override from missed search results', () => {
+  function makeEditableDeps() {
+    return {
+      records: { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn() },
+      processImage: vi.fn().mockResolvedValue('data:image/jpeg;base64,PROCESSED'),
+    };
+  }
+
+  function makeSearchWithMissedRecords() {
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({
+      records: [
+        makeRecord({ date: '2025-10-02', effective_steps: 4837 }),
+        makeRecord({ date: '2025-08-08', effective_steps: 4867 }),
+      ],
+      preFilterSet: [],
+    });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 2, matchPct: 100, totalDays: 2, cumulativeDistanceKm: 7, avgSteps: 4852 });
+    return search;
+  }
+
+  it('Edit Day button rendered per row only for missed-outcome searches', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithMissedRecords();
+    const { records, processImage } = makeEditableDeps();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), null, records, processImage);
+    render();
+
+    doc.querySelector('[data-field="target-outcome"]').value = 'missed';
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+
+    const rows = doc.querySelectorAll('.search-results-table [data-row]');
+    expect(rows.length).toBe(2);
+    const btn = rows[0].querySelector('[data-action="edit-day"]');
+    expect(btn).not.toBeNull();
+    expect(btn.dataset.date).toBe('2025-10-02');
+  });
+
+  it('no Edit Day button when outcome is not missed', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithMissedRecords();
+    const { records, processImage } = makeEditableDeps();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), null, records, processImage);
+    render();
+
+    doc.querySelector('[data-field="target-outcome"]').value = 'met';
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+
+    expect(doc.querySelector('.search-results-table [data-action="edit-day"]')).toBeNull();
+  });
+
+  it('no Edit Day button when records capability is not injected', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithMissedRecords();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    render();
+
+    doc.querySelector('[data-field="target-outcome"]').value = 'missed';
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+
+    expect(doc.querySelector('.search-results-table [data-action="edit-day"]')).toBeNull();
+  });
+
+  it('clicking Edit Day mounts the shared override form in the row', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeSearchWithMissedRecords();
+    const { records, processImage } = makeEditableDeps();
+    const { render } = createSearchUI(doc, search, makeMockExporter(), makeMockReporter(), null, records, processImage);
+    render();
+
+    doc.querySelector('[data-field="target-outcome"]').value = 'missed';
+    doc.querySelector('[data-field="step-target"]').value = '5000';
+    await clickAction(doc, 'execute');
+
+    const row = doc.querySelector('.search-results-table [data-row]');
+    row.querySelector('[data-action="edit-day"]').click();
+
+    const form = row.querySelector('form[data-form="override"]');
+    expect(form).not.toBeNull();
+    expect(row.querySelector('input[data-field="effective-steps"]').value).toBe('4837');
+  });
+});
+

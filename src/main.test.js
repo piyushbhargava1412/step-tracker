@@ -958,10 +958,18 @@ describe('main.js — Task 7: search engine wiring', () => {
     expect(createExporter).toHaveBeenCalledTimes(1)
   })
 
-  it('createSearchUI factory called once with five args including computeNearMisses', async () => {
+  it('createSearchUI factory called once with seven args including computeNearMisses, records and processImage', async () => {
     await boot()
     expect(createSearchUI).toHaveBeenCalledTimes(1)
-    expect(createSearchUI).toHaveBeenCalledWith(document, mockSearchInstance, mockExporterInstance, mockReporter, expect.any(Function))
+    expect(createSearchUI).toHaveBeenCalledWith(
+      document,
+      mockSearchInstance,
+      mockExporterInstance,
+      mockReporter,
+      expect.any(Function),
+      mockRecordsInstance,
+      expect.any(Function)
+    )
   })
 
   it('searchUI.render() invoked exactly once on bootstrap', async () => {

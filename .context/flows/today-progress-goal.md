@@ -60,7 +60,7 @@ card, streak, calendar, and month-overview.
 - `src/progress-ui.test.js` — `createProgressUI`: render with data, render zero-state, idempotent re-render, goal `<select>` change event, `onGoalApplied` callback invoked, validation error, DB error path.
 
 ## Notes
-- Goal constants: `STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`; `DEFAULT_STEP_GOAL = 10000`. No km presets.
+- Goal constants: `STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]`; `DEFAULT_STEP_GOAL = 10000`; `STEP_GOAL_KM_HINTS = { 4000: 3, 6000: 5, 8500: 7, 10000: 8 }` (display-only km hints). No km presets beyond the hint labels.
 - `_localDate` is imported from `src/date-utils.js` (extracted utility, not inline in `goal.js`).
 - `render()` is idempotent — safe to call multiple times (e.g. after each sync).
 - The `settings` store uses key `'active_step_goal'` (not the legacy `'active_goal'`). No `goal_history` table is read or written in this flow; it was dropped in DB_VERSION 4.

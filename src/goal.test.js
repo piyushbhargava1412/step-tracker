@@ -2,13 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createGoal,
   STEP_GOAL_OPTIONS,
+  STEP_GOAL_KM_HINTS,
   DEFAULT_STEP_GOAL,
   ACTIVE_STEP_GOAL_KEY,
 } from './goal.js';
 
 describe('constants (step-goal)', () => {
-  it('STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]', () => {
-    expect(STEP_GOAL_OPTIONS).toEqual([5000, 7500, 10000, 15000]);
+  it('STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]', () => {
+    expect(STEP_GOAL_OPTIONS).toEqual([4000, 6000, 8500, 10000]);
+  });
+
+  it('STEP_GOAL_KM_HINTS covers every option with a km hint', () => {
+    expect(STEP_GOAL_KM_HINTS).toEqual({ 4000: 3, 6000: 5, 8500: 7, 10000: 8 });
+    for (const steps of STEP_GOAL_OPTIONS) {
+      expect(STEP_GOAL_KM_HINTS[steps]).toBeGreaterThan(0);
+    }
   });
 
   it('DEFAULT_STEP_GOAL = 10000', () => {
@@ -41,7 +49,7 @@ describe('createGoal — step-goal API (SF-3/SF-9/SF-10)', () => {
   });
 
   describe('getActiveStepGoal', () => {
-    it.each([5000, 7500, 10000, 15000])(
+    it.each([4000, 6000, 8500, 10000])(
       'happy read: stored target_steps=%i is returned unmodified, no write',
       async (steps) => {
         mockGet.mockResolvedValue({ key: 'active_step_goal', target_steps: steps });
@@ -145,7 +153,7 @@ describe('createGoal — step-goal API (SF-3/SF-9/SF-10)', () => {
   });
 
   describe('setActiveStepGoal', () => {
-    it.each([5000, 7500, 10000, 15000])(
+    it.each([4000, 6000, 8500, 10000])(
       '%i → writes exactly { key: "active_step_goal", target_steps: %i }',
       async (steps) => {
         const goal = createGoal(mockDb);
@@ -192,7 +200,7 @@ describe('createGoal — step-goal API (SF-3/SF-9/SF-10)', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const goal = createGoal(mockDb);
 
-      await expect(goal.setActiveStepGoal(7500)).resolves.toBeUndefined();
+      await expect(goal.setActiveStepGoal(6000)).resolves.toBeUndefined();
       expect(consoleSpy).toHaveBeenCalledWith('[goal]', err);
     });
 
@@ -203,12 +211,12 @@ describe('createGoal — step-goal API (SF-3/SF-9/SF-10)', () => {
         goal_history: { put: mockHistoryPut },
       };
       const goal = createGoal(dbWithHistory);
-      await goal.setActiveStepGoal(7500);
+      await goal.setActiveStepGoal(6000);
 
       const putArg = mockPut.mock.calls[0][0];
       expect(putArg).not.toHaveProperty('effective_from');
       expect(putArg).not.toHaveProperty('valid_from');
-      expect(putArg).toEqual({ key: 'active_step_goal', target_steps: 7500 });
+      expect(putArg).toEqual({ key: 'active_step_goal', target_steps: 6000 });
       expect(mockHistoryPut).not.toHaveBeenCalled();
     });
 

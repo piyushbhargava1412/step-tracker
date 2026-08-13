@@ -9,7 +9,14 @@
  * injected by the composition root.
  */
 
-export const STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000];
+export const STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000];
+
+/**
+ * Rough running-distance hint (km) per step-goal option, for display only —
+ * kept beside the ladder so label and values cannot drift.
+ */
+export const STEP_GOAL_KM_HINTS = { 4000: 3, 6000: 5, 8500: 7, 10000: 8 };
+
 export const DEFAULT_STEP_GOAL = 10000;
 export const ACTIVE_STEP_GOAL_KEY = 'active_step_goal';
 

@@ -25,7 +25,7 @@ Hall of Fame periods, and lifetime 10k-day totals, then renders the Active Strea
    uniformly to every historical day (scalar lens, no per-date resolution).
 2. Future-dated records are excluded; records are sorted by date. The streak engine calls
    `computeToleranceStreaks(preparedRecords, target, today)` for the three-metric tolerance block and
-   also evaluates four fixed-threshold tier streaks (5 000 / 7 500 / 10 000 / 15 000 steps), Hall of
+   also evaluates four fixed-threshold tier streaks (4 000 / 6 000 / 8 500 / 10 000 steps), Hall of
    Fame periods, and lifetime 10k-step metrics.
 3. Tolerance engine constants (from `src/streak.js`):
    - `ALLOWANCE_WINDOW_95 = 20` — 95% tier: `floor(d / 20)` misses allowed in `d`-day window.
@@ -41,8 +41,8 @@ Two dashboard nodes are injected, in order:
 - **Lifetime compliance banner** — `#lifetime-banner` spans the full dashboard grid width on row 1:
   `${metDays} / ${totalDays} Days (${pct.toFixed(1)}% Lifetime)` (`.lifetime-count` holds the day counts).
 - **Active Streaks card** — `#streak-card` (right column, rows 2–4), mirroring the mockup:
-- **Header** — `.streak-header`: `.streak-title` "Active Streaks" + `.goal-badge` ("5k Goal",
-  "7.5k Goal", "10k Goal", "15k Goal" derived from `activeStepGoal / 1000`).
+- **Header** — `.streak-header`: `.streak-title` "Active Streaks" + `.goal-badge` ("4k Goal",
+  "6k Goal", "8.5k Goal", "10k Goal" derived from `activeStepGoal / 1000`).
 - **Actual (100%)** — `.streak-actual`: `.streak-actual-label` "Actual (100%)" + `.streak-number`
   (headline `tolerance.actual`) above a `.streak-bar` with a 100%-wide `.streak-bar-fill`.
 - **Allowances** — `.streak-allowances`: two `.streak-allowance` chips

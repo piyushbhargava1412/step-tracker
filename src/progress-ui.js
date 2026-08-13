@@ -11,7 +11,7 @@
  */
 
 import { getTodayRecord, computeProgress } from './progress.js';
-import { STEP_GOAL_OPTIONS } from './goal.js';
+import { STEP_GOAL_KM_HINTS, STEP_GOAL_OPTIONS } from './goal.js';
 
 /**
  * Factory: Today's Progress card renderer.
@@ -171,7 +171,10 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     for (const steps of STEP_GOAL_OPTIONS) {
       const option = doc.createElement('option');
       option.value = String(steps);
-      option.textContent = `${steps.toLocaleString('en-US')} steps`;
+      const kmHint = STEP_GOAL_KM_HINTS[steps];
+      option.textContent = kmHint
+        ? `${steps.toLocaleString('en-US')} steps (~${kmHint}km)`
+        : `${steps.toLocaleString('en-US')} steps`;
       select.appendChild(option);
     }
 
