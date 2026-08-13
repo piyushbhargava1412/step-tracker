@@ -530,15 +530,38 @@ export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
 // ── Transactional upsert ─────────────────────────────────────────────────────
 
 /**
+ * High-water mark for a day's effective value.
+ *
+ * Returns the higher of the stored effective value and the freshly fetched
+ * cloud value, so a scrubbed/lowered Google Fit response can never take
+ * away steps (or distance) a user has already seen and celebrated.
+ *
+ * A non-finite stored value is treated as absent — a corrupt row must never
+ * pin a stale number. Only the sync engine applies this; a user-authored
+ * override (outside the sync path) remains authoritative and is never maxed.
+ *
+ * @param {number|undefined} existing  The stored effective value.
+ * @param {number} incoming            The freshly fetched cloud value.
+ * @returns {number}
+ */
+export function _effectiveHighWater(existing, incoming) {
+  return Number.isFinite(existing) && existing > incoming ? existing : incoming;
+}
+
+/**
  * Persist one chunk's normalized records into `daily_records` under a Dexie
  * `rw` transaction, merging against existing rows so user-authored overrides
- * survive.
+ * survive and raw cloud truth is preserved for debugging.
  *
- * Merge rules (Decision 3):
- *  - Absent row      → insert a fresh record with `is_overridden: false` and
- *                       `override: null`.
- *  - `is_overridden !== true` → overwrite `original_*` AND `effective_*`;
- *                               refresh `synced_at`.
+ * Merge rules (Decision 3 + high-water mark):
+ *  - Absent row      → insert a fresh record with `is_overridden: false`,
+ *                       `override: null`, and `effective_*` = `original_*`.
+ *  - `is_overridden !== true` → overwrite `original_*` with the raw cloud
+ *                               values; set `effective_*` to the **higher** of
+ *                               the stored value and the incoming cloud value
+ *                               (`_effectiveHighWater`) so a lowered response
+ *                               never reduces a user-visible count; refresh
+ *                               `synced_at`.
  *  - `is_overridden === true` → overwrite `original_*` ONLY; carry
  *                               `effective_*` and the `override` metadata
  *                               object through byte-for-byte; refresh
@@ -588,13 +611,18 @@ export async function _upsertChunk(db, records) {
         };
       }
 
-      // Present and not overridden → overwrite both original_* and effective_*.
+      // Present and not overridden → original_* always reflects the raw cloud
+      // truth; effective_* is high-water-marked so a lowered/scrubbed response
+      // never takes away steps (or distance) the user has already seen.
       return {
         ...row,
         original_steps: record.original_steps,
         original_distance_km: record.original_distance_km,
-        effective_steps: record.effective_steps,
-        effective_distance_km: record.effective_distance_km,
+        effective_steps: _effectiveHighWater(row.effective_steps, record.effective_steps),
+        effective_distance_km: _effectiveHighWater(
+          row.effective_distance_km,
+          record.effective_distance_km
+        ),
         synced_at,
       };
     });

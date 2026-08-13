@@ -24,6 +24,7 @@ import {
   _normalizeBuckets,
   _fetchChunk,
   _upsertChunk,
+  _effectiveHighWater,
   _latchBackfillComplete,
   _readOldestStoredLabel,
   _resolveBackoffMs,
@@ -1734,6 +1735,94 @@ describe('Task 7: _upsertChunk — transactional override-preserving upsert', ()
 
     expect(db.transaction).toHaveBeenCalledTimes(2);
     expect(db.daily_records.bulkPut).toHaveBeenCalledTimes(2);
+  });
+
+  // ── High-water mark: effective_* never decreases (non-overridden rows) ─────
+
+  it('scrubbed day — original_steps drops to cloud truth, effective_steps keeps the higher stored value', async () => {
+    const existing = makeExistingRow({ original_steps: 7500, effective_steps: 7500 });
+    const record = makeApiRecord({ original_steps: 5000, effective_steps: 5000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(5000);
+    expect(rows[0].effective_steps).toBe(7500);
+  });
+
+  it('scrubbed day — original_distance_km drops, effective_distance_km keeps the higher stored value', async () => {
+    const existing = makeExistingRow({
+      original_distance_km: 5.715,
+      effective_distance_km: 5.715,
+    });
+    const record = makeApiRecord({ original_distance_km: 3.81, effective_distance_km: 3.81 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_distance_km).toBe(3.81);
+    expect(rows[0].effective_distance_km).toBe(5.715);
+  });
+
+  it('a rising cloud value still raises effective_steps (max wins)', async () => {
+    const existing = makeExistingRow({ original_steps: 5000, effective_steps: 5000 });
+    const record = makeApiRecord({ original_steps: 9000, effective_steps: 9000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(9000);
+    expect(rows[0].effective_steps).toBe(9000);
+  });
+
+  it('an equal cloud value leaves effective_steps unchanged', async () => {
+    const existing = makeExistingRow({ original_steps: 6000, effective_steps: 6000 });
+    const record = makeApiRecord({ original_steps: 6000, effective_steps: 6000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].effective_steps).toBe(6000);
+  });
+
+  it('overridden rows are exempt — a higher cloud value does not bump the user override', async () => {
+    const existing = makeExistingRow({
+      original_steps: 3000,
+      effective_steps: 4000,
+      is_overridden: true,
+      override: { steps: 4000 },
+    });
+    const record = makeApiRecord({ original_steps: 9000, effective_steps: 9000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].original_steps).toBe(9000);
+    expect(rows[0].effective_steps).toBe(4000);
+  });
+
+  it('a corrupt non-finite existing effective value cannot pin a stale number', async () => {
+    const existing = makeExistingRow({ original_steps: NaN, effective_steps: NaN });
+    const record = makeApiRecord({ original_steps: 4000, effective_steps: 4000 });
+    db.daily_records.bulkGet.mockResolvedValue([existing]);
+
+    await _upsertChunk(db, [record]);
+
+    const [rows] = db.daily_records.bulkPut.mock.calls[0];
+    expect(rows[0].effective_steps).toBe(4000);
+  });
+
+  it('_effectiveHighWater — pure helper returns the higher finite value', async () => {
+    expect(_effectiveHighWater(7500, 5000)).toBe(7500);
+    expect(_effectiveHighWater(5000, 7500)).toBe(7500);
+    expect(_effectiveHighWater(5000, 5000)).toBe(5000);
+    expect(_effectiveHighWater(undefined, 4000)).toBe(4000);
+    expect(_effectiveHighWater(NaN, 4000)).toBe(4000);
   });
 });
 

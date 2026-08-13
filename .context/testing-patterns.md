@@ -57,12 +57,12 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `initTabs` / `switchTab`       | Delegated click, panel show/hide, AbortController cleanup       |
 | ✅ DONE  | `createStatusReporter`         | `#db-status` / `#auth-status` DOM mutation                      |
 | ✅ DONE  | `bootstrap()` (`src/main.js`)  | Composition root integration — module wiring                    |
-| ✅ DONE  | Step sync (`createStepSync`, `src/steps.js`) | Sync orchestrator — guards, window resolution, chunking, normalisation, retry/error contract, transactional upsert, backfill latch (`src/steps.test.js`, 158 tests) |
+| ✅ DONE  | Step sync (`createStepSync`, `src/steps.js`) | Sync orchestrator — guards, window resolution, chunking, normalisation, retry/error contract, transactional upsert, `effective_*` high-water mark (never decreases), override preservation, backfill latch (`src/steps.test.js`, 156 tests) |
 | ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveStepGoal` (valid row, absent, corrupt, DB error), `setActiveStepGoal` (valid steps from `STEP_GOAL_OPTIONS`, invalid steps throws `TypeError`, DB write error graceful) |
 | ✅ DONE  | `computeProgress` / `getTodayRecord` (`src/progress.js`) | Pure computation: zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard |
 | ✅ DONE  | `createProgressUI` (`src/progress-ui.js`)    | Render with data, render zero-state, idempotent re-render, goal preset click, custom apply click, validation error, DB error path |
 | ✅ DONE  | `createStreak` (`src/streak.js`)             | Unified streak, tier streaks, HoF, lifetime10k, compute orchestration, goal history integration |
-| ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime banner and streak card, fail-open zero-state |
+| ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime compliance banner + Active Streaks card (header + goal badge, Actual block + bar, 95%/90% allowances, Best Runs), fail-open zero-state, idempotent re-render, no legacy tier chips |
 | ✅ DONE  | `_localDate` / `_addDaysUtc` (`src/date-utils.js`) | Timezone-safe date formatting, calendar arithmetic, zero-delta, negative-delta, month-boundary cases |
 | ✅ DONE  | `KM_TO_STEPS` (`src/units.js`)              | Pure constant module: exported value assertion, no side effects |
 | ✅ DONE  | `createCalendar` (`src/calendar.js`)         | `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `loadMonth`, `buildZeroState` |

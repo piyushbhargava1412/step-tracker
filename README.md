@@ -62,6 +62,11 @@ npm run build
 - The `VITE_CLIENT_ID` environment variable is the authoritative OAuth 2.0 Client ID
 - Legacy configuration files (`config.local.js`, `config.example.js`) have been retired
 
+### Google Account Connection & Session
+- Click **Connect Google Account** once to authorize; the moment a token arrives the app **auto-syncs** — no separate Sync Steps click is needed.
+- The connection survives a **page refresh**: a boolean `google_connected` flag is stored in `localStorage` (never the token itself), and on the next load the app asks Google Identity Services for a fresh token silently (`prompt: ''`). When that succeeds, the auto-sync runs again; if Google's session has expired, you simply click Connect once more.
+- Limitation: the in-browser token flow has no refresh token, so the silent restore depends on Google's session cookie. A normal refresh keeps it alive; a fully closed/reopened browser or a long gap may require one reconnect click.
+
 ## Step Sync
 
 The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST API. Clicking the **Sync Steps** button (`#sync-btn`) triggers `createStepSync(auth, db, reporter, doc = document).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
@@ -86,8 +91,9 @@ The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST
 - A single retry is performed on transient `429` (rate limit) and `5xx` responses, honouring `Retry-After` (capped at 30 s, else 2 s). `401` short-circuits with a `🔑 Session expired` prompt; other `4xx` and network errors are terminal and fail-stop.
 - Every state — progress, success, transient, terminal, and auth — is surfaced in the `#sync-status` status line via `reporter.sync()`; there are no alerts, toasts, or progress bars.
 
-**Override preservation:**
+**Override preservation & high-water mark:**
 - Chunks are persisted transactionally, merging with existing rows. Rows marked `is_overridden: true` keep their user-authored `effective_*` values and `override` metadata — only `original_*` is refreshed — so a resync never clobbers a manual correction.
+- For all other rows, `effective_steps` / `effective_distance_km` apply a **high-water mark**: `max(stored, incoming)`. If Google Fit later returns a *lower* number for a day (server-side scrubbing or a late data revision), the PWA ignores the reduction and keeps the highest recorded value — steps a user has already seen are never taken away. `original_*` always tracks the raw cloud truth for debugging.
 
 ## Goal Commitment & Today's Progress
 
@@ -110,7 +116,7 @@ The current goal is persisted as a single row in the Dexie `settings` store (pri
 
 Four step-count presets are available (`STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`). The default is `DEFAULT_STEP_GOAL = 10000`. Selecting a preset takes effect immediately and persists the new goal for all future loads. Distance-based goals are not supported.
 
-> **Why these tiers?** The tier ladder is the `STEP_GOAL_OPTIONS` enum verbatim — no km-to-steps conversion is applied. A converted ladder (e.g. `1312.33 × km`) can never produce a value equal to an enum member, which would permanently kill the active-chip highlight in the UI; the rounding would also be an approximation of an approximation; and a threshold of 1,312 steps/day carries no practical signal.
+> **Why these tiers?** The tier ladder is the `STEP_GOAL_OPTIONS` enum verbatim — no km-to-steps conversion is applied. A converted ladder (e.g. `1312.33 × km`) can never produce a value equal to an enum member, so the preset would never describe an achievable goal; the rounding would also be an approximation of an approximation; and a threshold of 1,312 steps/day carries no practical signal.
 
 On first load, if no `active_step_goal` row exists, the app lazily writes the `10000`-step default and uses it immediately — no manual setup required.
 
@@ -173,6 +179,19 @@ All evaluations use `>=`.
 ### Lifetime Compliance
 
 `computeLifetimeCompliance(records, stepGoal)` returns `{ metDays, totalDays, pct }` — the fraction of all synced days that hit `effective_steps >= stepGoal`.
+
+### Active Streaks Card
+
+The Dashboard renders the results in the **Active Streaks** card (`#streak-card`, right column), mirroring the mockup:
+
+- **Header**: "Active Streaks" title + a goal badge ("5k Goal", "7.5k Goal", "10k Goal", "15k Goal").
+- **Actual (100%)**: the headline `tolerance.actual` number above a full-width progress bar.
+- **Allowances**: two chips showing the `allowance95` and `allowance90` day counts.
+- **Best Runs**: the Hall of Fame top three as `#rank / days / year-span` rows (e.g. `#1  1,178 days  2021-2025`), titled "🏆 Best Runs at 10,000".
+
+### Lifetime Compliance Banner
+
+A full-width banner above the dashboard grid shows lifetime goal compliance: `${metDays} / ${totalDays} Days (${pct}% Lifetime)`, e.g. `1,200 / 3,000 Days (40.0% Lifetime)`. Tier streaks are still computed by the engine but are **not** rendered in the card.
 
 ## Calendar
 
@@ -278,14 +297,14 @@ Every `daily_records` row carries two parallel field sets:
 
 | Field | Meaning |
 |-------|---------|
-| `original_steps` / `original_distance_km` | The raw value reported by Google Fit. **Never mutated** after initial sync. |
-| `effective_steps` / `effective_distance_km` | The value used by all metrics (streak engine, progress card, calendar heatmap, monthly summary). Equals `original_*` unless the day is overridden. |
+| `original_steps` / `original_distance_km` | The raw value reported by Google Fit — refreshed to whatever the cloud returns on every sync (preserved on overridden rows). The raw cloud truth for debugging. |
+| `effective_steps` / `effective_distance_km` | The value used by all metrics (streak engine, progress card, calendar heatmap, monthly summary). On insert it equals `original_*`; on resync it only ever goes **up** — it is `max(stored, incoming)` — and is overridden only by a user correction or revert. |
 | `is_overridden` | `true` when a user correction is active. |
 | `override.note` | Required audit justification (plain text). |
 | `override.proof_image_base64` | Optional JPEG Base64 proof image, or `null`. |
 | `override.updated_at` | ISO timestamp of the last manual correction. |
 
-**Resync safety**: When Google Fit data is re-fetched, only `original_*` and `synced_at` are refreshed on overridden rows. The `effective_*` values and `override` metadata are preserved — a resync never clobbers a manual correction.
+**Resync safety**: When Google Fit data is re-fetched, only `original_*` and `synced_at` are refreshed on overridden rows — the `effective_*` values and `override` metadata are preserved, so a resync never clobbers a manual correction. On non-overridden rows `effective_*` is never reduced by a lower cloud value (high-water mark); only `original_*` follows the cloud down.
 
 ### Proof-Image Storage
 
