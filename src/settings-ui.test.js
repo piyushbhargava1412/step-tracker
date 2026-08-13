@@ -513,3 +513,75 @@ describe('settings-ui.js — no window.confirm', () => {
     expect(source).not.toMatch(/\bconfirm\s*\(/);
   });
 });
+
+// ── Task 10: Save Anchor Date action ─────────────────────────────────────────
+
+describe('createSettingsUI — save-anchor action', () => {
+  it('save-anchor button exists in rendered modal', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
+    expect(saveBtn).not.toBeNull();
+  });
+
+  it('clicking save-anchor with a valid date calls setSyncAnchorDate(date) and reports success', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ anchorDate: '2024-03-15' });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '2024-06-01';
+
+    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
+    saveBtn.click();
+
+    await vi.waitFor(() => expect(settings.setSyncAnchorDate).toHaveBeenCalledWith('2024-06-01'));
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('✅')));
+  });
+
+  it('clicking save-anchor with empty date does NOT call setSyncAnchorDate and reports warning', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+
+    // Clear the date input
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '';
+
+    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
+    saveBtn.click();
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(settings.setSyncAnchorDate).not.toHaveBeenCalled();
+    expect(reporter.db).toHaveBeenCalledWith(expect.stringMatching(/date|anchor/i));
+  });
+
+  it('setSyncAnchorDate throws → reporter.db called with error message', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    settings.setSyncAnchorDate = vi.fn().mockRejectedValue(new Error('DB save failed'));
+    const reporter = makeMockReporter();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+
+    const input = doc.querySelector('[data-field="anchor-date"]');
+    input.value = '2024-06-01';
+
+    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
+    saveBtn.click();
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌')));
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+});

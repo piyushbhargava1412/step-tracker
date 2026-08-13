@@ -108,6 +108,14 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     preview.textContent = 'Select a date to see how many records would be affected.';
     section.appendChild(preview);
 
+    // Save Anchor Date button
+    const saveAnchorBtn = doc.createElement('button');
+    saveAnchorBtn.type = 'button';
+    saveAnchorBtn.className = 'btn btn-primary';
+    saveAnchorBtn.dataset.action = 'save-anchor';
+    saveAnchorBtn.textContent = 'Save Anchor Date';
+    section.appendChild(saveAnchorBtn);
+
     // Clear-All checkbox row
     const clearAllRow = doc.createElement('div');
     clearAllRow.className = 'settings-clear-all-row';
@@ -184,6 +192,8 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
       _handlePrune();
     } else if (action === 'wipe') {
       _handleWipe();
+    } else if (action === 'save-anchor') {
+      _handleSaveAnchor();
     }
   }
 
@@ -309,6 +319,31 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     } catch (err) {
       console.error('[settings-ui]', err);
       reporter.db('❌ Failed to wipe database');
+    }
+  }
+
+
+  /**
+   * Handle the save-anchor action — validate date, persist via settings, report result.
+   */
+  async function _handleSaveAnchor() {
+    const modal = doc.getElementById('settings-modal');
+    if (!modal) return;
+
+    const input = modal.querySelector('[data-field="anchor-date"]');
+    const date = input ? input.value : '';
+
+    if (!date) {
+      reporter.db('⚠️ Please select an anchor date before saving');
+      return;
+    }
+
+    try {
+      await settings.setSyncAnchorDate(date);
+      reporter.db('✅ Anchor date saved');
+    } catch (err) {
+      console.error('[settings-ui]', err);
+      reporter.db('❌ Failed to save anchor date');
     }
   }
 
