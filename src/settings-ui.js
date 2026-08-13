@@ -246,7 +246,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     if (enabled) {
       // Disable date picker
       if (dateInput) {
-        dateInput.classList.add('opacity-50', 'pointer-events-none');
+        dateInput.classList.add('disabled-picker');
         dateInput.disabled = true;
       }
       // Disable impact counter
@@ -264,7 +264,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     } else {
       // Re-enable date picker
       if (dateInput) {
-        dateInput.classList.remove('opacity-50', 'pointer-events-none');
+        dateInput.classList.remove('disabled-picker');
         dateInput.disabled = false;
       }
       // Re-enable impact counter

@@ -1190,6 +1190,11 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
     expect(mockSettingsUIInstance.open).toHaveBeenCalledTimes(1)
   })
 
+  it('settingsUI.render() is called once at bootstrap before binding #settings-btn (Task 12)', async () => {
+    await bootstrap(isolatedDoc)
+    expect(mockSettingsUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
   it('data:records:mutated triggers searchUI.render() (fail-open leg)', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()

@@ -171,33 +171,23 @@ describe('index.html — ST-015 settings button & modal (Task 8)', () => {
     expect(modal.classList.contains('modal-overlay')).toBe(true);
   });
 
-  it('#settings-modal contains a date picker input', () => {
+  it('#settings-modal is a bare shell — no static interior elements (Task 12)', () => {
+    // Bare-shell pattern: render() builds all interior; static HTML provides only the shell
+    const modal = document.getElementById('settings-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.children.length).toBe(0);
+  });
+
+  it('#settings-modal static HTML has no date picker input — render() builds it (Task 12)', () => {
     const modal = document.getElementById('settings-modal');
     const datePicker = modal.querySelector('input[type="date"]');
-    expect(datePicker).not.toBeNull();
+    expect(datePicker).toBeNull();
   });
 
-  it('#settings-modal contains an impact preview element', () => {
+  it('#settings-modal static HTML has no prune/wipe/toggle buttons — render() builds them (Task 12)', () => {
     const modal = document.getElementById('settings-modal');
-    const preview = modal.querySelector('[data-settings="impact-preview"]');
-    expect(preview).not.toBeNull();
-  });
-
-  it('#settings-modal contains a Prune button (danger action)', () => {
-    const modal = document.getElementById('settings-modal');
-    const pruneBtn = modal.querySelector('[data-action="prune"]');
-    expect(pruneBtn).not.toBeNull();
-  });
-
-  it('#settings-modal contains a Clear-All checkbox (hazard toggle)', () => {
-    const modal = document.getElementById('settings-modal');
-    const clearAll = modal.querySelector('[data-action="clear-all"]');
-    expect(clearAll).not.toBeNull();
-  });
-
-  it('#settings-modal contains a wipe/clear button', () => {
-    const modal = document.getElementById('settings-modal');
-    const wipeBtn = modal.querySelector('[data-action="wipe"]');
-    expect(wipeBtn).not.toBeNull();
+    expect(modal.querySelector('[data-action="prune"]')).toBeNull();
+    expect(modal.querySelector('[data-action="wipe"]')).toBeNull();
+    expect(modal.querySelector('[data-action="toggle-clear-all"]')).toBeNull();
   });
 });

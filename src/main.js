@@ -118,6 +118,13 @@ export async function bootstrap(doc = document) {
     authBtn.addEventListener('click', () => auth.requestToken())
   }
 
+  // 8. Render settings modal interior at bootstrap (before wiring the button)
+  try {
+    await settingsUI.render()
+  } catch (err) {
+    console.error('[main] settingsUI.render failed, continuing', err)
+  }
+
   // 8. Bind settings button
   const settingsBtn = doc.getElementById('settings-btn')
   if (settingsBtn) {

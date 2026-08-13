@@ -377,8 +377,7 @@ describe('createSettingsUI — Clear-All hazard mode', () => {
     await new Promise(r => setTimeout(r, 10));
 
     const input = doc.querySelector('[data-field="anchor-date"]');
-    expect(input.classList.contains('opacity-50')).toBe(true);
-    expect(input.classList.contains('pointer-events-none')).toBe(true);
+    expect(input.classList.contains('disabled-picker')).toBe(true);
 
     const wipeBtn = doc.querySelector('[data-action="wipe"]');
     expect(wipeBtn).not.toBeNull();
