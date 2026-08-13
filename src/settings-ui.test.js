@@ -26,11 +26,12 @@ function getBaseHTML() {
   `;
 }
 
-function makeMockSettings({ anchorDate = '2024-03-15', count = 5 } = {}) {
+function makeMockSettings({ anchorDate = '2024-03-15', count = 5, total = 3120 } = {}) {
   return {
     getSyncAnchorDate: vi.fn().mockResolvedValue(anchorDate),
     setSyncAnchorDate: vi.fn().mockResolvedValue(undefined),
     countRecordsBefore: vi.fn().mockResolvedValue(count),
+    countAllRecords: vi.fn().mockResolvedValue(total),
     pruneRecordsBefore: vi.fn().mockResolvedValue(undefined),
     wipeDatabase: vi.fn().mockResolvedValue(undefined),
   };
@@ -565,22 +566,21 @@ describe('settings-ui.js — no window.confirm', () => {
   });
 });
 
-// ── Task 10: Save Anchor Date action ─────────────────────────────────────────
+// ── Task 10: Save anchor on date change (no Save button) ─────────────────────
 
-describe('createSettingsUI — save-anchor action', () => {
-  it('save-anchor button exists in rendered modal', async () => {
+describe('createSettingsUI — save anchor on date change', () => {
+  it('rendered modal contains NO save-anchor button', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
     const ui = createSettingsUI(doc, settings, reporter);
     await ui.render();
-    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
-    expect(saveBtn).not.toBeNull();
+    expect(doc.querySelector('[data-action="save-anchor"]')).toBeNull();
   });
 
-  it('clicking save-anchor with a valid date calls setSyncAnchorDate(date) and reports success', async () => {
+  it('changing the date calls setSyncAnchorDate(date) and refreshes impact preview', async () => {
     const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings({ anchorDate: '2024-03-15' });
+    const settings = makeMockSettings({ count: 42, anchorDate: '2024-03-15' });
     const reporter = makeMockReporter();
     const ui = createSettingsUI(doc, settings, reporter);
     await ui.render();
@@ -588,15 +588,15 @@ describe('createSettingsUI — save-anchor action', () => {
 
     const input = doc.querySelector('[data-field="anchor-date"]');
     input.value = '2024-06-01';
-
-    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
-    saveBtn.click();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
 
     await vi.waitFor(() => expect(settings.setSyncAnchorDate).toHaveBeenCalledWith('2024-06-01'));
-    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('✅')));
+
+    const preview = doc.querySelector('[data-preview="impact"]');
+    await vi.waitFor(() => expect(preview.textContent).toContain('42'));
   });
 
-  it('clicking save-anchor with empty date does NOT call setSyncAnchorDate and reports warning', async () => {
+  it('changing the date with empty value does NOT call setSyncAnchorDate', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
@@ -604,16 +604,12 @@ describe('createSettingsUI — save-anchor action', () => {
     await ui.render();
     await ui.open();
 
-    // Clear the date input
     const input = doc.querySelector('[data-field="anchor-date"]');
     input.value = '';
-
-    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
-    saveBtn.click();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
 
     await new Promise(r => setTimeout(r, 50));
     expect(settings.setSyncAnchorDate).not.toHaveBeenCalled();
-    expect(reporter.db).toHaveBeenCalledWith(expect.stringMatching(/date|anchor/i));
   });
 
   it('setSyncAnchorDate throws → reporter.db called with error message', async () => {
@@ -628,11 +624,134 @@ describe('createSettingsUI — save-anchor action', () => {
 
     const input = doc.querySelector('[data-field="anchor-date"]');
     input.value = '2024-06-01';
-
-    const saveBtn = doc.querySelector('[data-action="save-anchor"]');
-    saveBtn.click();
+    input.dispatchEvent(new Event('change', { bubbles: true }));
 
     await vi.waitFor(() => expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌')));
     expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it('open() persists nothing but refreshes the impact preview for the loaded anchor', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ count: 7, anchorDate: '2024-03-15' });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+    await vi.waitFor(() => expect(settings.countRecordsBefore).toHaveBeenCalledWith('2024-03-15'));
+    const preview = doc.querySelector('[data-preview="impact"]');
+    expect(preview.textContent).toContain('7');
+  });
+});
+
+// ── New layout: two sections, divider, mockup labels ─────────────────────────
+
+describe('createSettingsUI — mockup layout', () => {
+  it('header title reads "⚙️ Settings & Data Hygiene"', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const title = doc.querySelector('.modal-header h2');
+    expect(title.textContent).toBe('⚙️ Settings & Data Hygiene');
+  });
+
+  it('close button uses .settings-close-btn (not the pill .btn)', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const closeBtn = doc.querySelector('[data-action="close-settings"]');
+    expect(closeBtn.classList.contains('settings-close-btn')).toBe(true);
+    expect(closeBtn.classList.contains('btn')).toBe(false);
+  });
+
+  it('renders two sections separated by a divider', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const sections = doc.querySelectorAll('.settings-section');
+    expect(sections.length).toBe(2);
+    expect(doc.querySelectorAll('.settings-divider').length).toBe(1);
+  });
+
+  it('sync section is titled "📅 SYNC BOUNDARY" and labels the picker "Track History From:"', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const syncTitle = doc.querySelector('.sync-section .settings-section-title');
+    expect(syncTitle.textContent).toBe('📅 SYNC BOUNDARY');
+    expect(doc.querySelector('.sync-section .settings-label-text').textContent).toBe('Track History From:');
+  });
+
+  it('purge section is titled "🗑️ DATA PURGE OPTIONS" with Clear All label', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    const purgeTitle = doc.querySelector('.purge-section .settings-section-title');
+    expect(purgeTitle.textContent).toBe('🗑️ DATA PURGE OPTIONS');
+    expect(doc.querySelector('.purge-section .settings-clear-all-label span').textContent).toBe(
+      'Clear All Local Data (Wipe entire database)'
+    );
+  });
+
+  it('impact preview block is labelled "📊 Impact Preview:"', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings();
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    expect(doc.querySelector('.settings-impact-label').textContent).toBe('📊 Impact Preview:');
+  });
+
+  it('prune button label includes a human-readable date (Jan 1, 2018)', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ count: 3, anchorDate: '2018-01-01' });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+    await vi.waitFor(() => {
+      const btn = doc.querySelector('[data-action="prune"]');
+      expect(btn.textContent).toBe('🗑️ Prune Data Before Jan 1, 2018');
+    });
+  });
+
+  it('impact preview renders "X records found prior to YYYY-MM-DD" (ISO date)', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ count: 1420, anchorDate: '2018-01-01' });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+    await ui.open();
+    await vi.waitFor(() => {
+      const preview = doc.querySelector('[data-preview="impact"]');
+      expect(preview.textContent).toBe('1420 records found prior to 2018-01-01');
+    });
+  });
+
+  it('wipe mode preview shows "X total records will be deleted"', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const settings = makeMockSettings({ total: 3120 });
+    const reporter = makeMockReporter();
+    const ui = createSettingsUI(doc, settings, reporter);
+    await ui.render();
+
+    const checkbox = doc.querySelector('[data-action="toggle-clear-all"]');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      const preview = doc.querySelector('[data-preview="impact"]');
+      expect(preview.textContent).toBe('3120 total records will be deleted');
+    });
+    expect(settings.countAllRecords).toHaveBeenCalled();
   });
 });

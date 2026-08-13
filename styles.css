@@ -1519,8 +1519,35 @@ button {
     color: var(--text-primary);
 }
 
+/* Compact ✕ close button — NOT the pill-shaped .btn */
+.settings-close-btn {
+    background: transparent;
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.settings-close-btn:hover {
+    border-color: var(--accent-amber);
+    color: var(--accent-amber);
+}
+
 .settings-section {
     margin-bottom: 24px;
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
 }
 
 .settings-section-title {
@@ -1532,11 +1559,23 @@ button {
     letter-spacing: 0.08em;
 }
 
+.settings-divider {
+    border: none;
+    border-top: 1px solid var(--bg-card-border);
+    margin: 20px 0;
+}
+
 .settings-label {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     font-size: 0.85rem;
     color: var(--text-muted);
-    margin-bottom: 6px;
+    margin-bottom: 12px;
+}
+
+.settings-label-text {
+    display: block;
 }
 
 .settings-date-picker {
@@ -1547,8 +1586,15 @@ button {
     border-radius: 6px;
     color: var(--text-primary);
     font-size: 0.9rem;
-    margin-bottom: 12px;
     box-sizing: border-box;
+}
+
+.settings-impact-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 6px;
 }
 
 .settings-impact-preview {
@@ -1566,8 +1612,21 @@ button {
     margin-bottom: 10px;
 }
 
-.settings-clear-all-row {
-    margin-bottom: 10px;
+.settings-clear-all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    cursor: pointer;
+}
+
+.settings-clear-all-checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-amber);
+    cursor: pointer;
 }
 
 .btn-danger {

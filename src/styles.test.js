@@ -792,6 +792,23 @@ describe('styles.css — ST-015 settings button & modal overlay (Task 8)', () =>
     expect(cssContent).toContain('.settings-impact-preview');
   });
 
+  it('.settings-close-btn selector is defined (compact ✕, not the pill .btn)', () => {
+    expect(cssContent).toContain('.settings-close-btn');
+    expect(/\.settings-close-btn\s*\{[^}]*border-radius:\s*50%/.test(cssContent)).toBe(true);
+  });
+
+  it('.settings-divider selector is defined', () => {
+    expect(cssContent).toContain('.settings-divider');
+  });
+
+  it('.settings-impact-label selector is defined', () => {
+    expect(cssContent).toContain('.settings-impact-label');
+  });
+
+  it('.settings-label-text selector is defined', () => {
+    expect(cssContent).toContain('.settings-label-text');
+  });
+
   it('.disabled-picker selector with opacity-50 and pointer-events-none is defined', () => {
     expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent)).toBe(true);
     expect(/\.disabled-picker\s*\{[^}]*pointer-events:\s*none/.test(cssContent)).toBe(true);

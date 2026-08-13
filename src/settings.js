@@ -38,6 +38,10 @@ export function createSettings(db) {
     return db.daily_records.where('date').below(date).count();
   }
 
+  async function countAllRecords() {
+    return db.daily_records.count();
+  }
+
   async function pruneRecordsBefore(date) {
     assertValidDate(date, 'pruneRecordsBefore');
     try {
@@ -70,5 +74,5 @@ export function createSettings(db) {
     }
   }
 
-  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, pruneRecordsBefore, wipeDatabase };
+  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, countAllRecords, pruneRecordsBefore, wipeDatabase };
 }

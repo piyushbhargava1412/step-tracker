@@ -24,34 +24,37 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 
 ### Open / Render
 1. `DOMContentLoaded` → `bootstrap()` calls `settingsUI.render()` to build the modal interior
-   (header with close button, Sync Horizon section: anchor-date `<input type="date">`, impact
-   preview `<div>`, Save Anchor Date button, Clear-All checkbox, Prune / Wipe action button).
-2. `#settings-btn` click → `settingsUI.open()`: makes `#settings-modal` visible (`display: flex`),
-   reads `settings.getSyncAnchorDate()` and pre-populates the date input.
+   (header "⚙️ Settings & Data Hygiene" with compact `✕` close button; 📅 SYNC BOUNDARY section
+   with anchor-date `<input type="date">` labelled "Track History From:"; divider; 🗑️ DATA PURGE
+   OPTIONS section with Clear-All checkbox, 📊 Impact Preview block, and Prune / Wipe action
+   button).
+2. `#settings-btn` click → `settingsUI.open()`: makes `#settings-modal` visible (removes
+   `hidden`), reads `settings.getSyncAnchorDate()` and pre-populates the date input, then
+   refreshes the impact preview for the loaded anchor.
 
-### Save Anchor Date
+### Save Anchor Date (auto-save on change)
 3. User changes the date input → `change` event on `[data-field="anchor-date"]` → calls
-   `settings.countRecordsBefore(date)` → updates the impact preview with the count of rows that
-   would be pruned.
-4. User clicks Save Anchor Date (`data-action="save-anchor"`) → validates date, calls
-   `settings.setSyncAnchorDate(date)`, reports success via `reporter.db()`.
+   `settings.setSyncAnchorDate(date)` to persist the anchor immediately, then
+   `settings.countRecordsBefore(date)` → updates the impact preview ("X record(s) found prior to
+   YYYY-MM-DD") and the prune-button label ("🗑️ Prune Data Before Jan 1, 2018"). There is no
+   separate Save button — the anchor saves on every date change.
 
 ### Prune Records (normal mode)
-5. User clicks Prune button (`data-action="prune"`) → `confirmFn()` prompts for confirmation;
+4. User clicks Prune button (`data-action="prune"`) → `confirmFn()` prompts for confirmation;
    on accept, calls `settings.pruneRecordsBefore(date)` → dispatches `data:records:mutated`.
 
 ### Wipe Database (Clear-All mode)
-6. User checks the Clear-All checkbox (`data-action="toggle-clear-all"`) → date picker and impact
-   counter are disabled; action button switches label to "Wipe Entire Database" and `data-action`
-   to `"wipe"`.
-7. User clicks Wipe button (`data-action="wipe"`) → `confirmFn()` prompts for confirmation;
+5. User checks the Clear-All checkbox (`data-action="toggle-clear-all"`) → date picker is disabled;
+   action button switches label to "🔥 Clear Entire Database" and `data-action` to `"wipe"`; impact
+   preview shows `settings.countAllRecords()` total ("X total records will be deleted").
+6. User clicks Wipe button (`data-action="wipe"`) → `confirmFn()` prompts for confirmation;
    on accept, calls `settings.wipeDatabase()` (clears `daily_records`, deletes
    `initial_backfill_complete` latch, resets `sync_anchor_date` to `DEFAULT_SYNC_ANCHOR`) →
    dispatches `data:records:mutated`.
 
 ### Close
-8. Close button (`data-action="close-settings"`) or any other dismiss path → `settingsUI.close()`
-   hides the modal (`display: none`).
+7. Close button (`data-action="close-settings"`) or any other dismiss path → `settingsUI.close()`
+   hides the modal (sets `hidden`).
 
 ## Data Touchpoints
 - **Entities**: `settings.sync_anchor_date` row; all `daily_records` rows (prune/wipe); `settings.initial_backfill_complete` row (wipe only)
@@ -75,6 +78,6 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 - `styles.css` — settings modal layout and section styles
 
 ## Tests
-- `src/settings.test.js` — engine: read/write anchor, count/prune records, wipe database, guard clauses
+- `src/settings.test.js` — engine: read/write anchor, count records (before-date + all), prune records, wipe database, guard clauses
 - `src/settings-ui.test.js` — DOM-writer: render skeleton, open/close, delegated actions, confirm injection, mutation dispatch, fail-open
 - `src/confirm.test.js` — adapter: delegation, fail-open on absent windowRef

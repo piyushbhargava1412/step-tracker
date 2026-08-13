@@ -157,6 +157,33 @@ describe('countRecordsBefore', () => {
   });
 });
 
+describe('countAllRecords', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = {
+      settings: { get: vi.fn(), put: vi.fn() },
+      daily_records: {
+        where: vi.fn(),
+        count: vi.fn().mockResolvedValue(17),
+      },
+    };
+    settings = createSettings(db);
+  });
+
+  it('returns the total number of daily_records', async () => {
+    const result = await settings.countAllRecords();
+    expect(db.daily_records.count).toHaveBeenCalledTimes(1);
+    expect(result).toBe(17);
+  });
+
+  it('re-throws errors instead of swallowing them', async () => {
+    db.daily_records.count.mockRejectedValue(new Error('count failed'));
+    await expect(settings.countAllRecords()).rejects.toThrow('count failed');
+  });
+});
+
 describe('pruneRecordsBefore', () => {
   let db;
   let settings;
