@@ -1,8 +1,8 @@
 # Testing Patterns
 
 <!-- context-meta
-verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
-generated-at: 2026-08-12T06:00:00Z
+verification-commit: 889018e
+generated-at: 2026-08-13T00:00:00Z
 confidence: high
 -->
 
@@ -26,7 +26,7 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/streak.test.js`, `src/streak-ui.test.js`, `src/date-utils.test.js`, `src/units.test.js`,
 `src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
 `src/image-processor.test.js`, `src/search.test.js`, `src/search-ui.test.js`,
-`src/exporter.test.js`.
+`src/exporter.test.js`, `src/settings.test.js`, `src/settings-ui.test.js`, `src/confirm.test.js`.
 
 ---
 
@@ -72,6 +72,9 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createSearch` (`src/search.js`)                   | `executeQuery` — date-range vs all-time path, AND-combined filters (minSteps/maxSteps/minDistance/overrideStatus/targetOutcome), goal-history integration, result sort (newest first), DB error propagation; `computeResultSummary` — count/matchPct/cumulativeDistanceKm/avgSteps, divide-by-zero guard (`src/search.test.js`, 26 tests) |
 | ✅ DONE  | `createSearchUI` (`src/search-ui.js`)              | Render skeleton (7 data-field controls, action buttons, results grid, summary card, export controls), idempotent re-render, AbortController cleanup, delegated execute/reset/export-csv/export-json actions, error path → reporter.db, no-innerHTML contract (`src/search-ui.test.js`) |
 | ✅ DONE  | `createExporter` (`src/exporter.js`)               | `_toCsv` / `_toJson` serialisation, `_csvCell` RFC-4180 quoting, CSV/JSON parity, `exportCsv`/`exportJson` download seam (Blob, URL.createObjectURL/revokeObjectURL, anchor click), finally-path revoke, error logging (`src/exporter.test.js`) |
+| ✅ DONE  | `createSettings` (`src/settings.js`)               | `getSyncAnchorDate` (valid row, absent row, DB error), `setSyncAnchorDate` (valid date, invalid format throws `TypeError`), `countRecordsBefore` (valid date, invalid date throws), `pruneRecordsBefore` (delete path, DB error rethrow), `wipeDatabase` (clears records + latch + resets anchor) (`src/settings.test.js`) |
+| ✅ DONE  | `createSettingsUI` (`src/settings-ui.js`)          | Render builds modal DOM (header, anchor-date picker, impact preview, save-anchor button, clear-all checkbox, action button), idempotent re-render with AbortController cleanup, `open()` populates date input, `close()` hides modal, delegated save-anchor/prune/wipe/close-settings/toggle-clear-all handlers, confirmation via injected `confirmFn`, `data:records:mutated` dispatch, reporter.db on error, fail-open on missing `#settings-modal` (`src/settings-ui.test.js`) |
+| ✅ DONE  | `createConfirmAdapter` (`src/confirm.js`)          | Returns function delegating to `windowRef.confirm`, fail-open on absent `windowRef` or absent `windowRef.confirm`, passes message argument (`src/confirm.test.js`) |
 
 ---
 
