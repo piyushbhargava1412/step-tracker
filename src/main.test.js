@@ -129,6 +129,13 @@ vi.mock('./settings-ui.js', () => ({
   createSettingsUI: vi.fn(() => mockSettingsUIInstance)
 }))
 
+// ST-015 Task 11: confirm adapter mock
+const mockConfirmAdapter = vi.fn()
+vi.mock('./confirm.js', () => ({
+  createConfirmAdapter: vi.fn(() => mockConfirmAdapter)
+}))
+
+
 // Import mocked modules so we have references to the spy fns
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
@@ -150,6 +157,7 @@ import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
+import { createConfirmAdapter } from './confirm.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1161,6 +1169,17 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
       mockSettingsInstance,
       mockReporter,
       expect.any(Function)
+    )
+  })
+
+  it('createConfirmAdapter is called with window; adapter passed to createSettingsUI', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createConfirmAdapter).toHaveBeenCalledWith(window)
+    expect(createSettingsUI).toHaveBeenCalledWith(
+      isolatedDoc,
+      mockSettingsInstance,
+      mockReporter,
+      mockConfirmAdapter
     )
   })
 

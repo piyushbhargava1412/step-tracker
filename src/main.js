@@ -24,6 +24,7 @@ import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
+import { createConfirmAdapter } from './confirm.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -92,7 +93,7 @@ export async function bootstrap(doc = document) {
   const challenge = createChallenge(db)
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)
   const settings = createSettings(db)
-  const settingsUI = createSettingsUI(doc, settings, reporter, (msg) => window.confirm(msg))
+  const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
