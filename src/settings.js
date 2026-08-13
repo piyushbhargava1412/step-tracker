@@ -48,5 +48,27 @@ export function createSettings(db) {
     }
   }
 
-  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, pruneRecordsBefore };
+
+  async function wipeDatabase() {
+    try {
+      await db.daily_records.clear();
+    } catch (err) {
+      console.error('[settings]', err);
+      throw err;
+    }
+    try {
+      await db.settings.delete('initial_backfill_complete');
+    } catch (err) {
+      console.error('[settings]', err);
+      throw err;
+    }
+    try {
+      await setSyncAnchorDate(DEFAULT_SYNC_ANCHOR);
+    } catch (err) {
+      console.error('[settings]', err);
+      throw err;
+    }
+  }
+
+  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, pruneRecordsBefore, wipeDatabase };
 }

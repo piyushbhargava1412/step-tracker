@@ -196,3 +196,62 @@ describe('pruneRecordsBefore', () => {
     expect(db.daily_records.where).not.toHaveBeenCalled();
   });
 });
+
+describe('wipeDatabase', () => {
+  let db;
+  let settings;
+  const callOrder = [];
+
+  beforeEach(() => {
+    callOrder.length = 0;
+    db = {
+      settings: {
+        get: vi.fn(),
+        put: vi.fn().mockImplementation(() => { callOrder.push('put'); return Promise.resolve(); }),
+        delete: vi.fn().mockImplementation(() => { callOrder.push('delete'); return Promise.resolve(); }),
+      },
+      daily_records: {
+        clear: vi.fn().mockImplementation(() => { callOrder.push('clear'); return Promise.resolve(); }),
+        where: vi.fn(),
+      },
+    };
+    settings = createSettings(db);
+  });
+
+  it('calls the three operations in order: clear → delete → setSyncAnchorDate', async () => {
+    await settings.wipeDatabase();
+    expect(callOrder).toEqual(['clear', 'delete', 'put']);
+  });
+
+  it('clears daily_records', async () => {
+    await settings.wipeDatabase();
+    expect(db.daily_records.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes initial_backfill_complete from settings', async () => {
+    await settings.wipeDatabase();
+    expect(db.settings.delete).toHaveBeenCalledWith('initial_backfill_complete');
+  });
+
+  it('resets anchor to 2018-01-01 via setSyncAnchorDate', async () => {
+    await settings.wipeDatabase();
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({ key: SYNC_ANCHOR_KEY, value: '2018-01-01' })
+    );
+  });
+
+  it('re-throws when daily_records.clear fails', async () => {
+    db.daily_records.clear.mockRejectedValue(new Error('clear failed'));
+    await expect(settings.wipeDatabase()).rejects.toThrow('clear failed');
+  });
+
+  it('re-throws when settings.delete fails', async () => {
+    db.settings.delete.mockRejectedValue(new Error('delete failed'));
+    await expect(settings.wipeDatabase()).rejects.toThrow('delete failed');
+  });
+
+  it('re-throws when setSyncAnchorDate fails (db.settings.put throws)', async () => {
+    db.settings.put.mockRejectedValue(new Error('put failed'));
+    await expect(settings.wipeDatabase()).rejects.toThrow('put failed');
+  });
+});
