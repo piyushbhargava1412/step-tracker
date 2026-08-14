@@ -34,7 +34,7 @@ function makeBackup({ buildResult = null, restoreResult = undefined } = {}) {
 }
 
 function makeReporter() {
-  return vi.fn();
+  return { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
 }
 
 /**
@@ -106,7 +106,7 @@ describe('backup-ui.js — no innerHTML (runtime contract)', () => {
     });
     const exportBtn = container.querySelector('[data-action="export-backup"]');
     exportBtn.click();
-    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
 
     // Restore flow
     const payload = {
@@ -209,6 +209,7 @@ describe('createBackupUI — export path', () => {
     const anchor = capturedAnchors[0];
     expect(anchor.download).toMatch(BACKUP_FILENAME_PREFIX);
     expect(anchor.click).toHaveBeenCalled();
+    expect(reporter.db).toHaveBeenCalledWith('✅ Backup exported successfully');
   });
 
   it('export button is disabled while buildBackup() is in-flight and re-enabled on completion', async () => {
@@ -273,8 +274,8 @@ describe('createBackupUI — Task 19 oversized export guard', () => {
     const exportBtn = container.querySelector('[data-action="export-backup"]');
     exportBtn.click();
 
-    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
-    const msg = reporter.mock.calls[reporter.mock.calls.length - 1][0];
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    const msg = reporter.db.mock.calls[reporter.db.mock.calls.length - 1][0];
     expect(msg).toBe('❌ Export failed: backup too large');
     expect(msg).not.toMatch(/MAX_BACKUP_RECORDS|100001/);
     expect(consoleSpy).toHaveBeenCalledWith('[backup-ui]', tooLarge);
@@ -295,8 +296,8 @@ describe('createBackupUI — Task 19 oversized export guard', () => {
     const exportBtn = container.querySelector('[data-action="export-backup"]');
     exportBtn.click();
 
-    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
-    const msg = reporter.mock.calls[reporter.mock.calls.length - 1][0];
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    const msg = reporter.db.mock.calls[reporter.db.mock.calls.length - 1][0];
     expect(msg).toBe('❌ Export failed: indexeddb quota exceeded');
   });
 });
@@ -319,6 +320,7 @@ describe('createBackupUI — restore path', () => {
 
     await vi.waitFor(() => expect(backup.restoreBackup).toHaveBeenCalledWith(payload));
     await vi.waitFor(() => expect(events.length).toBe(1));
+    expect(reporter.db).toHaveBeenCalledWith('✅ Backup restored successfully');
 
     restore();
   });
@@ -356,8 +358,8 @@ describe('createBackupUI — restore path', () => {
     const input = container.querySelector('[data-action="import-backup"]');
     const restore = simulateFileSelect(doc, input, 'NOT JSON {{{');
 
-    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
-    const reporterMsg = reporter.mock.calls[0][0];
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    const reporterMsg = reporter.db.mock.calls[0][0];
     expect(reporterMsg).toMatch(/[❌X]/);
 
     restore();
@@ -378,8 +380,8 @@ describe('createBackupUI — restore path', () => {
     const input = container.querySelector('[data-action="import-backup"]');
     const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
 
-    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
-    const reporterMsg = reporter.mock.calls[0][0];
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
+    const reporterMsg = reporter.db.mock.calls[0][0];
     expect(reporterMsg).toMatch(/[❌X]/);
     await new Promise((r) => setTimeout(r, 30));
     expect(events.length).toBe(0);

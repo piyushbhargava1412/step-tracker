@@ -4,8 +4,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
 import { JSDOM } from 'jsdom';
 import { createDriveSyncUI } from './drive-sync-ui.js';
 import { _validateEnvelope } from './backup.js';
@@ -46,7 +44,7 @@ function makeBackup({ buildResult = null, restoreResult = undefined } = {}) {
 }
 
 function makeReporter() {
-  return vi.fn();
+  return { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -94,13 +92,13 @@ describe('createDriveSyncUI', () => {
     expect(driveSync.push).toHaveBeenCalledWith(backup._envelope);
   });
 
-  it('successful push calls reporter with ✅-prefixed message', async () => {
+  it('successful push calls reporter.sync with ✅-prefixed message', async () => {
     const btn = container.querySelector('[data-action="backup-to-drive"]');
     btn.click();
     await new Promise(r => setTimeout(r, 0));
 
-    expect(reporter).toHaveBeenCalled();
-    const msg = reporter.mock.calls[reporter.mock.calls.length - 1][0];
+    expect(reporter.sync).toHaveBeenCalled();
+    const msg = reporter.sync.mock.calls[reporter.sync.mock.calls.length - 1][0];
     expect(msg).toMatch(/^✅/);
   });
 
@@ -116,7 +114,7 @@ describe('createDriveSyncUI', () => {
     btn.click();
     await new Promise(r => setTimeout(r, 0));
 
-    const calls = reporter.mock.calls.map(c => c[0]);
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
     expect(calls.some(m => m.startsWith('❌'))).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync-ui]'),
@@ -140,7 +138,7 @@ describe('createDriveSyncUI', () => {
     btn.click();
     await new Promise(r => setTimeout(r, 0));
 
-    const calls = reporter.mock.calls.map(c => c[0]);
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
     expect(calls).toContain('❌ Drive backup failed: backup too large');
     expect(calls.some(m => m.includes('MAX_BACKUP_BYTES'))).toBe(false);
     expect(drive.push).not.toHaveBeenCalled();
@@ -212,7 +210,7 @@ describe('createDriveSyncUI', () => {
     await new Promise(r => setTimeout(r, 0));
 
     expect(backup.restoreBackup).not.toHaveBeenCalled();
-    expect(reporter).toHaveBeenCalled();
+    expect(reporter.sync).toHaveBeenCalledWith('ℹ️ No backup found on Google Drive');
   });
 
   it('restoreBackup throws: reporter called with ❌ prefix; event NOT dispatched', async () => {
@@ -228,7 +226,7 @@ describe('createDriveSyncUI', () => {
     btn.click();
     await new Promise(r => setTimeout(r, 0));
 
-    const calls = reporter.mock.calls.map(c => c[0]);
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
     expect(calls.some(m => m.startsWith('❌'))).toBe(true);
     const mutatedFired = dispatchSpy.mock.calls.some(c => c[0].type === 'data:records:mutated');
     expect(mutatedFired).toBe(false);
@@ -253,7 +251,7 @@ describe('createDriveSyncUI', () => {
     await new Promise(r => setTimeout(r, 0));
 
     expect(backup.restoreBackup).not.toHaveBeenCalled();
-    const calls = reporter.mock.calls.map(c => c[0]);
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
     expect(calls.some(m => m.startsWith('❌'))).toBe(true);
     const mutatedFired = dispatchSpy.mock.calls.some(c => c[0].type === 'data:records:mutated');
     expect(mutatedFired).toBe(false);
@@ -283,18 +281,20 @@ describe('createDriveSyncUI', () => {
 
     expect(validateSpy).toHaveBeenCalledWith(envelope);
     expect(backup.restoreBackup).toHaveBeenCalledWith(envelope);
+    expect(reporter.sync).toHaveBeenCalledWith('✅ Data restored from Drive successfully');
     const mutatedFired = dispatchSpy.mock.calls.some(c => c[0].type === 'data:records:mutated');
     expect(mutatedFired).toBe(true);
   });
 
   // ── DOM contract ─────────────────────────────────────────────────────────────
 
-  it('module source has zero innerHTML assignments', () => {
-    const src = fs.readFileSync(
-      path.resolve(__dirname, 'drive-sync-ui.js'),
-      'utf8'
-    );
-    expect(src).not.toMatch(/\.innerHTML\s*=/);
+  it('builds and re-renders the panel without ever assigning innerHTML', () => {
+    const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
+
+    // Re-mount under the spy — any innerHTML assignment in render would be caught
+    ui.render(container);
+
+    expect(innerHTMLSetter).not.toHaveBeenCalled();
   });
 
   // ── AbortController cleanup ───────────────────────────────────────────────────

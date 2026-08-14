@@ -131,10 +131,10 @@ export function createBackupUI(doc, backup, reporter) {
       } finally {
         URL.revokeObjectURL(url);
       }
-      reporter('✅ Backup exported successfully');
+      reporter.db('✅ Backup exported successfully');
     } catch (err) {
       console.error('[backup-ui]', err);
-      reporter(
+      reporter.db(
         err instanceof RangeError
           ? '❌ Export failed: backup too large'
           : '❌ Export failed: ' + (err.message ?? err)
@@ -156,15 +156,15 @@ export function createBackupUI(doc, backup, reporter) {
         parsed = JSON.parse(text);
       } catch (parseErr) {
         console.error('[backup-ui]', parseErr);
-        reporter('❌ Restore failed: file is not valid JSON');
+        reporter.db('❌ Restore failed: file is not valid JSON');
         return;
       }
       await backup.restoreBackup(parsed);
       doc.dispatchEvent(new doc.defaultView.CustomEvent('data:records:mutated'));
-      reporter('✅ Backup restored successfully');
+      reporter.db('✅ Backup restored successfully');
     } catch (err) {
       console.error('[backup-ui]', err);
-      reporter('❌ Restore failed: ' + (err.message ?? err));
+      reporter.db('❌ Restore failed: ' + (err.message ?? err));
     }
   }
 

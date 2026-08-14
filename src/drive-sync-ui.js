@@ -119,10 +119,10 @@ export function createDriveSyncUI(
     try {
       const envelope = await backup.buildBackup();
       await driveSync.push(envelope);
-      reporter('✅ Backup uploaded to Drive successfully');
+      reporter.sync('✅ Backup uploaded to Drive successfully');
     } catch (err) {
       console.error('[drive-sync-ui]', err);
-      reporter(
+      reporter.sync(
         err instanceof RangeError
           ? '❌ Drive backup failed: backup too large'
           : '❌ Drive backup failed: ' + (err.message ?? err)
@@ -149,16 +149,16 @@ export function createDriveSyncUI(
     try {
       const envelope = await driveSync.pull();
       if (envelope == null) {
-        reporter('ℹ️ No backup found on Google Drive');
+        reporter.sync('ℹ️ No backup found on Google Drive');
         return;
       }
       validateEnvelope(envelope);
       await backup.restoreBackup(envelope);
       doc.dispatchEvent(new doc.defaultView.CustomEvent('data:records:mutated'));
-      reporter('✅ Data restored from Drive successfully');
+      reporter.sync('✅ Data restored from Drive successfully');
     } catch (err) {
       console.error('[drive-sync-ui]', err);
-      reporter('❌ Restore from Drive failed: ' + (err.message ?? err));
+      reporter.sync('❌ Restore from Drive failed: ' + (err.message ?? err));
     } finally {
       btn.disabled = false;
     }
