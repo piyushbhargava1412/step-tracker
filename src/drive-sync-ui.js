@@ -46,7 +46,7 @@ export function createDriveSyncUI(
 
     // Build panel
     const panel = doc.createElement('div');
-    panel.className = 'cloud-sync-panel';
+    panel.className = 'cloud-sync-panel data-panel';
 
     const heading = doc.createElement('h2');
     heading.textContent = '☁️ Google Drive Sync';
@@ -54,7 +54,7 @@ export function createDriveSyncUI(
 
     // Backup section
     const backupSection = doc.createElement('section');
-    backupSection.className = 'cloud-sync-section';
+    backupSection.className = 'cloud-sync-section data-panel__section';
 
     const backupHeading = doc.createElement('h3');
     backupHeading.textContent = 'Back Up to Drive';
@@ -74,7 +74,7 @@ export function createDriveSyncUI(
 
     // Restore section
     const restoreSection = doc.createElement('section');
-    restoreSection.className = 'cloud-sync-section';
+    restoreSection.className = 'cloud-sync-section data-panel__section';
 
     const restoreHeading = doc.createElement('h3');
     restoreHeading.textContent = 'Restore from Drive';

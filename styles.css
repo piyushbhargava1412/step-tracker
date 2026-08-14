@@ -1883,21 +1883,23 @@ button {
     pointer-events: none;
 }
 
-/* ── Backup Panel ────────────────────────────────────────────────────────────── */
+/* ── Backup & Cloud Sync panels — shared structural base (deduplicated) ────────
+   .backup-panel/.cloud-sync-panel and .backup-section/.cloud-sync-section
+   combine their feature class with these base classes. */
 
-.backup-panel {
+.data-panel {
     padding: 1.5rem;
     max-width: 600px;
 }
 
-.backup-panel h2 {
+.data-panel h2 {
     font-size: 1.4rem;
     font-weight: 700;
     margin-bottom: 1.5rem;
     color: var(--text-primary);
 }
 
-.backup-section {
+.data-panel__section {
     background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
     border-radius: 0.75rem;
@@ -1905,19 +1907,20 @@ button {
     margin-bottom: 1.25rem;
 }
 
-.backup-section h3 {
+.data-panel__section h3 {
     font-size: 1rem;
     font-weight: 600;
     margin-bottom: 0.5rem;
     color: var(--text-primary);
 }
 
-.backup-section p {
+.data-panel__section p {
     font-size: 0.875rem;
     color: var(--text-muted);
     margin-bottom: 1rem;
 }
 
+/* Backup-only: file chooser label */
 .backup-file-label {
     cursor: pointer;
     display: inline-block;
@@ -1925,40 +1928,7 @@ button {
     overflow: hidden;
 }
 
-/* ─── Cloud Sync Panel ───────────────────────────────────────────────────────── */
-.cloud-sync-panel {
-    padding: 1.5rem;
-    max-width: 600px;
-}
-
-.cloud-sync-panel h2 {
-    font-size: 1.4rem;
-    font-weight: 700;
-    margin-bottom: 1.5rem;
-    color: var(--text-primary);
-}
-
-.cloud-sync-section {
-    background: var(--bg-card-solid);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 0.75rem;
-    padding: 1.25rem;
-    margin-bottom: 1.25rem;
-}
-
-.cloud-sync-section h3 {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-}
-
-.cloud-sync-section p {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    margin-bottom: 1rem;
-}
-
+/* Cloud-sync-only: mounts the backup + cloud-sync panels */
 #cloud-controls {
     margin-top: 1.5rem;
 }

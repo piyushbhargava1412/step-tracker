@@ -35,7 +35,7 @@ export function createBackupUI(doc, backup, reporter) {
 
     // Build panel
     const panel = doc.createElement('div');
-    panel.className = 'backup-panel';
+    panel.className = 'backup-panel data-panel';
 
     const heading = doc.createElement('h2');
     heading.textContent = '💾 Backup & Restore';
@@ -43,7 +43,7 @@ export function createBackupUI(doc, backup, reporter) {
 
     // Export section
     const exportSection = doc.createElement('section');
-    exportSection.className = 'backup-section';
+    exportSection.className = 'backup-section data-panel__section';
 
     const exportHeading = doc.createElement('h3');
     exportHeading.textContent = 'Export Backup';
@@ -63,7 +63,7 @@ export function createBackupUI(doc, backup, reporter) {
 
     // Restore section
     const restoreSection = doc.createElement('section');
-    restoreSection.className = 'backup-section';
+    restoreSection.className = 'backup-section data-panel__section';
 
     const restoreHeading = doc.createElement('h3');
     restoreHeading.textContent = 'Restore from Backup';
