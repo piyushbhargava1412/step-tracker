@@ -1,16 +1,15 @@
 /**
  * Cloud sync UI — sole DOM writer for Google Drive cloud controls.
  *
- * createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validateEnvelope, driveBackupPrefs)
+ * createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)
  *   render(container): builds "Back up to Drive" and "Restore from Drive" controls
  *     plus the Task-27 "Automatically back up to Drive after each sync" toggle.
  *
  * PL-2 Option A: manual push/pull, last-write-wins with pre-overwrite confirmFn warning.
  *
- * Remote Drive content is treated as untrusted: the injected validateEnvelope
- * (default no-op) runs over the pulled envelope BEFORE restoreBackup so a
- * tampered payload is rejected with no Dexie write and no data:records:mutated
- * dispatch.
+ * Remote Drive content is treated as untrusted: the injected driveSync.pull()
+ * gateway runs envelope validation before returning, so a tampered payload is
+ * rejected with no Dexie write and no data:records:mutated dispatch.
  *
  * Task 27 (opt-out consent): the checkbox is bound to the persisted
  * `drive_backup_enabled` setting via the injected driveBackupPrefs collaborator
@@ -29,7 +28,6 @@ export function createDriveSyncUI(
   backup,
   reporter,
   confirmFn,
-  validateEnvelope = () => {},
   driveBackupPrefs = null
 ) {
   let controller = null;
@@ -202,8 +200,8 @@ export function createDriveSyncUI(
   /**
    * Handles the "Restore from Drive" action.
    * Warns via confirmFn before overwriting local data (LWW warning per PL-2 Option A).
-   * Validates the pulled envelope (injected validateEnvelope) before restoreBackup
-   * so a tampered Drive payload never reaches a Dexie write.
+   * driveSync.pull() already validates the envelope; restoreBackup also re-validates
+   * defensively so a tampered payload never reaches Dexie.
    * @param {HTMLButtonElement} btn
    */
   async function _handleRestoreFromCloud(btn) {
@@ -219,7 +217,6 @@ export function createDriveSyncUI(
         reporter.sync('ℹ️ No backup found on Google Drive');
         return;
       }
-      validateEnvelope(envelope);
       await backup.restoreBackup(envelope);
       doc.dispatchEvent(new doc.defaultView.CustomEvent('data:records:mutated'));
       reporter.sync('✅ Data restored from Drive successfully');

@@ -128,7 +128,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), _validateEnvelope, settings)
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings)
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }

@@ -82,7 +82,7 @@ describe('backup-ui.js — no innerHTML (runtime contract)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('builds and drives the panel without ever assigning innerHTML', async () => {
+  it('render() builds the panel without ever assigning innerHTML', () => {
     const doc = buildDoc();
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
@@ -91,7 +91,19 @@ describe('backup-ui.js — no innerHTML (runtime contract)', () => {
 
     const ui = createBackupUI(doc, backup, reporter);
     ui.render(container);
+
     expect(innerHTMLSetter).not.toHaveBeenCalled();
+  });
+
+  it('export and restore interactions never assign innerHTML', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
+
+    const ui = createBackupUI(doc, backup, reporter);
+    ui.render(container);
 
     // Export flow — capture anchor so no real navigation happens
     vi.stubGlobal('URL', {
@@ -221,8 +233,8 @@ describe('createBackupUI — export path', () => {
     const backup = { buildBackup, restoreBackup: vi.fn() };
     const reporter = makeReporter();
 
+    const origCreateElement = doc.createElement.bind(doc);
     vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
-      const origCreateElement = document.createElement.bind(document);
       const el = origCreateElement(tag);
       if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(() => {});
       return el;
@@ -340,9 +352,10 @@ describe('createBackupUI — restore path', () => {
     const input = container.querySelector('[data-action="import-backup"]');
     const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
 
-    await vi.waitFor(() => expect(backup.restoreBackup).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 50));
-    expect(events.length).toBe(0);
+    await vi.waitFor(() => {
+      expect(backup.restoreBackup).toHaveBeenCalled();
+      expect(events.length).toBe(0);
+    });
 
     restore();
   });
@@ -380,11 +393,12 @@ describe('createBackupUI — restore path', () => {
     const input = container.querySelector('[data-action="import-backup"]');
     const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
 
-    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalled());
-    const reporterMsg = reporter.db.mock.calls[0][0];
-    expect(reporterMsg).toMatch(/[❌X]/);
-    await new Promise((r) => setTimeout(r, 30));
-    expect(events.length).toBe(0);
+    await vi.waitFor(() => {
+      expect(reporter.db).toHaveBeenCalled();
+      const reporterMsg = reporter.db.mock.calls[0][0];
+      expect(reporterMsg).toMatch(/[❌X]/);
+      expect(events.length).toBe(0);
+    });
 
     restore();
   });

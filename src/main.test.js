@@ -1505,7 +1505,7 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(callArg.validator).toBe(_validateEnvelope)
   })
 
-  it('createDriveSyncUI is called once with doc, driveSync instance, backup instance, reporter, confirm adapter, and the backup validator', async () => {
+  it('createDriveSyncUI is called once with doc, driveSync instance, backup instance, reporter, confirm adapter, and settings', async () => {
     await bootstrap(isolatedDoc)
     expect(createDriveSyncUI).toHaveBeenCalledTimes(1)
     expect(createDriveSyncUI).toHaveBeenCalledWith(
@@ -1514,7 +1514,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockBackupInstance,
       mockReporter,
       mockConfirmAdapter,
-      _validateEnvelope,
       mockSettingsInstance
     )
   })
@@ -1900,8 +1899,8 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     createBackupUI.mockImplementation((doc, backup, reporter) =>
       realCreateBackupUI(doc, backup, reporter)
     )
-    createDriveSyncUI.mockImplementation((doc, driveSync, backup, reporter, confirmFn, validator) =>
-      realCreateDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validator)
+    createDriveSyncUI.mockImplementation((doc, driveSync, backup, reporter, confirmFn, prefs) =>
+      realCreateDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, prefs)
     )
   })
 

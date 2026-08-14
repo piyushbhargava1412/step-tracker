@@ -729,14 +729,18 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
  *
  * @param {object} auth      - Collaborator exposing getAccessToken().
  * @param {object} db        - Dexie database instance.
- * @param {object} reporter  - Status reporter with a sync(text) method.
- * @param {Document} doc     - The document to use for DOM access (defaults to
- *                             the global document). Follows the repo pattern of
- *                             createAuth(…, gsi = google) and
- *                             createStatusReporter(doc = document): accepting a
- *                             defaulted collaborator rather than reaching for a
- *                             global directly.
- * @param {object|null} driveBackupPrefs  - Collaborator exposing
+  * @param {object} reporter  - Status reporter with a sync(text) method.
+  * @param {Document} doc     - The document to use for DOM access (defaults to
+  *                             the global document). Follows the repo pattern of
+  *                             createAuth(…, gsi = google) and
+  *                             createStatusReporter(doc = document): accepting a
+  *                             defaulted collaborator rather than reaching for a
+  *                             global directly.
+  * @param {object|null} driveSync  - ST-012 Drive sync gateway (createDriveSync).
+  *                             When null, the post-sync silent upload is skipped.
+  * @param {object|null} backup     - ST-012 backup engine (createBackup).
+  *                             When null, the post-sync silent upload is skipped.
+  * @param {object|null} driveBackupPrefs  - Collaborator exposing
  *                             getDriveBackupEnabled(). When null (legacy call
  *                             sites), the post-sync Drive auto-upload is
  *                             treated as enabled (default).

@@ -6,7 +6,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createDriveSyncUI } from './drive-sync-ui.js';
-import { _validateEnvelope } from './backup.js';
 import { DRIVE_PUSH_SKIPPED } from './drive-sync.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -272,17 +271,19 @@ describe('createDriveSyncUI', () => {
   });
 
   // ── Validate pulled envelope before restore (Task 11) ────────────────────────
+  // Validation lives in driveSync.pull() (gateway-level). The UI merely surfaces
+  // the resulting error via reporter.sync when pull rejects.
 
-  it('rejects a tampered __proto__-polluting payload before any restore write (no restoreBackup, no dispatch, reporter ❌)', async () => {
-    const tampered = JSON.parse(
-      '{"schema_version":1,"exported_at":"2024-01-15T10:00:00Z",' +
-        '"daily_records":[{"date":"2024-01-15","__proto__":{"polluted":true}}],"settings":[]}'
-    );
-    driveSync = makeDriveSync({ pullResult: tampered });
+  it('a rejected pull (invalid payload) stops restore: no restoreBackup, no dispatch, reporter ❌', async () => {
+    const error = new TypeError('invalid envelope');
+    driveSync = makeDriveSync({ pullResult: null });
+    // Force the factory-level mock to throw instead of resolving, since pull()
+    // is what validates; the UI just catches and reports.
+    driveSync.pull = vi.fn().mockRejectedValue(error);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     confirmFn = vi.fn().mockReturnValue(true);
-    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, _validateEnvelope);
+    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
     await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
@@ -296,11 +297,11 @@ describe('createDriveSyncUI', () => {
     expect(mutatedFired).toBe(false);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync-ui]'),
-      expect.anything()
+      error
     );
   });
 
-  it('a valid pulled envelope passes the injected validateEnvelope and restores normally', async () => {
+  it('a valid pulled envelope restores normally without a separate UI-level validator', async () => {
     const envelope = {
       schema_version: 1,
       exported_at: '2024-01-15T10:00:00Z',
@@ -308,17 +309,15 @@ describe('createDriveSyncUI', () => {
       settings: [],
     };
     driveSync = makeDriveSync({ pullResult: envelope });
-    const validateSpy = vi.fn();
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     confirmFn = vi.fn().mockReturnValue(true);
-    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validateSpy);
+    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
     await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
     btn.click();
     await new Promise(r => setTimeout(r, 0));
 
-    expect(validateSpy).toHaveBeenCalledWith(envelope);
     expect(backup.restoreBackup).toHaveBeenCalledWith(envelope);
     expect(reporter.sync).toHaveBeenCalledWith('✅ Data restored from Drive successfully');
     const mutatedFired = dispatchSpy.mock.calls.some(c => c[0].type === 'data:records:mutated');
@@ -364,7 +363,7 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     reporter = makeReporter();
     confirmFn = vi.fn().mockReturnValue(true);
     prefs = makeDriveBackupPrefs();
-    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, prefs);
     await ui.render(container);
   });
 
@@ -387,7 +386,7 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     const freshDoc = buildDoc();
     const freshContainer = freshDoc.getElementById('cloud-controls');
     prefs = makeDriveBackupPrefs({ enabled: false });
-    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
     await ui.render(freshContainer);
 
     const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
@@ -406,7 +405,7 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     const freshDoc = buildDoc();
     const freshContainer = freshDoc.getElementById('cloud-controls');
     prefs = makeDriveBackupPrefs({ enabled: false });
-    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
     await ui.render(freshContainer);
 
     const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
@@ -420,7 +419,7 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     const freshDoc = buildDoc();
     const freshContainer = freshDoc.getElementById('cloud-controls');
     prefs = makeDriveBackupPrefs({ enabled: false });
-    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
     await ui.render(freshContainer);
 
     const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');

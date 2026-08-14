@@ -2,8 +2,14 @@
  * Backup engine — pure Dexie I/O, no DOM.
  * createBackup(db) factory: buildBackup() serialises the full Dexie state
  * into a versioned envelope; restoreBackup(parsed, { mode }) validates and
- * atomically upserts rows back. Module-level pure exports: blobToBase64,
- * base64ToBlob, _validateEnvelope, BACKUP_SCHEMA_VERSION, BACKUP_FILENAME_PREFIX.
+   * atomically upserts rows back. Module-level pure exports: blobToBase64,
+   * base64ToBlob, _validateEnvelope (also exported as validateBackupPayload),
+   * BACKUP_SCHEMA_VERSION, BACKUP_FILENAME_PREFIX, MAX_BACKUP_RECORDS, MAX_BACKUP_BYTES.
+   *
+   * NOTE: blobToBase64/base64ToBlob bridge the backup engine to the proof-image
+   * pipeline (override proof images are serialised as data URLs in the envelope
+   * and restored as Blobs on import). validateBackupPayload is the spec-named
+   * alias for _validateEnvelope, retained for contract compliance.
  */
 
 export const BACKUP_SCHEMA_VERSION = 1;
@@ -45,6 +51,8 @@ export function blobToBase64(blob) {
 
 /**
  * Converts a data: URL string back to a Blob.
+ * Pre-allocates the output buffer to avoid the O(n²) growth of incremental
+ * `result.set(prev)` copies. Adjusts for base64 padding (== or =).
  * @param {string} dataUrl
  * @returns {Blob}
  */
@@ -52,12 +60,22 @@ export function base64ToBlob(dataUrl) {
   const [header, b64] = dataUrl.split(',');
   const mimeMatch = header.match(/:(.*?);/);
   const mime = mimeMatch ? mimeMatch[1] : '';
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  // Decode in chunks to keep each atob() input small; accumulate into a
+  // single pre-allocated Uint8Array for O(n) total copy cost.
+  const chunkSize = 8192;
+  const padding = (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+  const totalBytes = (b64.length * 3 / 4) - padding;
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (let i = 0; i < b64.length; i += chunkSize) {
+    const chunk = b64.slice(i, i + chunkSize);
+    const binaryChunk = atob(chunk);
+    for (let j = 0; j < binaryChunk.length; j++) {
+      result[offset + j] = binaryChunk.charCodeAt(j);
+    }
+    offset += binaryChunk.length;
   }
-  return new Blob([bytes], { type: mime });
+  return new Blob([result], { type: mime });
 }
 
 /**
@@ -65,8 +83,9 @@ export function base64ToBlob(dataUrl) {
  * by _validateEnvelope on import — before the full envelope is synchronously
  * JSON.stringify-ed. The cheap record-count check runs first (no serialisation
  * for the pathological multi-hundred-thousand-row case); the byte check then
- * measures the two tables in per-table chunks to bound peak memory and
- * main-thread blocking for multi-MB proof blobs.
+ * measures the two tables with JSON.stringify to enforce the 16 MB cap. This
+ * runs two stringify passes on every push, but MAX_BACKUP_RECORDS/MAX_BACKUP_BYTES
+ * keep the payload small enough that the cost is accepted rather than optimised.
  * @param {object[]} daily_records
  * @param {object[]} settings
  * @throws {RangeError}
@@ -308,11 +327,10 @@ export function createBackup(db) {
    *
    * Rows are written verbatim — original_* fields are never mutated.
    *
-   * @param {object} parsed - the parsed JSON backup envelope
-   * @param {{ mode?: string }} [_options] - reserved; not used in v1
-   * @returns {Promise<void>}
-   * @throws {TypeError} if the envelope fails validation (no Dexie write occurs)
-   */
+    * @param {object} parsed - the parsed JSON backup envelope
+    * @returns {Promise<void>}
+    * @throws {TypeError} if the envelope fails validation (no Dexie write occurs)
+    */
   async function restoreBackup(parsed, _options = {}) {
     // Fail-fast: validate before touching Dexie.
     _validateEnvelope(parsed);
@@ -330,3 +348,5 @@ export function createBackup(db) {
 
   return { buildBackup, restoreBackup, computeSignature, hasUnpushedChanges, markPushed };
 }
+
+export { _validateEnvelope as validateBackupPayload };
