@@ -753,7 +753,7 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
   // Task 28: coalescing guard for the fire-and-forget post-sync upload. Holds
   // the in-flight push promise so an overlapping sync's hook uploads at most
   // once. Lives here (not on driveSync) so the manual "Back up to Drive"
-  // button and the recovery-banner restore are never coalesced or skipped.
+  // button and "Restore from Drive" are never coalesced or skipped.
   let postSyncPush = null;
 
   /**
@@ -868,8 +868,8 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       //    Task 28 (coalescing): the in-flight guard is set synchronously before
       //    the first await so an overlapping sync's hook sees it and skips —
       //    concurrent post-sync pushes upload exactly once. The guard lives on
-      //    the steps closure, never on driveSync, so manual pushes and the
-      //    cloud-recovery restore are always allowed through.
+      //    the steps closure, never on driveSync, so manual pushes and
+      //    restores are always allowed through.
       //    Task 28 (dirty-check): the upload is gated on the backup collaborator's
       //    cheap change signature — an unchanged DB since the last successful
       //    push skips both the re-serialisation and the network upload. markPushed

@@ -1428,23 +1428,6 @@ button {
     letter-spacing: 0.4em;
 }
 
-/* ─── ST-012 Cloud Recovery Banner ─────────────────────────────────────────── */
-.recovery-banner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
-  background: var(--bg-card-solid);
-  border: 1px solid var(--bg-card-border);
-  border-radius: 8px;
-  margin: 1rem 0;
-}
-.recovery-banner__msg {
-  flex: 1;
-  margin: 0;
-}
-
 /* ─── ST-007 Search Lab ───────────────────────────────────────────────────── */
 
 /* Filter form card — extends .card, adds a responsive label/input grid */

@@ -1,8 +1,8 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a`
-- generated-at: `2026-08-14T00:00:00Z`
+- verification-commit: `74fa46903f2fe0d51e91869ea7a846be7edfadcf`
+- generated-at: `2026-08-14T13:00:00Z`
 - confidence: `high`
 
 ## Top-Level Layout
@@ -43,7 +43,7 @@
    - `#settings-btn` click → `settingsUI.open()` (from `src/settings-ui.js`)
     - `#settings-modal` delegated click/change (`data-action`, `data-field`) → prune / wipe / close-settings / toggle-clear-all actions + auto-save anchor on date change (from `src/settings-ui.js`)
   - `data-tab="backup"` → `#tab-backup` panel (`#backup-controls`, `#cloud-controls`) → local export/import + Google Drive cloud sync controls (from `src/backup-ui.js` + `src/drive-sync-ui.js`, ST-012; see `.context/flows/backup-and-cloud-sync.md`)
-  - `#db-status` badge click (when showing the "not persisted" state) → opens the persistent-storage guidance modal (from `src/storage-modal.js`, ST-012; see `.context/flows/persistent-storage-modal.md`)
+  - `#db-status` badge click (when showing the "Unprotected" state) → opens the persistent-storage guidance modal (from `src/storage-modal.js`, ST-012; see `.context/flows/persistent-storage-modal.md`)
 - `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `searchUI.render()`, `challengeUI.render()`, and `settingsUI.render()` on load
 - `data:records:mutated` fan-out now also calls `searchUI.render()` (in addition to progressUI, streakUI, calendarUI, monthOverview, challengeUI)
 
@@ -81,14 +81,15 @@
 - Presentation: `styles.css` (dark theme, tab bar, panels, progress card, goal-selector, calendar grid/tiles/drawer, search filters/results/summary/near-miss/export-controls, lifetime compliance banner spanning the top dashboard row, Active Streaks card mockup styles — `.streak-header`/`.goal-badge`/`.streak-actual`/`.streak-bar`/`.streak-allowances`/`.streak-runs`, challenge-card stacked in the left dashboard column below the progress card at grid row 3 with streak-card spanning rows 2–4 and month-overview-card at row 4; ≤760px mobile single column with `order` lifetime-banner(1) → progress(2) → streak(3) → challenge(4) → calendar(5))
 - DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 5`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`)
 - Local backup engine: `src/backup.js` (`createBackup(db)` factory — `buildBackup()`/`restoreBackup(parsed)` full-database JSON envelope export/import; pure exports `blobToBase64`, `base64ToBlob`, `_validateEnvelope`/`validateBackupPayload`, `BACKUP_SCHEMA_VERSION`, `MAX_BACKUP_RECORDS`, `MAX_BACKUP_BYTES`; also exposes `computeSignature`/`hasUnpushedChanges`/`markPushed` dirty-check for the Drive push hook; ST-012)
-- Local backup UI renderer: `src/backup-ui.js` (`createBackupUI(doc, backup, reporter)`; renders export/restore controls into `#backup-controls`; ST-012)
+- Local backup UI renderer: `src/backup-ui.js` (`createBackupUI(doc, backup, reporter, confirmFn, settings = null)`; renders the "📄 Local JSON Files" export/restore controls (confirm-gated restore, last-export metadata line) into `#backup-controls`; ST-012)
+- Backup/cloud-sync metadata formatting: `src/backup-format.js` (pure, DI-testable helpers `formatBytes`, `formatLastExportLine`, `formatLastSyncLine` for the "Last local export"/"Last cloud sync" panel lines; ST-012)
 - Google Drive AppData gateway: `src/drive-sync.js` (`createDriveSync({ getAccessToken, reporter, fetchFn, validator })` — sole module talking to the Drive v3 REST API via injected `fetchFn`; `find()`/`push(envelope, { silent })`/`pull()`; exports `DRIVE_APPDATA_FILE_NAME`, `DRIVE_API_BASE_URL`, `DRIVE_PUSH_SKIPPED`; ST-012)
-- Google Drive cloud sync UI renderer: `src/drive-sync-ui.js` (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)`; renders "Back up to Drive"/"Restore from Drive" controls + the auto-upload opt-out toggle into `#cloud-controls`; ST-012)
-- Storage persistence guidance modal: `src/storage-modal.js` (`createStorageModal(doc, reporter, nav)` → `{ attach, open, close }`; opens on `#db-status` badge click when storage is not persisted; wraps `src/storage.js`'s `requestPersistentStorage`; ST-012)
+- Google Drive cloud sync UI renderer: `src/drive-sync-ui.js` (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)`; renders the "☁️ Google Drive Cloud Sync" controls (inline auto-upload toggle, last-sync metadata line) into `#cloud-controls`; ST-012)
+- Storage persistence guidance modal: `src/storage-modal.js` (`createStorageModal(doc, reporter, nav, storage = null)` → `{ attach, open, close }`; opens on `#db-status` badge click when storage is "Unprotected"; wraps `src/storage.js`'s `requestPersistentStorage`; records a successful grant via the injected `storage` (localStorage) collaborator; ST-012)
 - Transient toast notifier: `src/toast.js` (`showToast(doc, message, ms)`; single shared `#app-toast` fade-out popup; used by `src/ui-status.js`'s `sync()` method to surface terminal `✅` sync-success messages instead of the persistent `#sync-status` line)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, override-form, search, search-ui, exporter, date-utils, units, challenge, challenge-ui, settings, settings-ui, confirm, backup, backup-ui, drive-sync, drive-sync-ui, storage-modal
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, override-form, search, search-ui, exporter, date-utils, units, challenge, challenge-ui, settings, settings-ui, confirm, backup, backup-ui, backup-format, drive-sync, drive-sync-ui, storage-modal
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 

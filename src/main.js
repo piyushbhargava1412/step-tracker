@@ -215,10 +215,6 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 7b. Auto-sync the moment a token arrives — from the first connect click or
   // a silent session restore — so the user never has to hit Sync Steps twice.
   // The flag is persisted so the next page load knows to attempt a restore.
-  // AbortController scoped to the cloud-recovery banner listener: repeated token
-  // arrivals (disconnect → reconnect) abort the prior listener before re-registering
-  // so handlers never accumulate on the banner.
-  let recoveryBannerController = null
   auth.onTokenReceived(async () => {
     try {
       storage?.setItem(GOOGLE_CONNECTED_KEY, '1')
@@ -226,49 +222,6 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       console.error('[main] failed to persist google connection flag, continuing', err)
     }
     await runSync()
-
-    // ST-012: Cloud auto-recovery on clean install (empty DB + Drive backup exists)
-    try {
-      const count = await db?.daily_records?.count?.()
-      if (count === 0 && driveSync) {
-        const fileId = await driveSync.find()
-        if (fileId) {
-          const banner = doc.getElementById('cloud-recovery-banner')
-          if (banner) {
-            banner.hidden = false
-            // Re-scope the delegated click listener: abort the previous banner
-            // controller so a re-triggered onTokenReceived cannot stack handlers.
-            if (recoveryBannerController) recoveryBannerController.abort()
-            recoveryBannerController = new (doc.defaultView?.AbortController ?? AbortController)()
-            const { signal } = recoveryBannerController
-            // Wire banner action buttons (delegated listener on banner)
-            const confirmFn = createConfirmAdapter(window)
-            banner.addEventListener('click', async (e) => {
-              const action = e.target?.closest('[data-action]')?.getAttribute('data-action')
-              if (action === 'recovery-start-fresh') {
-                banner.hidden = true
-              } else if (action === 'recovery-restore') {
-                try {
-                  const confirmed = confirmFn('Restoring will overwrite your current (empty) local data with the cloud backup. Continue?')
-                  if (!confirmed) return
-                  const envelope = await driveSync.pull()
-                  if (envelope) {
-                    await backup?.restoreBackup?.(envelope)
-                    doc.dispatchEvent(new CustomEvent('data:records:mutated'))
-                    reporter.db('✅ Data restored from Drive successfully')
-                  }
-                  banner.hidden = true
-                } catch (err) {
-                  console.error('[main] cloud recovery restore failed', err)
-                }
-              }
-            }, { signal })
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[main] cloud recovery check failed, continuing', err)
-    }
   })
 
   // 7c. Restore the connection after a refresh: when the user connected before,
