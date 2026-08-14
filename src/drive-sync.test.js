@@ -10,6 +10,7 @@ import {
   DRIVE_APPDATA_FILE_NAME,
   DRIVE_API_BASE_URL,
 } from './drive-sync.js';
+import { _validateEnvelope } from './backup.js';
 
 const MODULE_PATH = path.resolve(__dirname, 'drive-sync.js');
 
@@ -67,6 +68,10 @@ describe('DI isolation (static scan)', () => {
 
   it('uses only injected getAccessToken — no window. references', () => {
     expect(source).not.toMatch(/\bwindow\b/);
+  });
+
+  it('does not import backup.js (gateway isolation — no backup-module import)', () => {
+    expect(source).not.toMatch(/from\s+['"]\.\/backup(?:\.js)?['"]/);
   });
 });
 
@@ -292,6 +297,45 @@ describe('createDriveSync — pull()', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(driveSync.pull()).resolves.not.toThrow();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[drive-sync]'),
+      expect.anything()
+    );
+  });
+
+  it('runs the pulled envelope through the injected validator before returning it', async () => {
+    const validator = vi.fn();
+    driveSync = createDriveSync({ getAccessToken, reporter, fetchFn, validator });
+
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'file-id-xyz' }] }))
+      .mockResolvedValueOnce(makeOkResponse(storedEnvelope));
+
+    const result = await driveSync.pull();
+
+    expect(validator).toHaveBeenCalledWith(storedEnvelope);
+    expect(result).toEqual(storedEnvelope);
+  });
+
+  it('rejects a tampered __proto__-polluting payload pulled from Drive (TypeError; reporter ❌)', async () => {
+    const tampered = JSON.parse(
+      '{"schema_version":1,"exported_at":"2026-01-01T00:00:00.000Z",' +
+        '"daily_records":[{"date":"2024-01-15","__proto__":{"polluted":true}}],"settings":[]}'
+    );
+    driveSync = createDriveSync({
+      getAccessToken,
+      reporter,
+      fetchFn,
+      validator: _validateEnvelope,
+    });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'file-id-xyz' }] }))
+      .mockResolvedValueOnce(makeOkResponse(tampered));
+
+    await expect(driveSync.pull()).rejects.toThrow(TypeError);
+    expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('❌'));
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync]'),
       expect.anything()

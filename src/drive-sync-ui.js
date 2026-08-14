@@ -1,16 +1,28 @@
 /**
  * Cloud sync UI — sole DOM writer for Google Drive cloud controls.
  *
- * createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn)
+ * createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validateEnvelope)
  *   render(container): builds "Back up to Drive" and "Restore from Drive" controls.
  *
  * PL-2 Option A: manual push/pull, last-write-wins with pre-overwrite confirmFn warning.
+ *
+ * Remote Drive content is treated as untrusted: the injected validateEnvelope
+ * (default no-op) runs over the pulled envelope BEFORE restoreBackup so a
+ * tampered payload is rejected with no Dexie write and no data:records:mutated
+ * dispatch.
  *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
 
-export function createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn) {
+export function createDriveSyncUI(
+  doc,
+  driveSync,
+  backup,
+  reporter,
+  confirmFn,
+  validateEnvelope = () => {}
+) {
   let controller = null;
 
   /**
@@ -119,6 +131,8 @@ export function createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn) {
   /**
    * Handles the "Restore from Drive" action.
    * Warns via confirmFn before overwriting local data (LWW warning per PL-2 Option A).
+   * Validates the pulled envelope (injected validateEnvelope) before restoreBackup
+   * so a tampered Drive payload never reaches a Dexie write.
    * @param {HTMLButtonElement} btn
    */
   async function _handleRestoreFromCloud(btn) {
@@ -134,6 +148,7 @@ export function createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn) {
         reporter('ℹ️ No backup found on Google Drive');
         return;
       }
+      validateEnvelope(envelope);
       await backup.restoreBackup(envelope);
       doc.dispatchEvent(new doc.defaultView.CustomEvent('data:records:mutated'));
       reporter('✅ Data restored from Drive successfully');

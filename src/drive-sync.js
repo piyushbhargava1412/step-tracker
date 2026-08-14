@@ -1,7 +1,7 @@
 /**
  * Google Drive AppData gateway — sole file that talks to the Drive v3 REST API.
  *
- * createDriveSync({ getAccessToken, reporter, fetchFn })
+ * createDriveSync({ getAccessToken, reporter, fetchFn, validator })
  *   find()           → string | null    file ID if the backup exists, else null
  *   push(envelope)   → void             create (POST) or update (PATCH) the backup
  *   pull()           → object | null    parsed envelope, or null if not found
@@ -11,6 +11,11 @@
  *  - Catch every network error or non-2xx: console.error('[drive-sync]', err),
  *    optionally reporter.db(...), resolve (never reject).
  *  - Use only injected fetchFn — no bare fetch calls; no global references.
+ *
+ * pull() treats the fetched body as untrusted: the injected validator (default
+ * no-op) runs over the parsed envelope and a rejection is re-thrown as a
+ * TypeError for callers to catch BEFORE any restore write. Network/HTTP/parse
+ * failures still resolve to null — only validation failures reject.
  */
 
 export const DRIVE_APPDATA_FILE_NAME = 'step_tracker_backup.json';
@@ -20,9 +25,14 @@ const DRIVE_FILES_URL = `${DRIVE_API_BASE_URL}/drive/v3/files`;
 const DRIVE_UPLOAD_URL = `${DRIVE_API_BASE_URL}/upload/drive/v3/files`;
 
 /**
- * @param {{ getAccessToken: () => string|null, reporter: object, fetchFn: Function }} deps
+ * @param {{
+ *   getAccessToken: () => string|null,
+ *   reporter: object,
+ *   fetchFn: Function,
+ *   validator?: (parsed: unknown) => void
+ * }} deps
  */
-export function createDriveSync({ getAccessToken, reporter, fetchFn }) {
+export function createDriveSync({ getAccessToken, reporter, fetchFn, validator = () => {} }) {
   /**
    * Returns the Drive file ID for the backup file, or null if none exists.
    * Returns undefined (and notifies reporter) if there is no access token.
@@ -116,9 +126,29 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn }) {
   }
 
   /**
+   * Treats the fetched envelope as untrusted: runs it through the injected
+   * validator before returning. On rejection, logs the diagnostic, notifies the
+   * reporter, and re-throws the TypeError so callers can catch it BEFORE any
+   * restore write — an invalid envelope is never handed back.
+   * @param {unknown} parsed
+   * @returns {unknown}
+   */
+  function runEnvelopeValidator(parsed) {
+    try {
+      validator(parsed);
+      return parsed;
+    } catch (err) {
+      console.error('[drive-sync]', err);
+      reporter.db('❌ Drive backup file rejected (invalid payload)');
+      throw err;
+    }
+  }
+
+  /**
    * Fetches and parses the backup envelope from Drive.
    * Returns null if no backup file exists.
    * Returns undefined (and notifies reporter) if there is no access token.
+   * Rejects with TypeError if the injected validator rejects the payload.
    * @returns {Promise<object|null|undefined>}
    */
   async function pull() {
@@ -128,6 +158,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn }) {
       return;
     }
 
+    let parsed;
     try {
       const fileId = await find();
       if (!fileId) {
@@ -146,11 +177,15 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn }) {
         return null;
       }
 
-      return await resp.json();
+      parsed = await resp.json();
     } catch (err) {
       console.error('[drive-sync]', err);
       return null;
     }
+
+    // Validation lives outside the network try/catch so a rejected payload
+    // propagates to callers instead of being swallowed into a null return.
+    return runEnvelopeValidator(parsed);
   }
 
   return { find, push, pull };
