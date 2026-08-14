@@ -211,6 +211,10 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 7b. Auto-sync the moment a token arrives — from the first connect click or
   // a silent session restore — so the user never has to hit Sync Steps twice.
   // The flag is persisted so the next page load knows to attempt a restore.
+  // AbortController scoped to the cloud-recovery banner listener: repeated token
+  // arrivals (disconnect → reconnect) abort the prior listener before re-registering
+  // so handlers never accumulate on the banner.
+  let recoveryBannerController = null
   auth.onTokenReceived(async () => {
     try {
       storage?.setItem(GOOGLE_CONNECTED_KEY, '1')
@@ -228,6 +232,11 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
           const banner = doc.getElementById('cloud-recovery-banner')
           if (banner) {
             banner.hidden = false
+            // Re-scope the delegated click listener: abort the previous banner
+            // controller so a re-triggered onTokenReceived cannot stack handlers.
+            if (recoveryBannerController) recoveryBannerController.abort()
+            recoveryBannerController = new (doc.defaultView?.AbortController ?? AbortController)()
+            const { signal } = recoveryBannerController
             // Wire banner action buttons (delegated listener on banner)
             const confirmFn = createConfirmAdapter(window)
             banner.addEventListener('click', async (e) => {
@@ -249,7 +258,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
                   console.error('[main] cloud recovery restore failed', err)
                 }
               }
-            })
+            }, { signal })
           }
         }
       }

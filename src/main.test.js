@@ -1729,6 +1729,45 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(mockConfirmAdapter.mock.invocationCallOrder[0]).toBeLessThan(mockBackupInstance.restoreBackup.mock.invocationCallOrder[0])
   })
+
+  it('re-triggering onTokenReceived does NOT stack banner listeners (restore fires once per click)', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    const mockEnvelope = { schema_version: 1, daily_records: [], settings: [] }
+    mockDriveSyncInstance.pull.mockResolvedValue(mockEnvelope)
+    mockConfirmAdapter.mockReturnValue(true)
+    await bootstrap(isolatedDoc)
+    const banner = document.getElementById('cloud-recovery-banner')
+    const restoreBtn = document.createElement('button')
+    restoreBtn.setAttribute('data-action', 'recovery-restore')
+    banner.appendChild(restoreBtn)
+    // Simulate disconnect → reconnect: the token callback fires twice, which would
+    // duplicate the banner listener unless the previous one is aborted first.
+    await mockOnTokenHandler()
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    restoreBtn.click()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockBackupInstance.restoreBackup).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-triggering onTokenReceived aborts the prior banner listener signal', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    await bootstrap(isolatedDoc)
+    const banner = document.getElementById('cloud-recovery-banner')
+    const spy = vi.spyOn(banner, 'addEventListener')
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const clickEntries = spy.mock.calls.filter(call => call[0] === 'click')
+    // The listener must be registered with { signal } so re-registration can detach it.
+    const firstSignal = clickEntries[0]?.[2]?.signal
+    expect(firstSignal).toBeDefined()
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(firstSignal.aborted).toBe(true)
+    spy.mockRestore()
+  })
 })
 
 // ============================================================================
