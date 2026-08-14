@@ -43,6 +43,7 @@
             <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
             <button class="tab-btn" data-tab="search">🔍 Lab</button>
             <button class="tab-btn" data-tab="spatial">🗺️ Map</button>
+            <button class="tab-btn" data-tab="backup">💾 Backup</button>
         </div>
         <div class="active-lens" id="active-lens">
             <span class="active-lens-label">Active Lens:</span>
@@ -62,10 +63,17 @@
         </div>
         <div id="tab-search" style="display:none"></div>
         <div id="tab-spatial" style="display:none"></div>
+        <div id="tab-backup" style="display:none">
+            <h2 class="backup-restore-heading">💾 Backup &amp; Restore</h2>
+            <div class="backup-grid">
+                <div id="backup-controls"></div>
+                <div id="cloud-controls"></div>
+            </div>
+        </div>
     </main>
 
 
-    <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
+        <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
     <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden></div>
 
     <!-- FOOTER -->

@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createSettings, SYNC_ANCHOR_KEY, DEFAULT_SYNC_ANCHOR } from './settings.js';
+import {
+  createSettings,
+  SYNC_ANCHOR_KEY,
+  DEFAULT_SYNC_ANCHOR,
+  DRIVE_BACKUP_ENABLED_KEY,
+  DEFAULT_DRIVE_BACKUP_ENABLED,
+  LAST_LOCAL_EXPORT_KEY,
+  LAST_DRIVE_SYNC_KEY,
+} from './settings.js';
 
 describe('constants', () => {
   it('exports SYNC_ANCHOR_KEY = sync_anchor_date', () => {
@@ -221,6 +229,230 @@ describe('pruneRecordsBefore', () => {
   it('throws TypeError for empty string before any delete', async () => {
     await expect(settings.pruneRecordsBefore('')).rejects.toThrow(TypeError);
     expect(db.daily_records.where).not.toHaveBeenCalled();
+  });
+});
+
+// ── Task 27: drive_backup_enabled opt-out setting ───────────────────────────
+
+describe('constants (Task 27)', () => {
+  it('exports DRIVE_BACKUP_ENABLED_KEY = drive_backup_enabled', () => {
+    expect(DRIVE_BACKUP_ENABLED_KEY).toBe('drive_backup_enabled');
+  });
+
+  it('exports DEFAULT_DRIVE_BACKUP_ENABLED = true (enabled by default)', () => {
+    expect(DEFAULT_DRIVE_BACKUP_ENABLED).toBe(true);
+  });
+});
+
+describe('getDriveBackupEnabled (Task 27)', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = { settings: { get: vi.fn(), put: vi.fn() } };
+    settings = createSettings(db);
+  });
+
+  it('returns DEFAULT_DRIVE_BACKUP_ENABLED (true) when no row exists', async () => {
+    db.settings.get.mockResolvedValue(undefined);
+    const result = await settings.getDriveBackupEnabled();
+    expect(result).toBe(true);
+    expect(db.settings.get).toHaveBeenCalledWith(DRIVE_BACKUP_ENABLED_KEY);
+  });
+
+  it('returns true when the stored value is true', async () => {
+    db.settings.get.mockResolvedValue({ key: DRIVE_BACKUP_ENABLED_KEY, value: true });
+    const result = await settings.getDriveBackupEnabled();
+    expect(result).toBe(true);
+  });
+
+  it('returns false when the stored value is false', async () => {
+    db.settings.get.mockResolvedValue({ key: DRIVE_BACKUP_ENABLED_KEY, value: false });
+    const result = await settings.getDriveBackupEnabled();
+    expect(result).toBe(false);
+  });
+
+  it('fails open to enabled (true) and logs when the read throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.settings.get.mockRejectedValue(new Error('DB read failed'));
+    const result = await settings.getDriveBackupEnabled();
+    expect(result).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith('[settings]', expect.any(Error));
+    consoleError.mockRestore();
+  });
+});
+
+describe('setDriveBackupEnabled (Task 27)', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = { settings: { get: vi.fn(), put: vi.fn() } };
+    settings = createSettings(db);
+  });
+
+  it('round-trips true through the settings store with key, value and updated_at', async () => {
+    db.settings.put.mockResolvedValue(undefined);
+    await settings.setDriveBackupEnabled(true);
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: DRIVE_BACKUP_ENABLED_KEY,
+        value: true,
+        updated_at: expect.any(String),
+      })
+    );
+  });
+
+  it('round-trips false through the settings store with key, value and updated_at', async () => {
+    db.settings.put.mockResolvedValue(undefined);
+    await settings.setDriveBackupEnabled(false);
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: DRIVE_BACKUP_ENABLED_KEY,
+        value: false,
+        updated_at: expect.any(String),
+      })
+    );
+  });
+
+  it('throws TypeError for a non-boolean value before any DB write', async () => {
+    await expect(settings.setDriveBackupEnabled('yes')).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('updated_at is a valid ISO string', async () => {
+    db.settings.put.mockResolvedValue(undefined);
+    await settings.setDriveBackupEnabled(false);
+    const call = db.settings.put.mock.calls[0][0];
+    expect(() => new Date(call.updated_at).toISOString()).not.toThrow();
+  });
+});
+
+// ── Backup & Restore metadata (last local export / last Drive sync) ────────
+
+describe('constants (backup metadata)', () => {
+  it('exports LAST_LOCAL_EXPORT_KEY = last_local_export_at', () => {
+    expect(LAST_LOCAL_EXPORT_KEY).toBe('last_local_export_at');
+  });
+
+  it('exports LAST_DRIVE_SYNC_KEY = last_drive_sync', () => {
+    expect(LAST_DRIVE_SYNC_KEY).toBe('last_drive_sync');
+  });
+});
+
+describe('getLastLocalExport / setLastLocalExport', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = { settings: { get: vi.fn(), put: vi.fn() } };
+    settings = createSettings(db);
+  });
+
+  it('returns null when no row exists', async () => {
+    db.settings.get.mockResolvedValue(undefined);
+    const result = await settings.getLastLocalExport();
+    expect(result).toBeNull();
+    expect(db.settings.get).toHaveBeenCalledWith(LAST_LOCAL_EXPORT_KEY);
+  });
+
+  it('returns the stored ISO timestamp when a row exists', async () => {
+    db.settings.get.mockResolvedValue({ key: LAST_LOCAL_EXPORT_KEY, value: '2026-08-14T10:00:00.000Z' });
+    const result = await settings.getLastLocalExport();
+    expect(result).toBe('2026-08-14T10:00:00.000Z');
+  });
+
+  it('fails open to null and logs when the read throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.settings.get.mockRejectedValue(new Error('DB read failed'));
+    const result = await settings.getLastLocalExport();
+    expect(result).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith('[settings]', expect.any(Error));
+    consoleError.mockRestore();
+  });
+
+  it('setLastLocalExport writes key, value, and updated_at', async () => {
+    db.settings.put.mockResolvedValue(undefined);
+    await settings.setLastLocalExport('2026-08-14T10:00:00.000Z');
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: LAST_LOCAL_EXPORT_KEY,
+        value: '2026-08-14T10:00:00.000Z',
+        updated_at: '2026-08-14T10:00:00.000Z',
+      })
+    );
+  });
+
+  it('setLastLocalExport throws TypeError for an empty string before any DB write', async () => {
+    await expect(settings.setLastLocalExport('')).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('setLastLocalExport throws TypeError for a non-string before any DB write', async () => {
+    await expect(settings.setLastLocalExport(null)).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+});
+
+describe('getLastDriveSync / setLastDriveSync', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = { settings: { get: vi.fn(), put: vi.fn() } };
+    settings = createSettings(db);
+  });
+
+  it('returns null when no row exists', async () => {
+    db.settings.get.mockResolvedValue(undefined);
+    const result = await settings.getLastDriveSync();
+    expect(result).toBeNull();
+    expect(db.settings.get).toHaveBeenCalledWith(LAST_DRIVE_SYNC_KEY);
+  });
+
+  it('returns the stored { at, bytes } record when a row exists', async () => {
+    db.settings.get.mockResolvedValue({
+      key: LAST_DRIVE_SYNC_KEY,
+      value: { at: '2026-08-14T18:30:00.000Z', bytes: 245_760 },
+    });
+    const result = await settings.getLastDriveSync();
+    expect(result).toEqual({ at: '2026-08-14T18:30:00.000Z', bytes: 245_760 });
+  });
+
+  it('fails open to null and logs when the read throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.settings.get.mockRejectedValue(new Error('DB read failed'));
+    const result = await settings.getLastDriveSync();
+    expect(result).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith('[settings]', expect.any(Error));
+    consoleError.mockRestore();
+  });
+
+  it('setLastDriveSync writes key, value, and updated_at', async () => {
+    db.settings.put.mockResolvedValue(undefined);
+    await settings.setLastDriveSync({ at: '2026-08-14T18:30:00.000Z', bytes: 245_760 });
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: LAST_DRIVE_SYNC_KEY,
+        value: { at: '2026-08-14T18:30:00.000Z', bytes: 245_760 },
+        updated_at: '2026-08-14T18:30:00.000Z',
+      })
+    );
+  });
+
+  it('setLastDriveSync throws TypeError when bytes is missing', async () => {
+    await expect(settings.setLastDriveSync({ at: '2026-08-14T18:30:00.000Z' })).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('setLastDriveSync throws TypeError when at is missing', async () => {
+    await expect(settings.setLastDriveSync({ bytes: 100 })).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('setLastDriveSync throws TypeError for null', async () => {
+    await expect(settings.setLastDriveSync(null)).rejects.toThrow(TypeError);
+    expect(db.settings.put).not.toHaveBeenCalled();
   });
 });
 

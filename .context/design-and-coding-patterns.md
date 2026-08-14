@@ -1,8 +1,8 @@
 # Design & Coding Patterns
 
 <!-- context-meta
-verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
-generated-at: 2026-08-12T06:00:00Z
+verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
+generated-at: 2026-08-14T00:00:00Z
 confidence: high
 -->
 
@@ -60,6 +60,14 @@ confidence: high
   primitives at the fine-grained level needed by all callers. *Evidence (≥3)*: `src/date-utils.js`
   (`_localDate`, `_addDaysUtc` — shared by `goal.js`, `streak.js`, `steps.js`,
   `exporter.js`, and others); `src/units.js` (`KM_TO_STEPS` — shared by `progress.js`, `records.js`).
+- **Injectable confirmation-dialog seam (`confirmFn`)**: destructive or overwrite-risking actions never
+  call `window.confirm` directly — they accept an injected `confirmFn` parameter (defaulting to
+  `window.confirm` where a default is provided) so the confirmation can be stubbed in tests without a
+  global mock. *Evidence (≥3)*: `src/confirm.js` (`createConfirmAdapter(windowRef)`, consumed by
+  `src/settings-ui.js`'s `createSettingsUI(doc, settings, reporter, confirmFn)` for prune/wipe);
+  `src/calendar-ui.js` (`createCalendarUI(..., confirmFn = window.confirm)` for the revert-to-synced
+  action); `src/drive-sync-ui.js` (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn,
+  driveBackupPrefs)` for the pre-overwrite Drive-restore warning).
 - **Pure export beside factory (not inside closure)**: when a module's primary export is a factory
   (`createXxx`), supplementary pure functions that are independently testable and do not require the
   factory's closed-over state are exported as named module-level exports rather than being nested

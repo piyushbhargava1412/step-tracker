@@ -25,6 +25,11 @@ import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
 import { createConfirmAdapter } from './confirm.js'
+import { createBackup, _validateEnvelope } from './backup.js'
+import { createBackupUI } from './backup-ui.js'
+import { createDriveSync } from './drive-sync.js'
+import { createDriveSyncUI } from './drive-sync-ui.js'
+import { createStorageModal } from './storage-modal.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -82,8 +87,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const auth = createAuth(config, reporter)
   auth.init()
 
-  // 6. Step sync engine
-  const stepSync = createStepSync(auth, db, reporter, doc)
+  // 6. Step sync engine — created after backup/driveSync (see below) so collaborators can be injected.
 
   // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
@@ -100,6 +104,62 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)
   const settings = createSettings(db)
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
+
+  // ST-012: Backup engine + UI (fail-open)
+  let backup = null
+  let backupUI = null
+  try {
+    backup = createBackup(db)
+  } catch (err) {
+    console.error('[main] createBackup failed, continuing', err)
+  }
+  try {
+    backupUI = createBackupUI(doc, backup, reporter, createConfirmAdapter(window), settings)
+  } catch (err) {
+    console.error('[main] createBackupUI failed, continuing', err)
+  }
+
+  // ST-012: Drive sync gateway + UI (fail-open)
+  let driveSync = null
+  let driveSyncUI = null
+  try {
+    driveSync = createDriveSync({ getAccessToken: auth.getAccessToken.bind(auth), reporter, fetchFn: fetch.bind(window), validator: _validateEnvelope })
+  } catch (err) {
+    console.error('[main] createDriveSync failed, continuing', err)
+  }
+  try {
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings)
+  } catch (err) {
+    console.error('[main] createDriveSyncUI failed, continuing', err)
+  }
+
+  // ST-012 Task 9: interactive persistence badge modal (fail-open).
+  // The factory builds the guidance modal DOM in JS and attaches the
+  // #db-status click binding that opens it only in the "not persisted" state.
+  try {
+    const storageModal = createStorageModal(doc, reporter, navigator, storage)
+    try {
+      storageModal.attach?.()
+    } catch (err) {
+      console.error('[main] storageModal.attach failed, continuing', err)
+    }
+  } catch (err) {
+    console.error('[main] createStorageModal failed, continuing', err)
+  }
+
+  // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
+  const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup, settings)
+
+  // Mount backup + cloud panels into their own containers so neither render
+  // clears the other's output (each render() wipes its container first).
+  const backupControls = doc.getElementById('backup-controls')
+  const cloudControls = doc.getElementById('cloud-controls')
+  if (backupControls) {
+    try { backupUI?.render?.(backupControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
+  }
+  if (cloudControls) {
+    try { driveSyncUI?.render?.(cloudControls) } catch (err) { console.error('[main] driveSyncUI.render failed, continuing', err) }
+  }
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
@@ -226,6 +286,20 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       await searchUI.render()
     } catch (err) {
       console.error('[main]', err)
+    }
+    if (backupControls) {
+      try {
+        backupUI?.render?.(backupControls)
+      } catch (err) {
+        console.error('[main] backupUI.render failed after mutation, continuing', err)
+      }
+    }
+    if (cloudControls) {
+      try {
+        driveSyncUI?.render?.(cloudControls)
+      } catch (err) {
+        console.error('[main] driveSyncUI.render failed after mutation, continuing', err)
+      }
     }
   })
 

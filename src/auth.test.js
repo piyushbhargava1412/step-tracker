@@ -44,7 +44,7 @@ describe('createAuth', () => {
 
   it('both scopes delivered as a single space-delimited string', () => {
     const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
-    expect(opts.scope.split(' ').length).toBe(2);
+    expect(opts.scope.split(' ').length).toBe(3);
   });
 
   it('callback with valid access_token stores the token', () => {
@@ -127,4 +127,18 @@ describe('createAuth', () => {
     capturedCallback({ access_token: 'tok-123' });
     expect(window.accessToken).toBeUndefined();
   });
+
+  it('initTokenClient receives scope containing drive.appdata', () => {
+    const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
+    expect(opts.scope).toContain('https://www.googleapis.com/auth/drive.appdata');
+  });
+
+  it('all three scopes are space-delimited with no comma or semicolon', () => {
+    const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
+    const parts = opts.scope.split(' ').filter(Boolean);
+    expect(parts).toHaveLength(3);
+    expect(opts.scope).not.toContain(',');
+    expect(opts.scope).not.toContain(';');
+  });
+
 });

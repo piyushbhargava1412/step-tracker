@@ -25,7 +25,7 @@ describe('requestPersistentStorage', () => {
     
     await requestPersistentStorage(reporter, nav);
     
-    expect(reporter.db).toHaveBeenCalledWith('💾 Persistent storage granted');
+    expect(reporter.db).toHaveBeenCalledWith('🛡️ Storage Safe');
   });
 
   it('persist() resolving false reports the eviction-warning message', async () => {
@@ -34,7 +34,7 @@ describe('requestPersistentStorage', () => {
     
     await requestPersistentStorage(reporter, nav);
     
-    expect(reporter.db).toHaveBeenCalledWith('⚠️ Storage not persisted (browser may evict)');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Unprotected');
   });
 
   it('persist() rejecting logs console.error and reports the warning; does not throw', async () => {
@@ -48,7 +48,7 @@ describe('requestPersistentStorage', () => {
     ).resolves.toBeUndefined();
 
     expect(consoleSpy).toHaveBeenCalledWith('[requestPersistentStorage] persist() failed', err);
-    expect(reporter.db).toHaveBeenCalledWith('⚠️ Storage not persisted (browser may evict)');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Unprotected');
     consoleSpy.mockRestore();
   });
 
@@ -58,7 +58,7 @@ describe('requestPersistentStorage', () => {
     
     await requestPersistentStorage(reporter, nav);
     
-    expect(reporter.db).toHaveBeenCalledWith('⚠️ Storage not persisted (browser may evict)');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Unprotected');
   });
 
   it('when nav.storage.persist is unavailable, reports warning gracefully', async () => {
@@ -67,7 +67,7 @@ describe('requestPersistentStorage', () => {
     
     await requestPersistentStorage(reporter, nav);
     
-    expect(reporter.db).toHaveBeenCalledWith('⚠️ Storage not persisted (browser may evict)');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Unprotected');
   });
 
   it('defaults to navigator when nav parameter is omitted', async () => {
@@ -77,7 +77,7 @@ describe('requestPersistentStorage', () => {
     await requestPersistentStorage(reporter);
     
     // Should report the warning since navigator.storage.persist is unavailable
-    expect(reporter.db).toHaveBeenCalledWith('⚠️ Storage not persisted (browser may evict)');
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Unprotected');
   });
 
   it('calls persist() only once', async () => {

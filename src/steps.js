@@ -729,18 +729,32 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
  *
  * @param {object} auth      - Collaborator exposing getAccessToken().
  * @param {object} db        - Dexie database instance.
- * @param {object} reporter  - Status reporter with a sync(text) method.
- * @param {Document} doc     - The document to use for DOM access (defaults to
- *                             the global document). Follows the repo pattern of
- *                             createAuth(…, gsi = google) and
- *                             createStatusReporter(doc = document): accepting a
- *                             defaulted collaborator rather than reaching for a
- *                             global directly.
+  * @param {object} reporter  - Status reporter with a sync(text) method.
+  * @param {Document} doc     - The document to use for DOM access (defaults to
+  *                             the global document). Follows the repo pattern of
+  *                             createAuth(…, gsi = google) and
+  *                             createStatusReporter(doc = document): accepting a
+  *                             defaulted collaborator rather than reaching for a
+  *                             global directly.
+  * @param {object|null} driveSync  - ST-012 Drive sync gateway (createDriveSync).
+  *                             When null, the post-sync silent upload is skipped.
+  * @param {object|null} backup     - ST-012 backup engine (createBackup).
+  *                             When null, the post-sync silent upload is skipped.
+  * @param {object|null} driveBackupPrefs  - Collaborator exposing
+ *                             getDriveBackupEnabled(). When null (legacy call
+ *                             sites), the post-sync Drive auto-upload is
+ *                             treated as enabled (default).
  * @returns {{ sync: Function }}
  */
-export function createStepSync(auth, db, reporter, doc = document) {
+export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
   // Re-entrancy guard — lives in the factory closure, never at module level.
   let isSyncing = false;
+
+  // Task 28: coalescing guard for the fire-and-forget post-sync upload. Holds
+  // the in-flight push promise so an overlapping sync's hook uploads at most
+  // once. Lives here (not on driveSync) so the manual "Back up to Drive"
+  // button and "Restore from Drive" are never coalesced or skipped.
+  let postSyncPush = null;
 
   /**
    * Synchronise Google Fit step data into the local Dexie database.
@@ -841,6 +855,44 @@ export function createStepSync(auth, db, reporter, doc = document) {
         reporter.sync(
           `✅ Synced ${dayCount} days (${total} request${total === 1 ? '' : 's'}) — up to date.`
         );
+      }
+
+      // 9. Fire-and-forget Drive backup — must not block or suppress the ✅ status.
+      //    A Drive failure is isolated: logged with [drive-sync] prefix, never
+      //    re-thrown, and run silent so the background upload never surfaces a
+      //    user-visible reporter message (Task 18 — no Drive reporter surface
+      //    on the post-sync hook).
+      //    Task 27 (opt-out): the persisted drive_backup_enabled setting is
+      //    consulted BEFORE any backup is built, so a user who disabled the
+      //    auto-upload incurs no DB serialisation cost and no push at all.
+      //    Task 28 (coalescing): the in-flight guard is set synchronously before
+      //    the first await so an overlapping sync's hook sees it and skips —
+      //    concurrent post-sync pushes upload exactly once. The guard lives on
+      //    the steps closure, never on driveSync, so manual pushes and
+      //    restores are always allowed through.
+      //    Task 28 (dirty-check): the upload is gated on the backup collaborator's
+      //    cheap change signature — an unchanged DB since the last successful
+      //    push skips both the re-serialisation and the network upload. markPushed
+      //    records the state only after the push succeeds, so a failed upload is
+      //    retried on the next sync.
+      if (driveSync && backup) {
+        if (postSyncPush) return;
+        postSyncPush = (async () => {
+          try {
+            const enabled =
+              driveBackupPrefs?.getDriveBackupEnabled
+                ? await driveBackupPrefs.getDriveBackupEnabled()
+                : true;
+            if (!enabled) return;
+            if (!(await backup.hasUnpushedChanges())) return;
+            await driveSync.push(await backup.buildBackup(), { silent: true });
+            await backup.markPushed();
+          } catch (err) {
+            console.error('[drive-sync]', err);
+          } finally {
+            postSyncPush = null;
+          }
+        })();
       }
     } catch (error) {
       // Decision-12a error contract: every terminal path writes its exact

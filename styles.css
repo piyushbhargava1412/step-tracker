@@ -14,6 +14,7 @@
     --accent-sky-glow: rgba(56, 189, 248, 0.25);
     --accent-cyan: #06b6d4;
     --accent-amber: #f59e0b;
+    --accent-amber-soft: rgba(245, 158, 11, 0.12);
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Courier, monospace;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --modal-overlay-bg: rgba(0, 0, 0, 0.6);
@@ -165,9 +166,20 @@ button {
 }
 
 #db-status {
+    display: inline-flex;
+    align-items: center;
     color: var(--text-muted);
-    border-left: 1px solid rgba(148, 163, 184, 0.3);
-    padding-left: 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 999px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+#db-status:hover {
+    border-color: var(--accent-sky);
+    color: var(--accent-sky);
 }
 
 .sync-info {
@@ -1701,6 +1713,65 @@ button {
     display: none;
 }
 
+/* ── Storage persistence modal — compact, centered popup ─────────────────────
+   Reuses .modal-overlay for the fixed, dimmed, centered backdrop. */
+
+.storage-modal-dialog {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 360px;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px var(--modal-shadow);
+}
+
+.storage-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.storage-modal-header h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+}
+
+.storage-modal-close {
+    background: transparent;
+    border: 1px solid var(--bg-card-border);
+    color: var(--text-muted);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.storage-modal-close:hover {
+    border-color: var(--accent-amber);
+    color: var(--accent-amber);
+}
+
+.storage-modal-body p {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0 0 20px;
+}
+
+.storage-modal-body .btn {
+    width: 100%;
+}
+
 #settings-modal .modal-dialog {
     background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
@@ -1865,3 +1936,113 @@ button {
     opacity: 0.5;
     pointer-events: none;
 }
+
+/* ── Backup & Cloud Sync panels — shared structural base (deduplicated) ────────
+   .backup-panel/.cloud-sync-panel and .backup-section/.cloud-sync-section
+   combine their feature class with these base classes. */
+
+/* Static tab-level heading above the two-column grid (index.html). */
+.backup-restore-heading {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--text-primary);
+}
+
+/* Responsive 2-column grid: the backup-controls / cloud-controls mount
+   points render into the two columns. Stacks to a single column below 1024px. */
+.backup-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+
+@media (min-width: 1024px) {
+    .backup-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.data-panel {
+    padding: 1.5rem;
+}
+
+.data-panel h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    color: var(--text-primary);
+}
+
+.data-panel__section {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.data-panel__section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.data-panel__section p {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+/* Backup-only: file chooser label */
+.backup-file-label {
+    cursor: pointer;
+    display: inline-block;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Export/sync metadata line ("Last local export: …", "Last cloud sync: …"). */
+.backup-meta,
+.cloud-sync-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0.75rem 0 0;
+}
+
+/* Amber overwrite-risk badge on both Restore cards. */
+.warning-badge {
+    display: inline-block;
+    background: var(--accent-amber-soft);
+    border: 1px solid var(--accent-amber);
+    color: var(--accent-amber);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.3rem 0.65rem;
+    border-radius: 0.5rem;
+    white-space: nowrap;
+}
+
+/* Row pairing a card's primary action with an adjacent badge or toggle
+   (e.g. warning badge + Choose File, or Back Up button + auto-backup
+   toggle) so they align on the same line instead of falling out of flow. */
+.panel-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+/* Auto-backup opt-out toggle, placed beside the "Back Up to Drive" button. */
+.cloud-sync-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
