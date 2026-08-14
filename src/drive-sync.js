@@ -8,8 +8,11 @@
  *
  * All methods:
  *  - Guard on getAccessToken() === null: reporter.auth(...), return, never throw.
- *  - Catch every network error or non-2xx: console.error('[drive-sync]', err),
- *    optionally reporter.db(...), resolve (never reject).
+ *  - find()/pull() catch every network error or non-2xx: console.error('[drive-sync]', err),
+ *    optionally reporter.db(...), resolve to null/undefined (never reject).
+ *  - push() PROPAGATES failures to the caller: non-2xx and network errors log
+ *    console.error('[drive-sync]', err), notify the reporter, and REJECT so the
+ *    UI ❌ branch is reachable — never a silent undefined.
  *  - Use only injected fetchFn — no bare fetch calls; no global references.
  *
  * pull() treats the fetched body as untrusted: the injected validator (default
@@ -74,6 +77,8 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
   /**
    * Creates or updates the backup file in appDataFolder.
    * Uses multipart upload: metadata + JSON body.
+   * Rejects on non-2xx HTTP responses and network failures so UI callers can
+   * surface an ❌; the no-token path still returns gracefully.
    * @param {object} envelope  The backup envelope produced by backup.buildBackup()
    * @returns {Promise<void>}
    */
@@ -84,6 +89,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
       return;
     }
 
+    let resp;
     try {
       const existingId = await find();
       const boundary = 'drive_sync_boundary_xyz';
@@ -105,7 +111,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
         : `${DRIVE_UPLOAD_URL}?uploadType=multipart`;
       const method = existingId ? 'PATCH' : 'POST';
 
-      const resp = await fetchFn(url, {
+      resp = await fetchFn(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -113,15 +119,17 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
         },
         body,
       });
-
-      if (!resp.ok) {
-        const err = new Error(`Drive push failed: HTTP ${resp.status}`);
-        console.error('[drive-sync]', err);
-        reporter.db(`❌ Drive backup failed (HTTP ${resp.status})`);
-      }
     } catch (err) {
       console.error('[drive-sync]', err);
       reporter.db('❌ Drive backup failed (network error)');
+      throw err;
+    }
+
+    if (!resp.ok) {
+      const err = new Error(`Drive push failed: HTTP ${resp.status}`);
+      console.error('[drive-sync]', err);
+      reporter.db('❌ Drive backup failed — will retry');
+      throw err;
     }
   }
 

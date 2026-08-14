@@ -104,11 +104,13 @@ describe('createDriveSyncUI', () => {
     expect(msg).toMatch(/^✅/);
   });
 
-  it('push failure calls reporter with ❌-prefixed message and does NOT dispatch data:records:mutated', async () => {
-    driveSync = makeDriveSync({ pushResult: new Error('network error') });
+  it('push rejects: reporter gets ❌ message, console.error with [drive-sync-ui] logged, NO data:records:mutated', async () => {
+    const failure = new Error('network error');
+    driveSync = makeDriveSync({ pushResult: failure });
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
     ui.render(container);
 
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     const btn = container.querySelector('[data-action="backup-to-drive"]');
     btn.click();
@@ -116,6 +118,10 @@ describe('createDriveSyncUI', () => {
 
     const calls = reporter.mock.calls.map(c => c[0]);
     expect(calls.some(m => m.startsWith('❌'))).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[drive-sync-ui]'),
+      failure
+    );
     const mutatedFired = dispatchSpy.mock.calls.some(c => c[0].type === 'data:records:mutated');
     expect(mutatedFired).toBe(false);
   });

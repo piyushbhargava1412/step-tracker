@@ -206,37 +206,38 @@ describe('createDriveSync — push()', () => {
     expect(opts.method).toBe('PATCH');
   });
 
-  it('returns gracefully without calling fetchFn when getAccessToken returns null', async () => {
+  it('returns gracefully without calling fetchFn when getAccessToken returns null (no throw)', async () => {
     getAccessToken.mockReturnValue(null);
 
-    await driveSync.push(envelope);
+    await expect(driveSync.push(envelope)).resolves.toBeUndefined();
 
     expect(fetchFn).not.toHaveBeenCalled();
     expect(reporter.auth).toHaveBeenCalled();
   });
 
-  it('catches non-2xx response on push, logs error with [drive-sync] prefix, notifies reporter', async () => {
+  it('rejects on non-2xx response, logs [drive-sync] with status, reporter gets generic message', async () => {
     fetchFn
       .mockResolvedValueOnce(makeOkResponse({ files: [] }))
       .mockResolvedValueOnce(makeErrorResponse(500));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await driveSync.push(envelope);
-
+    await expect(driveSync.push(envelope)).rejects.toThrow('Drive push failed: HTTP 500');
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync]'),
       expect.anything()
     );
     expect(reporter.db).toHaveBeenCalled();
+    const reporterMsg = reporter.db.mock.calls[0][0];
+    expect(reporterMsg).not.toContain('500');
   });
 
-  it('does not throw on push network error', async () => {
+  it('rejects when the upload fetch rejects (network error)', async () => {
     fetchFn
       .mockResolvedValueOnce(makeOkResponse({ files: [] }))
       .mockRejectedValueOnce(new TypeError('Network failure'));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(driveSync.push(envelope)).resolves.not.toThrow();
+    await expect(driveSync.push(envelope)).rejects.toThrow('Network failure');
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync]'),
       expect.anything()
