@@ -218,6 +218,60 @@ describe('createDriveSync — push()', () => {
     expect(opts.headers['Content-Type']).toContain('multipart/related');
   });
 
+  it('uses a fresh per-call boundary — never the static drive_sync_boundary_xyz', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new-file-id' }));
+
+    await driveSync.push(envelope);
+
+    const [, opts] = fetchFn.mock.calls[1];
+    const contentType = opts.headers['Content-Type'];
+    const boundary = /boundary=([^;]+)/.exec(contentType)?.[1];
+    expect(boundary).toBeTruthy();
+    expect(boundary).not.toBe('drive_sync_boundary_xyz');
+    // The boundary must appear as the MIME delimiter in the body…
+    expect(opts.body).toContain(`--${boundary}\r\n`);
+    expect(opts.body.endsWith(`--${boundary}--`)).toBe(true);
+    // …and the old static literal must be gone from both header and body.
+    expect(contentType).not.toContain('drive_sync_boundary_xyz');
+    expect(opts.body).not.toContain('drive_sync_boundary_xyz');
+  });
+
+  it('never embeds the boundary inside the serialised content (RFC 2046)', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new-file-id' }));
+
+    await driveSync.push(envelope);
+
+    const [, opts] = fetchFn.mock.calls[1];
+    const boundary = /boundary=([^;]+)/.exec(opts.headers['Content-Type'])?.[1];
+    const sections = opts.body.split(`--${boundary}`);
+    // Exactly 2 part-openers + 1 closer → 3 delimiters → 4 sections.
+    expect(sections).toHaveLength(4);
+    for (const section of sections.slice(1, -1)) {
+      expect(section).not.toContain(boundary);
+    }
+  });
+
+  it('generates a different boundary for each push() call', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new-file-id' }))
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new-file-id' }));
+
+    await driveSync.push(envelope);
+    await driveSync.push(envelope);
+
+    const boundaryOfCall = (callIndex) =>
+      /boundary=([^;]+)/.exec(fetchFn.mock.calls[callIndex][1].headers['Content-Type'])?.[1];
+    const first = boundaryOfCall(1);
+    const second = boundaryOfCall(3);
+    expect(first).not.toEqual(second);
+  });
+
   it('issues multipart PATCH when find returns an existing file ID', async () => {
     fetchFn
       .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'existing-id' }] }))
