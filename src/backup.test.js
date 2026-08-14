@@ -183,3 +183,256 @@ describe('blobToBase64()', () => {
     expect(result.startsWith('data:')).toBe(true);
   });
 });
+
+// ─── base64ToBlob ─────────────────────────────────────────────────────────────
+
+describe('base64ToBlob()', () => {
+  it('converts a data: string back to a Blob', async () => {
+    const { base64ToBlob, blobToBase64 } = await import('./backup.js');
+    const original = new Blob(['hello'], { type: 'text/plain' });
+    const dataUrl = await blobToBase64(original);
+    const result = base64ToBlob(dataUrl);
+    expect(result).toBeInstanceOf(Blob);
+    const buf = await result.arrayBuffer();
+    expect(buf.byteLength).toBe(5); // 'hello' is 5 bytes
+  });
+});
+
+// ─── _validateEnvelope (Task 2) ───────────────────────────────────────────────
+
+describe('_validateEnvelope() — Task 2', () => {
+  it('does not throw on a valid schema-v1 envelope', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: [],
+      settings: [],
+    };
+    expect(() => _validateEnvelope(envelope)).not.toThrow();
+  });
+
+  it('throws TypeError when schema_version is absent', async () => {
+    const { _validateEnvelope } = await import('./backup.js');
+    const envelope = { exported_at: 'x', daily_records: [], settings: [] };
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('throws TypeError for unknown future schema_version integer', async () => {
+    const { _validateEnvelope } = await import('./backup.js');
+    const envelope = { schema_version: 9999, daily_records: [], settings: [] };
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('throws TypeError when daily_records is null', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = { schema_version: BACKUP_SCHEMA_VERSION, daily_records: null, settings: [] };
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('throws TypeError when settings is a string', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      daily_records: [],
+      settings: 'wrong',
+    };
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+});
+
+// ─── restoreBackup() (Task 2) ─────────────────────────────────────────────────
+
+/**
+ * Creates a db mock that supports transaction('rw', table1, table2, cb).
+ * The callback receives the db itself so bulkPut calls are tracked.
+ * Stored records are kept in `_records` and `_settings` for inspection.
+ * If `throwInTransaction` is true, the callback throws after the first bulkPut.
+ */
+function makeTransactionalDb({
+  initialRecords = [],
+  initialSettings = [],
+  throwInTransaction = false,
+} = {}) {
+  // Mutable store state — clone so we can check pre/post
+  let records = [...initialRecords];
+  let settings = [...initialSettings];
+
+  const db = {
+    daily_records: {
+      toArray: vi.fn().mockImplementation(() => Promise.resolve([...records])),
+      bulkPut: vi.fn().mockImplementation((rows) => {
+        if (throwInTransaction) {
+          throw new Error('simulated transaction failure');
+        }
+        records = [...rows];
+        return Promise.resolve();
+      }),
+    },
+    settings: {
+      toArray: vi.fn().mockImplementation(() => Promise.resolve([...settings])),
+      bulkPut: vi.fn().mockImplementation((rows) => {
+        settings = [...rows];
+        return Promise.resolve();
+      }),
+    },
+    _getRecords: () => [...records],
+    _getSettings: () => [...settings],
+  };
+
+  // transaction('rw', table1, table2, cb) — runs cb inside a try/catch to simulate atomicity
+  db.transaction = vi.fn().mockImplementation(async (_mode, _t1, _t2, cb) => {
+    // Snapshot pre-state for rollback simulation
+    const snapshotRecords = [...records];
+    const snapshotSettings = [...settings];
+    try {
+      await cb();
+    } catch (err) {
+      // Simulate Dexie rollback: restore pre-state
+      records = snapshotRecords;
+      settings = snapshotSettings;
+      throw err;
+    }
+  });
+
+  return db;
+}
+
+describe('restoreBackup()', () => {
+  it('executes a single Dexie rw transaction', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: [{ date: '2024-01-01', original_steps: 1000 }],
+      settings: [{ key: 'sync_anchor_date', value: '2024-01-01' }],
+    };
+    await restoreBackup(envelope);
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.transaction.mock.calls[0][0]).toBe('rw');
+  });
+
+  it('calls bulkPut on both daily_records and settings inside the transaction', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    const records = [{ date: '2024-01-01', original_steps: 5000 }];
+    const settings = [{ key: 'active_step_goal', target_steps: 10000 }];
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: records,
+      settings,
+    };
+    await restoreBackup(envelope);
+    expect(db.daily_records.bulkPut).toHaveBeenCalledWith(records);
+    expect(db.settings.bulkPut).toHaveBeenCalledWith(settings);
+  });
+
+  it('round-trip: buildBackup then restoreBackup reproduces the original store exactly', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const proofUrl = 'data:image/jpeg;base64,/9j/4AAQ';
+    const originalRecords = [
+      {
+        date: '2024-01-10',
+        original_steps: 8500,
+        original_distance_km: 6.8,
+        effective_steps: 9200,
+        effective_distance_km: 7.4,
+        is_overridden: true,
+        override: { note: 'manual', proof_image_base64: proofUrl },
+        synced_at: '2024-01-10T12:00:00.000Z',
+      },
+    ];
+    const originalSettings = [
+      { key: 'sync_anchor_date', value: '2024-01-01' },
+      { key: 'active_step_goal', target_steps: 10000 },
+    ];
+    const db = makeTransactionalDb({
+      initialRecords: originalRecords,
+      initialSettings: originalSettings,
+    });
+    const { buildBackup, restoreBackup } = createBackup(db);
+    const envelope = await buildBackup();
+    expect(envelope.schema_version).toBe(BACKUP_SCHEMA_VERSION);
+    // Wipe the store before restore
+    db.daily_records.toArray.mockResolvedValue([]);
+    db.settings.toArray.mockResolvedValue([]);
+    await restoreBackup(envelope);
+    // After restore, the mutable store should match original
+    expect(db._getRecords()).toEqual(originalRecords);
+    expect(db._getSettings()).toEqual(originalSettings);
+  });
+
+  it('proof_image_base64 round-trips unchanged', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const proofUrl = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD';
+    const db = makeTransactionalDb({
+      initialRecords: [
+        {
+          date: '2024-01-15',
+          override: { proof_image_base64: proofUrl },
+        },
+      ],
+    });
+    const { buildBackup, restoreBackup } = createBackup(db);
+    const envelope = await buildBackup();
+    await restoreBackup(envelope);
+    const restored = db._getRecords();
+    expect(restored[0].override.proof_image_base64).toBe(proofUrl);
+  });
+
+  it('record with override: null restores without TypeError', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb({
+      initialRecords: [{ date: '2024-01-16', override: null }],
+    });
+    const { buildBackup, restoreBackup } = createBackup(db);
+    const envelope = await buildBackup();
+    await expect(restoreBackup(envelope)).resolves.not.toThrow();
+  });
+
+  it('record with no override key restores cleanly', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb({
+      initialRecords: [{ date: '2024-01-17', original_steps: 5000 }],
+    });
+    const { buildBackup, restoreBackup } = createBackup(db);
+    const envelope = await buildBackup();
+    await expect(restoreBackup(envelope)).resolves.not.toThrow();
+  });
+
+  it('throws TypeError on malformed input and does not call transaction', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    await expect(restoreBackup({ schema_version: 999, daily_records: [], settings: [] })).rejects.toThrow(TypeError);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('mid-transaction failure rolls back — store unchanged', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const preRecords = [{ date: '2024-01-20', original_steps: 3000 }];
+    const preSettings = [{ key: 'sync_anchor_date', value: '2024-01-01' }];
+    const db = makeTransactionalDb({
+      initialRecords: preRecords,
+      initialSettings: preSettings,
+      throwInTransaction: true,
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { restoreBackup } = createBackup(db);
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: [{ date: '2024-01-21', original_steps: 9999 }],
+      settings: [{ key: 'active_step_goal', target_steps: 12000 }],
+    };
+    await expect(restoreBackup(envelope)).rejects.toThrow('simulated transaction failure');
+    // Rollback: store must be at pre-restore state
+    expect(db._getRecords()).toEqual(preRecords);
+    expect(db._getSettings()).toEqual(preSettings);
+    expect(errSpy).toHaveBeenCalledWith('[backup]', expect.any(Error));
+  });
+});

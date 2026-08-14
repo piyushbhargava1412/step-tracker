@@ -1,7 +1,8 @@
 /**
  * Backup engine — pure Dexie I/O, no DOM.
  * createBackup(db) factory: buildBackup() serialises the full Dexie state
- * into a versioned envelope. Module-level pure exports: blobToBase64,
+ * into a versioned envelope; restoreBackup(parsed, { mode }) validates and
+ * atomically upserts rows back. Module-level pure exports: blobToBase64,
  * base64ToBlob, _validateEnvelope, BACKUP_SCHEMA_VERSION, BACKUP_FILENAME_PREFIX.
  */
 
@@ -74,7 +75,7 @@ export function _validateEnvelope(parsed) {
  * Never imports Dexie directly — uses only the injected db.
  *
  * @param {object} db - injected Dexie instance
- * @returns {{ buildBackup: Function }}
+ * @returns {{ buildBackup: Function, restoreBackup: Function }}
  */
 export function createBackup(db) {
   /**
@@ -107,5 +108,32 @@ export function createBackup(db) {
     }
   }
 
-  return { buildBackup };
+  /**
+   * Validates a backup envelope and restores all rows into Dexie using a single
+   * atomic 'rw' transaction. A mid-restore failure causes a full rollback so the
+   * store is never left in a partially-applied state.
+   *
+   * Rows are written verbatim — original_* fields are never mutated.
+   *
+   * @param {object} parsed - the parsed JSON backup envelope
+   * @param {{ mode?: string }} [_options] - reserved; not used in v1
+   * @returns {Promise<void>}
+   * @throws {TypeError} if the envelope fails validation (no Dexie write occurs)
+   */
+  async function restoreBackup(parsed, _options = {}) {
+    // Fail-fast: validate before touching Dexie.
+    _validateEnvelope(parsed);
+
+    try {
+      await db.transaction('rw', db.daily_records, db.settings, async () => {
+        await db.daily_records.bulkPut(parsed.daily_records);
+        await db.settings.bulkPut(parsed.settings);
+      });
+    } catch (err) {
+      console.error('[backup]', err);
+      throw err;
+    }
+  }
+
+  return { buildBackup, restoreBackup };
 }
