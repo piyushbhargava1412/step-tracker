@@ -137,7 +137,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // The factory builds the guidance modal DOM in JS and attaches the
   // #db-status click binding that opens it only in the "not persisted" state.
   try {
-    const storageModal = createStorageModal(doc, reporter, navigator)
+    const storageModal = createStorageModal(doc, reporter, navigator, storage)
     try {
       storageModal.attach?.()
     } catch (err) {

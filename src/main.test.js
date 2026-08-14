@@ -1804,10 +1804,10 @@ describe('main.js — ST-012 Task 9: storage persistence badge modal wiring', ()
     document.body.innerHTML = ''
   })
 
-  it('createStorageModal is instantiated once with (doc, shared reporter, navigator)', async () => {
+  it('createStorageModal is instantiated once with (doc, shared reporter, navigator, storage)', async () => {
     await boot()
     expect(createStorageModal).toHaveBeenCalledTimes(1)
-    expect(createStorageModal).toHaveBeenCalledWith(document, mockReporter, navigator)
+    expect(createStorageModal).toHaveBeenCalledWith(document, mockReporter, navigator, window.localStorage)
   })
 
   it('storageModal.attach() is called exactly once during bootstrap', async () => {

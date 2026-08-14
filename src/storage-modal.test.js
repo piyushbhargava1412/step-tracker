@@ -12,6 +12,7 @@ import {
   createStorageModal,
   NOT_PERSISTED_TEXT,
   PERSISTED_TEXT,
+  STORAGE_PERSIST_GRANTED_KEY,
 } from './storage-modal.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,6 +39,14 @@ function makeNav({ persistResult = true, persistImpl } = {}) {
   };
 }
 
+function makeStorage() {
+  const store = new Map();
+  return {
+    getItem: vi.fn((key) => (store.has(key) ? store.get(key) : null)),
+    setItem: vi.fn((key, value) => { store.set(key, String(value)); }),
+  };
+}
+
 function overlayOf(doc) {
   return doc.body.querySelector('.storage-modal-overlay');
 }
@@ -59,25 +68,33 @@ describe('createStorageModal', () => {
 
   // ── Modal shell (built entirely in JS) ────────────────────────────────────
 
-  it('builds the modal DOM in JS, hidden by default, with guidance + actions', () => {
+  it('builds the modal DOM in JS, hidden by default, with friendly guidance + actions', () => {
     const doc = makeDoc();
     createStorageModal(doc, makeReporter(), makeNav());
 
     const overlay = overlayOf(doc);
     expect(overlay).not.toBeNull();
     expect(overlay.hidden).toBe(true);
+    expect(overlay.classList.contains('modal-overlay')).toBe(true);
 
     expect(overlay.querySelector('[data-action="close-storage-modal"]')).not.toBeNull();
     expect(overlay.querySelector('[data-action="request-persist"]')).not.toBeNull();
 
-    // Guidance copy
-    expect(overlay.textContent).toContain('Browser Eviction Risk');
-    expect(overlay.textContent).toContain('Add to Home Screen');
+    // Friendly, non-scary copy
+    expect(overlay.textContent).toContain('🛡️ Protect Your Step History');
+    expect(overlay.textContent).toContain(
+      'Browsers occasionally clear cached web data when your phone or laptop runs low ' +
+      'on disk space. Enable data protection so your steps, streaks, and backup ' +
+      'history are preserved.'
+    );
+    expect(overlay.querySelector('[data-action="request-persist"]').textContent).toBe(
+      '🛡️ Protect My Data'
+    );
   });
 
   // ── Badge click binding (opens only in the "not persisted" state) ─────────
 
-  it('clicking #db-status showing "Storage not persisted" opens the modal', () => {
+  it('clicking #db-status showing "Unprotected" opens the modal', () => {
     const doc = makeDoc(NOT_PERSISTED_TEXT);
     const modal = createStorageModal(doc, makeReporter(), makeNav());
     modal.attach();
@@ -171,6 +188,40 @@ describe('createStorageModal', () => {
     await flush();
     expect(reporter.db).toHaveBeenCalledWith(PERSISTED_TEXT);
     expect(overlay.hidden).toBe(true);
+  });
+
+  it('persist() resolving true records the grant via storage.setItem(STORAGE_PERSIST_GRANTED_KEY, "1")', async () => {
+    const doc = makeDoc(NOT_PERSISTED_TEXT);
+    const nav = makeNav({ persistResult: true });
+    const storage = makeStorage();
+    const modal = createStorageModal(doc, makeReporter(), nav, storage);
+    modal.open();
+
+    overlayOf(doc).querySelector('[data-action="request-persist"]').click();
+    await flush();
+    expect(storage.setItem).toHaveBeenCalledWith(STORAGE_PERSIST_GRANTED_KEY, '1');
+  });
+
+  it('persist() resolving false does NOT record a grant', async () => {
+    const doc = makeDoc(NOT_PERSISTED_TEXT);
+    const nav = makeNav({ persistResult: false });
+    const storage = makeStorage();
+    const modal = createStorageModal(doc, makeReporter(), nav, storage);
+    modal.open();
+
+    overlayOf(doc).querySelector('[data-action="request-persist"]').click();
+    await flush();
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('works without a storage collaborator (defaults to null, never throws)', async () => {
+    const doc = makeDoc(NOT_PERSISTED_TEXT);
+    const nav = makeNav({ persistResult: true });
+    const modal = createStorageModal(doc, makeReporter(), nav);
+    modal.open();
+
+    overlayOf(doc).querySelector('[data-action="request-persist"]').click();
+    await expect(flush()).resolves.toBeUndefined();
   });
 
   it('persist() resolving false → reporter.db(NOT_PERSISTED_TEXT); modal stays open', async () => {
