@@ -5,8 +5,10 @@ vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
 
 // ST-012 Task 7: mock backup.js, backup-ui.js, drive-sync.js, drive-sync-ui.js
 const mockBackupInstance = { buildBackup: vi.fn().mockResolvedValue({}), restoreBackup: vi.fn().mockResolvedValue(undefined) }
+const mockValidateEnvelope = vi.fn()
 vi.mock('./backup.js', () => ({
   createBackup: vi.fn(() => mockBackupInstance),
+  _validateEnvelope: (...args) => mockValidateEnvelope(...args),
   BACKUP_SCHEMA_VERSION: 1,
   BACKUP_FILENAME_PREFIX: 'step-tracker-backup-'
 }))
@@ -190,7 +192,7 @@ import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
 import { createConfirmAdapter } from './confirm.js'
-import { createBackup } from './backup.js'
+import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
@@ -1489,7 +1491,7 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(createBackupUI).toHaveBeenCalledWith(isolatedDoc, mockBackupInstance, mockReporter)
   })
 
-  it('createDriveSync is called once with getAccessToken, reporter, and fetchFn', async () => {
+  it('createDriveSync is called once with getAccessToken, reporter, fetchFn, and the backup validator', async () => {
     await bootstrap(isolatedDoc)
     expect(createDriveSync).toHaveBeenCalledTimes(1)
     const callArg = createDriveSync.mock.calls[0][0]
@@ -1497,9 +1499,11 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(callArg).toHaveProperty('reporter', mockReporter)
     expect(callArg).toHaveProperty('fetchFn')
     expect(typeof callArg.fetchFn).toBe('function')
+    expect(callArg).toHaveProperty('validator')
+    expect(callArg.validator).toBe(_validateEnvelope)
   })
 
-  it('createDriveSyncUI is called once with doc, driveSync instance, backup instance, reporter', async () => {
+  it('createDriveSyncUI is called once with doc, driveSync instance, backup instance, reporter, confirm adapter, and the backup validator', async () => {
     await bootstrap(isolatedDoc)
     expect(createDriveSyncUI).toHaveBeenCalledTimes(1)
     expect(createDriveSyncUI).toHaveBeenCalledWith(
@@ -1507,7 +1511,8 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockDriveSyncInstance,
       mockBackupInstance,
       mockReporter,
-      expect.any(Function)
+      mockConfirmAdapter,
+      _validateEnvelope
     )
   })
 
@@ -1614,12 +1619,14 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(banner.hidden).toBe(true)
   })
 
-  it('recovery banner "Restore Cloud Backup" → confirm → restoreBackup → data:records:mutated → banner hidden', async () => {
+  it('recovery banner "Restore Cloud Backup" → confirm → restoreBackup → data:records:mutated → reporter → banner hidden', async () => {
     mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
     mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
     const mockEnvelope = { schema_version: 1, daily_records: [], settings: [] }
     mockDriveSyncInstance.pull.mockResolvedValue(mockEnvelope)
     mockConfirmAdapter.mockReturnValue(true)
+    let onMutated
+    isolatedDoc.addEventListener('data:records:mutated', () => { onMutated = true })
     await bootstrap(isolatedDoc)
     // Add restore button to banner
     const banner = document.getElementById('cloud-recovery-banner')
@@ -1631,8 +1638,53 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     // Banner un-hidden; click restore
     restoreBtn.click()
     await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockConfirmAdapter).toHaveBeenCalledWith(expect.stringContaining('overwrite'))
     expect(mockBackupInstance.restoreBackup).toHaveBeenCalledWith(mockEnvelope)
+    expect(onMutated).toBe(true)
+    expect(mockReporter.db).toHaveBeenCalledWith('✅ Data restored from Drive successfully')
     expect(banner.hidden).toBe(true)
+  })
+
+  it('recovery banner "Restore Cloud Backup" → cancel → no restoreBackup, no dispatch, no reporter, banner stays visible', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    const mockEnvelope = { schema_version: 1, daily_records: [], settings: [] }
+    mockDriveSyncInstance.pull.mockResolvedValue(mockEnvelope)
+    mockConfirmAdapter.mockReturnValue(false)
+    let onMutated = false
+    isolatedDoc.addEventListener('data:records:mutated', () => { onMutated = true })
+    await bootstrap(isolatedDoc)
+    const banner = document.getElementById('cloud-recovery-banner')
+    const restoreBtn = document.createElement('button')
+    restoreBtn.setAttribute('data-action', 'recovery-restore')
+    banner.appendChild(restoreBtn)
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    restoreBtn.click()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockConfirmAdapter).toHaveBeenCalledWith(expect.stringContaining('overwrite'))
+    expect(mockBackupInstance.restoreBackup).not.toHaveBeenCalled()
+    expect(mockDriveSyncInstance.pull).not.toHaveBeenCalled()
+    expect(onMutated).toBe(false)
+    expect(mockReporter.db).not.toHaveBeenCalled()
+    expect(banner.hidden).toBe(false)
+  })
+
+  it('confirm is asked BEFORE restoreBackup (confirm-gating order)', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    mockDriveSyncInstance.pull.mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] })
+    mockConfirmAdapter.mockReturnValue(true)
+    await bootstrap(isolatedDoc)
+    const banner = document.getElementById('cloud-recovery-banner')
+    const restoreBtn = document.createElement('button')
+    restoreBtn.setAttribute('data-action', 'recovery-restore')
+    banner.appendChild(restoreBtn)
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    restoreBtn.click()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockConfirmAdapter.mock.invocationCallOrder[0]).toBeLessThan(mockBackupInstance.restoreBackup.mock.invocationCallOrder[0])
   })
 })
 

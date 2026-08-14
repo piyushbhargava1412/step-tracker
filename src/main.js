@@ -25,7 +25,7 @@ import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
 import { createConfirmAdapter } from './confirm.js'
-import { createBackup } from './backup.js'
+import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
@@ -123,12 +123,12 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   let driveSync = null
   let driveSyncUI = null
   try {
-    driveSync = createDriveSync({ getAccessToken: auth.getAccessToken.bind(auth), reporter, fetchFn: fetch.bind(window) })
+    driveSync = createDriveSync({ getAccessToken: auth.getAccessToken.bind(auth), reporter, fetchFn: fetch.bind(window), validator: _validateEnvelope })
   } catch (err) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window))
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), _validateEnvelope)
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
@@ -236,10 +236,13 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
                 banner.hidden = true
               } else if (action === 'recovery-restore') {
                 try {
+                  const confirmed = confirmFn('Restoring will overwrite your current (empty) local data with the cloud backup. Continue?')
+                  if (!confirmed) return
                   const envelope = await driveSync.pull()
                   if (envelope) {
                     await backup?.restoreBackup?.(envelope)
                     doc.dispatchEvent(new CustomEvent('data:records:mutated'))
+                    reporter.db('✅ Data restored from Drive successfully')
                   }
                   banner.hidden = true
                 } catch (err) {
