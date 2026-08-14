@@ -3,7 +3,7 @@
  *
  * createDriveSync({ getAccessToken, reporter, fetchFn, validator })
  *   find()           → string | null    file ID if the backup exists, else null
- *   push(envelope)   → void             create (POST) or update (PATCH) the backup
+ *   push(envelope, { silent }) → void    create (POST) or update (PATCH) the backup
  *   pull()           → object | null    parsed envelope, or null if not found
  *
  * All methods:
@@ -11,8 +11,13 @@
  *  - find()/pull() catch every network error or non-2xx: console.error('[drive-sync]', err),
  *    optionally reporter.db(...), resolve to null/undefined (never reject).
  *  - push() PROPAGATES failures to the caller: non-2xx and network errors log
- *    console.error('[drive-sync]', err), notify the reporter, and REJECT so the
- *    UI ❌ branch is reachable — never a silent undefined.
+ *    console.error('[drive-sync]', err), notify the reporter (unless
+ *    { silent: true } is passed), and REJECT so the UI ❌ branch is reachable —
+ *    never a silent undefined.
+ *  - Security (Task 18): NO HTTP status code ever appears in a reporter message
+ *    or in a thrown push error — the thrown error may be interpolated verbatim
+ *    into user-facing copy by callers. Status codes live in console.error
+ *    diagnostics only.
  *  - Use only injected fetchFn — no bare fetch calls; no global references.
  *
  * pull() treats the fetched body as untrusted: the injected validator (default
@@ -147,13 +152,26 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
    * Uses multipart upload: metadata + JSON body.
    * Rejects on non-2xx HTTP responses and network failures so UI callers can
    * surface an ❌; the no-token path still returns gracefully.
-   * @param {object} envelope  The backup envelope produced by backup.buildBackup()
+   *
+   * Security contract (Task 18): no HTTP status code ever appears in a reporter
+   * message or in the thrown error — the thrown error may be interpolated
+   * verbatim into user-facing copy by callers (e.g. drive-sync-ui). The
+   * status-bearing diagnostic is written to console.error('[drive-sync]', …) only.
+   *
+   * The `silent` option gates reporter signalling for fire-and-forget callers
+   * (the background post-sync upload): failures are still logged via
+   * console.error and still reject, but nothing is surfaced to the user.
+   *
+   * @param {object} envelope               The backup envelope produced by backup.buildBackup()
+   * @param {{ silent?: boolean }} [options]  Suppresses all reporter.* signalling.
    * @returns {Promise<void>}
    */
-  async function push(envelope) {
+  async function push(envelope, { silent = false } = {}) {
     const token = getAccessToken();
     if (!token) {
-      reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
+      if (!silent) {
+        reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
+      }
       return;
     }
 
@@ -182,15 +200,23 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
       });
     } catch (err) {
       console.error('[drive-sync]', err);
-      reporter.db('❌ Drive backup failed (network error)');
+      if (!silent) {
+        reporter.db('❌ Drive backup failed (network error)');
+      }
       throw err;
     }
 
     if (!resp.ok) {
-      const err = new Error(`Drive push failed: HTTP ${resp.status}`);
-      console.error('[drive-sync]', err);
-      reporter.db('❌ Drive backup failed — will retry');
-      throw err;
+      // Status code is diagnostic-only: it goes to console.error, never into a
+      // reporter message or the thrown error that callers may surface verbatim.
+      console.error(
+        '[drive-sync]',
+        new Error(`Drive push failed: HTTP ${resp.status}`)
+      );
+      if (!silent) {
+        reporter.db('❌ Drive backup failed — will retry');
+      }
+      throw new Error('Drive push failed');
     }
   }
 

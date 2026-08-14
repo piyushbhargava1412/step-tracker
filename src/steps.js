@@ -844,11 +844,14 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       }
 
       // 9. Fire-and-forget Drive backup — must not block or suppress the ✅ status.
-      //    A Drive failure is isolated: logged with [drive-sync] prefix, never re-thrown.
+      //    A Drive failure is isolated: logged with [drive-sync] prefix, never
+      //    re-thrown, and run silent so the background upload never surfaces a
+      //    user-visible reporter message (Task 18 — no Drive reporter surface
+      //    on the post-sync hook).
       if (driveSync && backup) {
         (async () => {
           try {
-            await driveSync.push(await backup.buildBackup());
+            await driveSync.push(await backup.buildBackup(), { silent: true });
           } catch (err) {
             console.error('[drive-sync]', err);
           }

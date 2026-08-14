@@ -294,20 +294,30 @@ describe('createDriveSync — push()', () => {
     expect(reporter.auth).toHaveBeenCalled();
   });
 
-  it('rejects on non-2xx response, logs [drive-sync] with status, reporter gets generic message', async () => {
+  it('rejects on non-2xx response with a GENERIC error — the HTTP status lives in console.error only', async () => {
     fetchFn
       .mockResolvedValueOnce(makeOkResponse({ files: [] }))
       .mockResolvedValueOnce(makeErrorResponse(500));
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(driveSync.push(envelope)).rejects.toThrow('Drive push failed: HTTP 500');
+    const thrown = await driveSync.push(envelope).catch((e) => e);
+
+    // The thrown error is what drive-sync-ui interpolates into the DOM — it
+    // must never disclose the backend HTTP status.
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown.message).not.toMatch(/HTTP\s+\d+/);
+    expect(thrown.message).not.toContain('500');
+    // Reporter copy is generic — no HTTP status in any reporter message.
+    expect(reporter.db).toHaveBeenCalled();
+    for (const [msg] of reporter.db.mock.calls) {
+      expect(msg).not.toMatch(/HTTP\s+\d+/);
+      expect(msg).not.toMatch(/\b500\b/);
+    }
+    // The status-bearing diagnostic goes to the console only.
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[drive-sync]'),
-      expect.anything()
+      expect.objectContaining({ message: expect.stringContaining('HTTP 500') })
     );
-    expect(reporter.db).toHaveBeenCalled();
-    const reporterMsg = reporter.db.mock.calls[0][0];
-    expect(reporterMsg).not.toContain('500');
   });
 
   it('rejects when the upload fetch rejects (network error)', async () => {
@@ -321,6 +331,50 @@ describe('createDriveSync — push()', () => {
       expect.stringContaining('[drive-sync]'),
       expect.anything()
     );
+    // Reporter copy stays generic even on network errors.
+    expect(reporter.db).toHaveBeenCalled();
+    for (const [msg] of reporter.db.mock.calls) {
+      expect(msg).not.toMatch(/HTTP\s+\d+/);
+    }
+  });
+
+  it('push(envelope, { silent: true }) on non-2xx — rejects and logs, but surfaces nothing to the user', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeErrorResponse(500));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(driveSync.push(envelope, { silent: true })).rejects.toBeInstanceOf(Error);
+    expect(reporter.db).not.toHaveBeenCalled();
+    expect(reporter.auth).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[drive-sync]'),
+      expect.objectContaining({ message: expect.stringContaining('HTTP 500') })
+    );
+  });
+
+  it('push(envelope, { silent: true }) on network error — rejects and logs, but surfaces nothing to the user', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockRejectedValueOnce(new TypeError('Network failure'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(driveSync.push(envelope, { silent: true })).rejects.toThrow('Network failure');
+    expect(reporter.db).not.toHaveBeenCalled();
+    expect(reporter.auth).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[drive-sync]'),
+      expect.anything()
+    );
+  });
+
+  it('push(envelope, { silent: true }) with no token — resolves and surfaces nothing', async () => {
+    getAccessToken.mockReturnValue(null);
+
+    await expect(driveSync.push(envelope, { silent: true })).resolves.toBeUndefined();
+    expect(reporter.auth).not.toHaveBeenCalled();
+    expect(reporter.db).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 

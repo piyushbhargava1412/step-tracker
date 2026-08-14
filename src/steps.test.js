@@ -2881,6 +2881,45 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(Error));
   });
 
+  it('passes the silent flag to driveSync.push for the background post-sync hook', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+    await Promise.resolve();
+
+    expect(driveSync.push).toHaveBeenCalledWith(
+      expect.objectContaining({ schema_version: 1 }),
+      { silent: true }
+    );
+  });
+
+  it('post-sync Drive upload failure stays silent to the user — no Drive reporter notification surfaces', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+    // Faithful to the Task-18 createDriveSync.push contract: the real push
+    // will not report through the reporter when the caller opts into silent mode.
+    driveSync.push = vi.fn(async (_envelope, opts) => {
+      if (!opts?.silent) reporter.db('❌ Drive backup failed — will retry');
+      throw new Error('Drive push failed');
+    });
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+    await Promise.resolve();
+
+    // The failure is logged for developers, isolated under the [drive-sync] tag…
+    expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(Error));
+    // …and never surfaced through the reporter: no db/auth notification, and
+    // the ✅ sync status written by sync() is not clobbered by a Drive error.
+    expect(reporter.db).not.toHaveBeenCalled();
+    expect(reporter.auth).not.toHaveBeenCalled();
+    const syncMessages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(syncMessages.some((m) => m.startsWith('✅'))).toBe(true);
+    expect(syncMessages.some((m) => /Drive/.test(m))).toBe(false);
+  });
+
   it('sync succeeds normally when driveSync is null (collaborator not provided)', async () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
