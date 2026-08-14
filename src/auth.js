@@ -1,4 +1,4 @@
-const SCOPES = 'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.location.read';
+const SCOPES = 'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.location.read https://www.googleapis.com/auth/drive.appdata';
 
 export function createAuth(config, reporter, gsi = google) {
   let accessToken = null;
