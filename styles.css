@@ -14,6 +14,7 @@
     --accent-sky-glow: rgba(56, 189, 248, 0.25);
     --accent-cyan: #06b6d4;
     --accent-amber: #f59e0b;
+    --accent-amber-soft: rgba(245, 158, 11, 0.12);
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Courier, monospace;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --modal-overlay-bg: rgba(0, 0, 0, 0.6);
@@ -1887,9 +1888,31 @@ button {
    .backup-panel/.cloud-sync-panel and .backup-section/.cloud-sync-section
    combine their feature class with these base classes. */
 
+/* Static tab-level heading above the two-column grid (index.html). */
+.backup-restore-heading {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--text-primary);
+}
+
+/* Responsive 2-column grid: the backup-controls / cloud-controls mount
+   points render into the two columns. Stacks to a single column below 1024px. */
+.backup-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+
+@media (min-width: 1024px) {
+    .backup-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
 .data-panel {
     padding: 1.5rem;
-    max-width: 600px;
 }
 
 .data-panel h2 {
@@ -1928,8 +1951,45 @@ button {
     overflow: hidden;
 }
 
-/* Cloud-sync-only: mounts the backup + cloud-sync panels */
-#cloud-controls {
-    margin-top: 1.5rem;
+/* Export/sync metadata line ("Last local export: …", "Last cloud sync: …"). */
+.backup-meta,
+.cloud-sync-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0.75rem 0 0;
+}
+
+/* Amber overwrite-risk badge on both Restore cards. */
+.warning-badge {
+    display: inline-block;
+    background: var(--accent-amber-soft);
+    border: 1px solid var(--accent-amber);
+    color: var(--accent-amber);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.3rem 0.65rem;
+    border-radius: 0.5rem;
+    white-space: nowrap;
+}
+
+/* Row pairing a card's primary action with an adjacent badge or toggle
+   (e.g. warning badge + Choose File, or Back Up button + auto-backup
+   toggle) so they align on the same line instead of falling out of flow. */
+.panel-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+/* Auto-backup opt-out toggle, placed beside the "Back Up to Drive" button. */
+.cloud-sync-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
 }
 

@@ -1,9 +1,10 @@
 /**
- * Cloud sync UI — sole DOM writer for Google Drive cloud controls.
+ * Cloud sync UI — sole DOM writer for the "☁️ Google Drive Cloud Sync" column.
  *
  * createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)
- *   render(container): builds "Back up to Drive" and "Restore from Drive" controls
- *     plus the Task-27 "Automatically back up to Drive after each sync" toggle.
+ *   render(container): builds "Back Up to Drive" and "Restore from Drive" cards.
+ *     The Task-27 "Automatically back up to Drive after each sync" toggle sits
+ *     beside the "Back Up to Drive" button, inside the same card.
  *
  * PL-2 Option A: manual push/pull, last-write-wins with pre-overwrite confirmFn warning.
  *
@@ -11,16 +12,19 @@
  * gateway runs envelope validation before returning, so a tampered payload is
  * rejected with no Dexie write and no data:records:mutated dispatch.
  *
- * Task 27 (opt-out consent): the checkbox is bound to the persisted
- * `drive_backup_enabled` setting via the injected driveBackupPrefs collaborator
- * ({ getDriveBackupEnabled, setDriveBackupEnabled }). It only gates the
- * *automatic* post-sync upload — the manual "Back up to Drive" button keeps
- * working regardless of the toggle. The collaborator may be null (defaults to
- * enabled) so legacy call sites render an enabled checkbox.
+ * `driveBackupPrefs` doubles as the metadata store: it gates the auto-upload
+ * toggle (getDriveBackupEnabled/setDriveBackupEnabled) AND records the last
+ * successful push (getLastDriveSync/setLastDriveSync) for the "Last cloud
+ * sync" metadata line. It only gates the *automatic* post-sync upload — the
+ * manual "Back Up to Drive" button keeps working regardless of the toggle.
+ * The collaborator may be null (defaults to enabled, "No cloud backup found")
+ * so legacy call sites still render.
  *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
+
+import { formatLastSyncLine } from './backup-format.js';
 
 export function createDriveSyncUI(
   doc,
@@ -31,12 +35,14 @@ export function createDriveSyncUI(
   driveBackupPrefs = null
 ) {
   let controller = null;
+  let syncMetaEl = null;
 
   /**
-   * (Re)build the cloud-sync panel content inside the given container element.
+   * (Re)build the cloud-sync column content inside the given container element.
    * Idempotent: calling a second time aborts previous listeners and rebuilds DOM.
-   * Async because the auto-backup toggle reflects the persisted setting; a
-   * read failure fails open to enabled so the panel always renders.
+   * Async because the auto-backup toggle and last-sync metadata reflect
+   * persisted state; a read failure fails open (enabled toggle / no metadata)
+   * so the panel always renders.
    *
    * @param {HTMLElement} container
    */
@@ -63,12 +69,22 @@ export function createDriveSyncUI(
       }
     }
 
+    // Read the last-successful-sync metadata (fail-open to null).
+    let lastSync = null;
+    if (driveBackupPrefs?.getLastDriveSync) {
+      try {
+        lastSync = await driveBackupPrefs.getLastDriveSync();
+      } catch (err) {
+        console.error('[drive-sync-ui]', err);
+      }
+    }
+
     // Build panel
     const panel = doc.createElement('div');
     panel.className = 'cloud-sync-panel data-panel';
 
     const heading = doc.createElement('h2');
-    heading.textContent = '☁️ Google Drive Sync';
+    heading.textContent = '☁️ Google Drive Cloud Sync';
     panel.appendChild(heading);
 
     // Backup section
@@ -83,15 +99,18 @@ export function createDriveSyncUI(
     backupDesc.textContent = 'Upload your current step data and settings to Google Drive.';
     backupSection.appendChild(backupDesc);
 
+    // Task 27: the auto-backup opt-out toggle sits beside the manual button
+    // (same row). It only gates the *automatic* post-sync upload — the
+    // button itself keeps working regardless of the toggle.
+    const backupActions = doc.createElement('div');
+    backupActions.className = 'panel-actions-row';
+
     const backupBtn = doc.createElement('button');
     backupBtn.className = 'btn btn-primary';
     backupBtn.setAttribute('data-action', 'backup-to-drive');
-    backupBtn.textContent = '⬆️ Back up to Drive';
-    backupSection.appendChild(backupBtn);
+    backupBtn.textContent = '☁️ Back Up to Drive';
+    backupActions.appendChild(backupBtn);
 
-    // Task 27: opt-out toggle for the background auto-upload. Gated by the
-    // persisted drive_backup_enabled setting; the manual button above is NOT
-    // affected by this checkbox.
     const toggleWrap = doc.createElement('label');
     toggleWrap.className = 'cloud-sync-toggle';
 
@@ -106,7 +125,13 @@ export function createDriveSyncUI(
     toggleText.textContent = 'Automatically back up to Drive after each sync';
     toggleWrap.appendChild(toggleText);
 
-    backupSection.appendChild(toggleWrap);
+    backupActions.appendChild(toggleWrap);
+    backupSection.appendChild(backupActions);
+
+    syncMetaEl = doc.createElement('p');
+    syncMetaEl.className = 'cloud-sync-meta';
+    syncMetaEl.textContent = formatLastSyncLine(lastSync);
+    backupSection.appendChild(syncMetaEl);
 
     panel.appendChild(backupSection);
 
@@ -120,17 +145,26 @@ export function createDriveSyncUI(
 
     const restoreDesc = doc.createElement('p');
     restoreDesc.textContent =
-      'Download and restore your step data from your Google Drive backup. ' +
-      'This will overwrite your current local data.';
+      'Download and restore your step data from your Google Drive backup.';
     restoreSection.appendChild(restoreDesc);
+
+    const restoreActions = doc.createElement('div');
+    restoreActions.className = 'panel-actions-row';
+
+    const warningBadge = doc.createElement('span');
+    warningBadge.className = 'warning-badge';
+    warningBadge.textContent = '⚠️ Overwrites local database';
+    restoreActions.appendChild(warningBadge);
 
     const restoreBtn = doc.createElement('button');
     restoreBtn.className = 'btn btn-secondary';
     restoreBtn.setAttribute('data-action', 'restore-from-drive');
-    restoreBtn.textContent = '⬇️ Restore from Drive';
-    restoreSection.appendChild(restoreBtn);
+    restoreBtn.textContent = '🔄 Restore from Drive';
+    restoreActions.appendChild(restoreBtn);
 
+    restoreSection.appendChild(restoreActions);
     panel.appendChild(restoreSection);
+
     container.appendChild(panel);
 
     // Delegated click listener
@@ -185,6 +219,7 @@ export function createDriveSyncUI(
         return;
       }
       reporter.sync('✅ Backup uploaded to Drive successfully');
+      await _recordSync(envelope);
     } catch (err) {
       console.error('[drive-sync-ui]', err);
       reporter.sync(
@@ -194,6 +229,24 @@ export function createDriveSyncUI(
       );
     } finally {
       btn.disabled = false;
+    }
+  }
+
+  /**
+   * Persist the last-sync metadata (timestamp + serialised byte size) and
+   * refresh the metadata line in place (no full re-render needed). A
+   * persistence failure is logged but never surfaces to the user — the
+   * upload itself already succeeded.
+   * @param {object} envelope - the just-uploaded backup envelope
+   */
+  async function _recordSync(envelope) {
+    if (!driveBackupPrefs?.setLastDriveSync) return;
+    try {
+      const entry = { at: new Date().toISOString(), bytes: JSON.stringify(envelope).length };
+      await driveBackupPrefs.setLastDriveSync(entry);
+      if (syncMetaEl) syncMetaEl.textContent = formatLastSyncLine(entry);
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
     }
   }
 

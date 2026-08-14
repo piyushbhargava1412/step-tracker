@@ -7,6 +7,12 @@ export const DRIVE_BACKUP_ENABLED_KEY = 'drive_backup_enabled';
 /** Auto-upload is enabled by default; only an explicit `false` disables it. */
 export const DEFAULT_DRIVE_BACKUP_ENABLED = true;
 
+/** Key recording the ISO timestamp of the last successful local JSON export. */
+export const LAST_LOCAL_EXPORT_KEY = 'last_local_export_at';
+
+/** Key recording `{ at, bytes }` of the last successful Drive push. */
+export const LAST_DRIVE_SYNC_KEY = 'last_drive_sync';
+
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function isValidDate(dateStr) {
@@ -14,6 +20,10 @@ function isValidDate(dateStr) {
   const [year, month, day] = dateStr.split('-').map(Number);
   const d = new Date(year, month - 1, day);
   return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+}
+
+function isFiniteNumberValue(value) {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function assertValidDate(date, context) {
@@ -77,6 +87,76 @@ export function createSettings(db) {
     });
   }
 
+  /**
+   * Read the ISO timestamp of the last successful local JSON export.
+   * Fails open to null (renders as "Never") on a read error.
+   *
+   * @returns {Promise<string|null>}
+   */
+  async function getLastLocalExport() {
+    try {
+      const row = await db.settings.get(LAST_LOCAL_EXPORT_KEY);
+      return row?.value ?? null;
+    } catch (err) {
+      console.error('[settings]', err);
+      return null;
+    }
+  }
+
+  /**
+   * Persist the ISO timestamp of a just-completed local JSON export.
+   *
+   * @param {string} at - ISO 8601 timestamp.
+   * @returns {Promise<void>}
+   * @throws {TypeError} When `at` is not a non-empty string.
+   */
+  async function setLastLocalExport(at) {
+    if (typeof at !== 'string' || at === '') {
+      throw new TypeError('[settings] setLastLocalExport requires a non-empty ISO string');
+    }
+    await db.settings.put({ key: LAST_LOCAL_EXPORT_KEY, value: at, updated_at: at });
+  }
+
+  /**
+   * Read the `{ at, bytes }` record of the last successful Drive push.
+   * Fails open to null (renders as "No cloud backup found") on a read error.
+   *
+   * @returns {Promise<{ at: string, bytes: number }|null>}
+   */
+  async function getLastDriveSync() {
+    try {
+      const row = await db.settings.get(LAST_DRIVE_SYNC_KEY);
+      return row?.value ?? null;
+    } catch (err) {
+      console.error('[settings]', err);
+      return null;
+    }
+  }
+
+  /**
+   * Persist the `{ at, bytes }` record of a just-completed Drive push.
+   *
+   * @param {{ at: string, bytes: number }} entry
+   * @returns {Promise<void>}
+   * @throws {TypeError} When `entry` is not shaped as `{ at: string, bytes: number }`.
+   */
+  async function setLastDriveSync(entry) {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      typeof entry.at !== 'string' ||
+      entry.at === '' ||
+      !isFiniteNumberValue(entry.bytes)
+    ) {
+      throw new TypeError('[settings] setLastDriveSync requires { at: string, bytes: number }');
+    }
+    await db.settings.put({
+      key: LAST_DRIVE_SYNC_KEY,
+      value: { at: entry.at, bytes: entry.bytes },
+      updated_at: entry.at,
+    });
+  }
+
   async function countRecordsBefore(date) {
     assertValidDate(date, 'countRecordsBefore');
     return db.daily_records.where('date').below(date).count();
@@ -118,5 +198,18 @@ export function createSettings(db) {
     }
   }
 
-  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, countAllRecords, pruneRecordsBefore, wipeDatabase, getDriveBackupEnabled, setDriveBackupEnabled };
+  return {
+    getSyncAnchorDate,
+    setSyncAnchorDate,
+    countRecordsBefore,
+    countAllRecords,
+    pruneRecordsBefore,
+    wipeDatabase,
+    getDriveBackupEnabled,
+    setDriveBackupEnabled,
+    getLastLocalExport,
+    setLastLocalExport,
+    getLastDriveSync,
+    setLastDriveSync,
+  };
 }

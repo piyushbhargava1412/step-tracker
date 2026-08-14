@@ -1487,10 +1487,16 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(createBackup).toHaveBeenCalledWith(mockDb)
   })
 
-  it('createBackupUI is called once with doc, backup instance, and reporter', async () => {
+  it('createBackupUI is called once with doc, backup instance, reporter, confirm adapter, and settings', async () => {
     await bootstrap(isolatedDoc)
     expect(createBackupUI).toHaveBeenCalledTimes(1)
-    expect(createBackupUI).toHaveBeenCalledWith(isolatedDoc, mockBackupInstance, mockReporter)
+    expect(createBackupUI).toHaveBeenCalledWith(
+      isolatedDoc,
+      mockBackupInstance,
+      mockReporter,
+      mockConfirmAdapter,
+      mockSettingsInstance
+    )
   })
 
   it('createDriveSync is called once with getAccessToken, reporter, fetchFn, and the backup validator', async () => {
@@ -1896,8 +1902,8 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     // render() functions write real DOM into the injected containers.
     const { createBackupUI: realCreateBackupUI } = await vi.importActual('./backup-ui.js')
     const { createDriveSyncUI: realCreateDriveSyncUI } = await vi.importActual('./drive-sync-ui.js')
-    createBackupUI.mockImplementation((doc, backup, reporter) =>
-      realCreateBackupUI(doc, backup, reporter)
+    createBackupUI.mockImplementation((doc, backup, reporter, confirmFn, settingsArg) =>
+      realCreateBackupUI(doc, backup, reporter, confirmFn, settingsArg)
     )
     createDriveSyncUI.mockImplementation((doc, driveSync, backup, reporter, confirmFn, prefs) =>
       realCreateDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, prefs)
@@ -1921,11 +1927,11 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     expect(backupPanel.querySelector('[data-action="import-backup"]')).not.toBeNull()
     expect(cloudPanel.querySelector('[data-action="backup-to-drive"]')).not.toBeNull()
     expect(cloudPanel.querySelector('[data-action="restore-from-drive"]')).not.toBeNull()
-    expect(backupPanel.textContent).toContain('Backup & Restore')
+    expect(backupPanel.textContent).toContain('Local JSON Files')
     expect(backupPanel.textContent).toContain('Export Backup')
-    expect(backupPanel.textContent).toContain('Restore from Backup')
-    expect(cloudPanel.textContent).toContain('Google Drive Sync')
-    expect(cloudPanel.textContent).toContain('Back up to Drive')
+    expect(backupPanel.textContent).toContain('Restore from Local File')
+    expect(cloudPanel.textContent).toContain('Google Drive Cloud Sync')
+    expect(cloudPanel.textContent).toContain('Back Up to Drive')
     expect(cloudPanel.textContent).toContain('Restore from Drive')
   })
 
@@ -1935,14 +1941,14 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     await new Promise(resolve => setTimeout(resolve, 20))
     const backupPanel = document.getElementById('backup-controls')
     const cloudPanel = document.getElementById('cloud-controls')
-    expect(backupPanel.textContent).toContain('Backup & Restore')
+    expect(backupPanel.textContent).toContain('Local JSON Files')
     expect(backupPanel.textContent).toContain('Export Backup')
-    expect(backupPanel.textContent).toContain('Restore from Backup')
-    expect(cloudPanel.textContent).toContain('Google Drive Sync')
-    expect(cloudPanel.textContent).toContain('Back up to Drive')
+    expect(backupPanel.textContent).toContain('Restore from Local File')
+    expect(cloudPanel.textContent).toContain('Google Drive Cloud Sync')
+    expect(cloudPanel.textContent).toContain('Back Up to Drive')
     expect(cloudPanel.textContent).toContain('Restore from Drive')
     // No panel render may clear the other panel's output.
-    expect(backupPanel.textContent).not.toContain('Google Drive Sync')
-    expect(cloudPanel.textContent).not.toContain('Backup & Restore')
+    expect(backupPanel.textContent).not.toContain('Google Drive Cloud Sync')
+    expect(cloudPanel.textContent).not.toContain('Local JSON Files')
   })
 })

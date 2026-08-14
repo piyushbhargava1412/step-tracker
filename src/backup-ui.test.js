@@ -37,6 +37,17 @@ function makeReporter() {
   return { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
 }
 
+function makeConfirm(returns = true) {
+  return vi.fn().mockReturnValue(returns);
+}
+
+function makeSettingsPrefs({ lastLocalExport = null } = {}) {
+  return {
+    getLastLocalExport: vi.fn().mockResolvedValue(lastLocalExport),
+    setLastLocalExport: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 /**
  * Simulates a file selection on an <input type="file"> element.
  * jsdom doesn't support real FileReader API for files set via JS,
@@ -89,7 +100,7 @@ describe('backup-ui.js — no innerHTML (runtime contract)', () => {
     const reporter = makeReporter();
     const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     expect(innerHTMLSetter).not.toHaveBeenCalled();
@@ -102,7 +113,7 @@ describe('backup-ui.js — no innerHTML (runtime contract)', () => {
     const reporter = makeReporter();
     const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     // Export flow — capture anchor so no real navigation happens
@@ -143,7 +154,7 @@ describe('createBackupUI — render', () => {
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     expect(container.querySelector('[data-action="export-backup"]')).not.toBeNull();
@@ -154,7 +165,7 @@ describe('createBackupUI — render', () => {
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const input = container.querySelector('[data-action="import-backup"]');
@@ -167,7 +178,7 @@ describe('createBackupUI — render', () => {
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const exportBtn = container.querySelector('[data-action="export-backup"]');
@@ -176,6 +187,43 @@ describe('createBackupUI — render', () => {
     expect(importInput.hidden).toBe(false);
     expect(exportBtn.style.display).not.toBe('none');
     expect(importInput.style.display).not.toBe('none');
+  });
+
+  it('renders a "⚠️ Overwrites local database" warning badge in the restore section', () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
+    ui.render(container);
+
+    const badge = container.querySelector('.warning-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe('⚠️ Overwrites local database');
+  });
+
+  it('renders "Last local export: Never" when no settings collaborator is injected', () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
+    ui.render(container);
+
+    expect(container.textContent).toContain('Last local export: Never');
+  });
+
+  it('renders the persisted last-export date from settings.getLastLocalExport()', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const settings = makeSettingsPrefs({ lastLocalExport: '2026-08-10T10:00:00.000Z' });
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm(), settings);
+    await ui.render(container);
+
+    expect(settings.getLastLocalExport).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Last local export: Aug 10, 2026');
   });
 });
 
@@ -209,7 +257,7 @@ describe('createBackupUI — export path', () => {
       return el;
     });
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const exportBtn = container.querySelector('[data-action="export-backup"]');
@@ -240,7 +288,7 @@ describe('createBackupUI — export path', () => {
       return el;
     });
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const exportBtn = container.querySelector('[data-action="export-backup"]');
@@ -259,6 +307,89 @@ describe('createBackupUI — export path', () => {
     });
 
     await vi.waitFor(() => expect(exportBtn.disabled).toBe(false));
+  });
+});
+
+describe('createBackupUI — export metadata persistence', () => {
+  beforeEach(() => {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn().mockReturnValue('blob:mock-url'),
+      revokeObjectURL: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a successful export persists the timestamp via settings.setLastLocalExport', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const settings = makeSettingsPrefs();
+    const origCreateElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(() => {});
+      return el;
+    });
+
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm(), settings);
+    await ui.render(container);
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+
+    await vi.waitFor(() => expect(settings.setLastLocalExport).toHaveBeenCalledTimes(1));
+    expect(settings.setLastLocalExport).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('the metadata line updates in place after a successful export, without a full re-render', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const settings = makeSettingsPrefs({ lastLocalExport: null });
+    const origCreateElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(() => {});
+      return el;
+    });
+
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm(), settings);
+    await ui.render(container);
+    expect(container.textContent).toContain('Last local export: Never');
+
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+
+    await vi.waitFor(() => expect(container.textContent).not.toContain('Last local export: Never'));
+  });
+
+  it('a setLastLocalExport failure is logged and never surfaces to the user (export already succeeded)', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const settings = makeSettingsPrefs();
+    settings.setLastLocalExport.mockRejectedValue(new Error('write failed'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const origCreateElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(() => {});
+      return el;
+    });
+
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm(), settings);
+    await ui.render(container);
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+
+    await vi.waitFor(() => expect(settings.setLastLocalExport).toHaveBeenCalled());
+    await vi.waitFor(() => expect(consoleSpy).toHaveBeenCalledWith('[backup-ui]', expect.any(Error)));
+    expect(reporter.db).toHaveBeenCalledWith('✅ Backup exported successfully');
   });
 });
 
@@ -281,7 +412,7 @@ describe('createBackupUI — Task 19 oversized export guard', () => {
       return el;
     });
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
     const exportBtn = container.querySelector('[data-action="export-backup"]');
     exportBtn.click();
@@ -303,7 +434,7 @@ describe('createBackupUI — Task 19 oversized export guard', () => {
     const reporter = makeReporter();
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
     const exportBtn = container.querySelector('[data-action="export-backup"]');
     exportBtn.click();
@@ -321,7 +452,7 @@ describe('createBackupUI — restore path', () => {
     const payload = { schema_version: 1, exported_at: '2024-01-01T00:00:00.000Z', daily_records: [], settings: [] };
     const backup = makeBackup();
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const events = [];
@@ -337,13 +468,55 @@ describe('createBackupUI — restore path', () => {
     restore();
   });
 
+  it('confirmFn is invoked with a warning message before restoreBackup is called', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const payload = { schema_version: 1, exported_at: '2024-01-01T00:00:00.000Z', daily_records: [], settings: [] };
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const confirmFn = makeConfirm(true);
+    const ui = createBackupUI(doc, backup, reporter, confirmFn);
+    ui.render(container);
+
+    const input = container.querySelector('[data-action="import-backup"]');
+    const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
+
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalledWith(expect.stringMatching(/overwrite/i)));
+    expect(backup.restoreBackup).toHaveBeenCalledWith(payload);
+
+    restore();
+  });
+
+  it('user cancels the confirm dialog: restoreBackup NOT called; data:records:mutated NOT dispatched', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const payload = { schema_version: 1, exported_at: '2024-01-01T00:00:00.000Z', daily_records: [], settings: [] };
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const confirmFn = makeConfirm(false);
+    const ui = createBackupUI(doc, backup, reporter, confirmFn);
+    ui.render(container);
+
+    const events = [];
+    doc.addEventListener('data:records:mutated', (e) => events.push(e));
+
+    const input = container.querySelector('[data-action="import-backup"]');
+    const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
+
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalled());
+    expect(backup.restoreBackup).not.toHaveBeenCalled();
+    expect(events.length).toBe(0);
+
+    restore();
+  });
+
   it('data:records:mutated dispatched on success only — not on failure', async () => {
     const doc = buildDoc();
     const container = doc.getElementById('tab-backup');
     const payload = { schema_version: 1, exported_at: '2024-01-01T00:00:00.000Z', daily_records: [], settings: [] };
     const backup = makeBackup({ restoreResult: new Error('restore failed') });
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const events = [];
@@ -365,7 +538,7 @@ describe('createBackupUI — restore path', () => {
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const input = container.querySelector('[data-action="import-backup"]');
@@ -384,7 +557,7 @@ describe('createBackupUI — restore path', () => {
     const payload = { schema_version: 99, exported_at: '2024-01-01T00:00:00.000Z', daily_records: [], settings: [] };
     const backup = makeBackup({ restoreResult: new TypeError('Unsupported schema') });
     const reporter = makeReporter();
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     const events = [];
@@ -427,7 +600,7 @@ describe('createBackupUI — AbortController cleanup', () => {
       revokeObjectURL: vi.fn(),
     });
 
-    const ui = createBackupUI(doc, backup, reporter);
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm());
     ui.render(container);
 
     // Spy on anchors to prevent actual click

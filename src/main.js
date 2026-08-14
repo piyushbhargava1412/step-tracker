@@ -114,7 +114,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createBackup failed, continuing', err)
   }
   try {
-    backupUI = createBackupUI(doc, backup, reporter)
+    backupUI = createBackupUI(doc, backup, reporter, createConfirmAdapter(window), settings)
   } catch (err) {
     console.error('[main] createBackupUI failed, continuing', err)
   }

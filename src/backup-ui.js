@@ -1,26 +1,36 @@
 /**
- * Backup panel UI — sole DOM writer.
- * createBackupUI(doc, backup, reporter) factory:
- *  - render(container): builds the backup panel with export button + restore file input
- *  - Export: calls backup.buildBackup(), triggers <a download> via blob/anchor idiom
- *  - Restore: reads File as text, JSON.parse, calls backup.restoreBackup(), dispatches data:records:mutated
+ * Local backup panel UI — sole DOM writer for the "📄 Local JSON Files" column.
+ * createBackupUI(doc, backup, reporter, confirmFn, settings) factory:
+ *  - render(container): builds the Export Backup and Restore from Local File cards
+ *  - Export: calls backup.buildBackup(), triggers <a download> via blob/anchor idiom,
+ *    then persists the export timestamp via settings.setLastLocalExport
+ *  - Restore: reads File as text, JSON.parse, confirms via confirmFn (guards against
+ *    an accidental IndexedDB overwrite), calls backup.restoreBackup(), dispatches
+ *    data:records:mutated
+ *
+ * `settings` is optional — when omitted, the "last export" metadata line always
+ * reads "Never" and nothing is persisted (fails open, never blocks export/restore).
  *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
 
 import { BACKUP_FILENAME_PREFIX } from './backup.js';
+import { formatLastExportLine } from './backup-format.js';
 
-export function createBackupUI(doc, backup, reporter) {
+export function createBackupUI(doc, backup, reporter, confirmFn, settings = null) {
   let controller = null;
+  let exportMetaEl = null;
 
   /**
-   * (Re)build the backup panel content inside the given container element.
+   * (Re)build the local-backup column content inside the given container element.
    * Idempotent: calling a second time aborts previous listeners and rebuilds DOM.
+   * Async because the export-metadata line reflects the persisted timestamp; a
+   * read failure fails open to "Never" so the panel always renders.
    *
    * @param {HTMLElement} container
    */
-  function render(container) {
+  async function render(container) {
     // Abort previous listeners
     if (controller) {
       controller.abort();
@@ -33,12 +43,21 @@ export function createBackupUI(doc, backup, reporter) {
       container.removeChild(container.firstChild);
     }
 
+    let lastExportAt = null;
+    if (settings?.getLastLocalExport) {
+      try {
+        lastExportAt = await settings.getLastLocalExport();
+      } catch (err) {
+        console.error('[backup-ui]', err);
+      }
+    }
+
     // Build panel
     const panel = doc.createElement('div');
     panel.className = 'backup-panel data-panel';
 
     const heading = doc.createElement('h2');
-    heading.textContent = '💾 Backup & Restore';
+    heading.textContent = '📄 Local JSON Files';
     panel.appendChild(heading);
 
     // Export section
@@ -56,8 +75,13 @@ export function createBackupUI(doc, backup, reporter) {
     const exportBtn = doc.createElement('button');
     exportBtn.className = 'btn btn-primary';
     exportBtn.setAttribute('data-action', 'export-backup');
-    exportBtn.textContent = '⬇️ Export Backup';
+    exportBtn.textContent = '⬇️ Export JSON Backup';
     exportSection.appendChild(exportBtn);
+
+    exportMetaEl = doc.createElement('p');
+    exportMetaEl.className = 'backup-meta';
+    exportMetaEl.textContent = formatLastExportLine(lastExportAt);
+    exportSection.appendChild(exportMetaEl);
 
     panel.appendChild(exportSection);
 
@@ -66,16 +90,24 @@ export function createBackupUI(doc, backup, reporter) {
     restoreSection.className = 'backup-section data-panel__section';
 
     const restoreHeading = doc.createElement('h3');
-    restoreHeading.textContent = 'Restore from Backup';
+    restoreHeading.textContent = 'Restore from Local File';
     restoreSection.appendChild(restoreHeading);
 
     const restoreDesc = doc.createElement('p');
     restoreDesc.textContent = 'Select a previously exported backup JSON file to restore your data.';
     restoreSection.appendChild(restoreDesc);
 
+    const restoreActions = doc.createElement('div');
+    restoreActions.className = 'panel-actions-row';
+
+    const warningBadge = doc.createElement('span');
+    warningBadge.className = 'warning-badge';
+    warningBadge.textContent = '⚠️ Overwrites local database';
+    restoreActions.appendChild(warningBadge);
+
     const importLabel = doc.createElement('label');
     importLabel.className = 'btn btn-secondary backup-file-label';
-    importLabel.textContent = '📂 Choose Backup File';
+    importLabel.textContent = '📁 Choose Backup File';
 
     const importInput = doc.createElement('input');
     importInput.type = 'file';
@@ -88,7 +120,8 @@ export function createBackupUI(doc, backup, reporter) {
     importInput.style.height = '1px';
 
     importLabel.appendChild(importInput);
-    restoreSection.appendChild(importLabel);
+    restoreActions.appendChild(importLabel);
+    restoreSection.appendChild(restoreActions);
     panel.appendChild(restoreSection);
 
     container.appendChild(panel);
@@ -120,7 +153,8 @@ export function createBackupUI(doc, backup, reporter) {
     try {
       const envelope = await backup.buildBackup();
       const text = JSON.stringify(envelope, null, 2);
-      const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const now = new Date().toISOString();
+      const date = now.slice(0, 10); // YYYY-MM-DD
       const filename = `${BACKUP_FILENAME_PREFIX}${date}.json`;
       const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
       try {
@@ -132,6 +166,7 @@ export function createBackupUI(doc, backup, reporter) {
         URL.revokeObjectURL(url);
       }
       reporter.db('✅ Backup exported successfully');
+      await _recordExport(now);
     } catch (err) {
       console.error('[backup-ui]', err);
       reporter.db(
@@ -145,7 +180,24 @@ export function createBackupUI(doc, backup, reporter) {
   }
 
   /**
-   * Handles the restore file input change.
+   * Persist the export timestamp and refresh the metadata line in place
+   * (no full re-render needed). A persistence failure is logged but never
+   * surfaces to the user — the export itself already succeeded.
+   * @param {string} at - ISO 8601 timestamp
+   */
+  async function _recordExport(at) {
+    if (!settings?.setLastLocalExport) return;
+    try {
+      await settings.setLastLocalExport(at);
+      if (exportMetaEl) exportMetaEl.textContent = formatLastExportLine(at);
+    } catch (err) {
+      console.error('[backup-ui]', err);
+    }
+  }
+
+  /**
+   * Handles the restore file input change. Confirms via confirmFn before any
+   * Dexie write so a local restore can never silently overwrite the store.
    * @param {File} file
    */
   async function _handleRestore(file) {
@@ -159,6 +211,10 @@ export function createBackupUI(doc, backup, reporter) {
         reporter.db('❌ Restore failed: file is not valid JSON');
         return;
       }
+      const confirmed = confirmFn(
+        'This will overwrite your local step data with the selected backup file. Continue?'
+      );
+      if (!confirmed) return;
       await backup.restoreBackup(parsed);
       doc.dispatchEvent(new doc.defaultView.CustomEvent('data:records:mutated'));
       reporter.db('✅ Backup restored successfully');

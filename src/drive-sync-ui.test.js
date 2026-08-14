@@ -47,10 +47,12 @@ function makeReporter() {
   return { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
 }
 
-function makeDriveBackupPrefs({ enabled = true } = {}) {
+function makeDriveBackupPrefs({ enabled = true, lastDriveSync = null } = {}) {
   return {
     getDriveBackupEnabled: vi.fn().mockResolvedValue(enabled),
     setDriveBackupEnabled: vi.fn().mockResolvedValue(undefined),
+    getLastDriveSync: vi.fn().mockResolvedValue(lastDriveSync),
+    setLastDriveSync: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -86,6 +88,39 @@ describe('createDriveSyncUI', () => {
     expect(btn).not.toBeNull();
   });
 
+  it('renders the "☁️ Google Drive Cloud Sync" column heading', () => {
+    expect(container.querySelector('h2').textContent).toBe('☁️ Google Drive Cloud Sync');
+  });
+
+  it('renders a "⚠️ Overwrites local database" warning badge in the restore section', () => {
+    const badge = container.querySelector('.warning-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toBe('⚠️ Overwrites local database');
+  });
+
+  it('renders the auto-backup toggle inside the "Back Up to Drive" section, beside the button', () => {
+    const backupBtn = container.querySelector('[data-action="backup-to-drive"]');
+    const toggle = container.querySelector('[data-action="toggle-drive-backup"]');
+    expect(toggle).not.toBeNull();
+    expect(backupBtn.closest('section')).toBe(toggle.closest('section'));
+  });
+
+  it('renders "No cloud backup found" when no last-sync metadata is available', () => {
+    expect(container.textContent).toContain('No cloud backup found');
+  });
+
+  it('renders the persisted last-sync metadata from driveBackupPrefs.getLastDriveSync()', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const prefs = makeDriveBackupPrefs({ lastDriveSync: { at: '2026-08-10T18:30:00.000Z', bytes: 245_760 } });
+    const freshUi = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
+    await freshUi.render(freshContainer);
+
+    expect(prefs.getLastDriveSync).toHaveBeenCalledTimes(1);
+    expect(freshContainer.textContent).toContain('Last cloud sync:');
+    expect(freshContainer.textContent).toContain('240 KB');
+  });
+
   // ── Backup-now path ──────────────────────────────────────────────────────────
 
   it('backup-now click calls buildBackup then driveSync.push with the envelope', async () => {
@@ -107,6 +142,52 @@ describe('createDriveSyncUI', () => {
     expect(reporter.sync).toHaveBeenCalled();
     const msg = reporter.sync.mock.calls[reporter.sync.mock.calls.length - 1][0];
     expect(msg).toMatch(/^✅/);
+  });
+
+  it('a successful push persists { at, bytes } via driveBackupPrefs.setLastDriveSync', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const prefs = makeDriveBackupPrefs();
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
+    await ui.render(freshContainer);
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(prefs.setLastDriveSync).toHaveBeenCalledWith({
+      at: expect.any(String),
+      bytes: JSON.stringify(backup._envelope).length,
+    });
+  });
+
+  it('the metadata line updates in place after a successful push, without a full re-render', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const prefs = makeDriveBackupPrefs();
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
+    await ui.render(freshContainer);
+    expect(freshContainer.textContent).toContain('No cloud backup found');
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await vi.waitFor(() => expect(freshContainer.textContent).not.toContain('No cloud backup found'));
+    expect(freshContainer.textContent).toContain('Last cloud sync:');
+  });
+
+  it('a skipped (no-token) push does NOT persist last-sync metadata', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const prefs = makeDriveBackupPrefs();
+    driveSync = makeDriveSync({ pushResult: DRIVE_PUSH_SKIPPED });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
+    await ui.render(freshContainer);
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(prefs.setLastDriveSync).not.toHaveBeenCalled();
   });
 
   it('no-token push (skip sentinel) shows NO ✅ success toast — only an informational ℹ️ notice', async () => {
