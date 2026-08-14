@@ -249,6 +249,58 @@ describe('createBackupUI — export path', () => {
   });
 });
 
+describe('createBackupUI — Task 19 oversized export guard', () => {
+  it('buildBackup RangeError ("backup too large") surfaces a generic ❌ reporter, no crash, no download', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const tooLarge = new RangeError(
+      'backup too large: 100001 rows exceeds MAX_BACKUP_RECORDS'
+    );
+    const buildBackup = vi.fn().mockRejectedValue(tooLarge);
+    const backup = { buildBackup, restoreBackup: vi.fn() };
+    const reporter = makeReporter();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const anchors = [];
+    const origCreateElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') anchors.push(el);
+      return el;
+    });
+
+    const ui = createBackupUI(doc, backup, reporter);
+    ui.render(container);
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+
+    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
+    const msg = reporter.mock.calls[reporter.mock.calls.length - 1][0];
+    expect(msg).toBe('❌ Export failed: backup too large');
+    expect(msg).not.toMatch(/MAX_BACKUP_RECORDS|100001/);
+    expect(consoleSpy).toHaveBeenCalledWith('[backup-ui]', tooLarge);
+    expect(anchors).toHaveLength(0);
+    expect(exportBtn.disabled).toBe(false);
+  });
+
+  it('non-RangeError export failure still surfaces the detailed message via reporter', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const buildBackup = vi.fn().mockRejectedValue(new Error('indexeddb quota exceeded'));
+    const backup = { buildBackup, restoreBackup: vi.fn() };
+    const reporter = makeReporter();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const ui = createBackupUI(doc, backup, reporter);
+    ui.render(container);
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+
+    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
+    const msg = reporter.mock.calls[reporter.mock.calls.length - 1][0];
+    expect(msg).toBe('❌ Export failed: indexeddb quota exceeded');
+  });
+});
+
 describe('createBackupUI — restore path', () => {
   it('valid file -> restoreBackup() called and data:records:mutated dispatched', async () => {
     const doc = buildDoc();

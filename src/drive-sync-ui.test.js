@@ -126,6 +126,30 @@ describe('createDriveSyncUI', () => {
     expect(mutatedFired).toBe(false);
   });
 
+  it('buildBackup RangeError ("backup too large") surfaces a generic ❌ reporter; push NOT called', async () => {
+    const tooLarge = new RangeError(
+      'backup too large: serialised payload exceeds MAX_BACKUP_BYTES'
+    );
+    const bk = { buildBackup: vi.fn().mockRejectedValue(tooLarge), restoreBackup: vi.fn() };
+    const drive = makeDriveSync();
+    ui = createDriveSyncUI(doc, drive, bk, reporter, confirmFn);
+    ui.render(container);
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const btn = container.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const calls = reporter.mock.calls.map(c => c[0]);
+    expect(calls).toContain('❌ Drive backup failed: backup too large');
+    expect(calls.some(m => m.includes('MAX_BACKUP_BYTES'))).toBe(false);
+    expect(drive.push).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[drive-sync-ui]'),
+      tooLarge
+    );
+  });
+
   // ── Restore-from-cloud path ──────────────────────────────────────────────────
 
   it('restore click invokes confirmFn before any restore logic', async () => {

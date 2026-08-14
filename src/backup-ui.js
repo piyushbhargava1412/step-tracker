@@ -134,7 +134,11 @@ export function createBackupUI(doc, backup, reporter) {
       reporter('✅ Backup exported successfully');
     } catch (err) {
       console.error('[backup-ui]', err);
-      reporter('❌ Export failed: ' + (err.message ?? err));
+      reporter(
+        err instanceof RangeError
+          ? '❌ Export failed: backup too large'
+          : '❌ Export failed: ' + (err.message ?? err)
+      );
     } finally {
       btn.disabled = false;
     }

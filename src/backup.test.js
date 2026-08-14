@@ -191,6 +191,49 @@ describe('buildBackup()', () => {
   });
 });
 
+// ─── buildBackup() export size guard (Task 19) ───────────────────────────────
+
+describe('buildBackup() — Task 19 export size guard', () => {
+  it('rejects an oversized record count with a typed RangeError before returning', async () => {
+    const { createBackup, MAX_BACKUP_RECORDS } = await import('./backup.js');
+    const db = makeDb({
+      records: Array.from({ length: MAX_BACKUP_RECORDS + 1 }, () => ({
+        date: '2024-01-01',
+        original_steps: 8000,
+      })),
+    });
+    const { buildBackup } = createBackup(db);
+    await expect(buildBackup()).rejects.toThrow(RangeError);
+    await expect(buildBackup()).rejects.toThrow(/backup too large/i);
+  });
+
+  it('rejects a payload whose serialised size exceeds MAX_BACKUP_BYTES with RangeError', async () => {
+    const { createBackup, MAX_BACKUP_BYTES } = await import('./backup.js');
+    const db = makeDb({
+      records: [
+        {
+          date: '2024-01-01',
+          original_steps: 8000,
+          synced_at: 'x'.repeat(MAX_BACKUP_BYTES + 1),
+        },
+      ],
+    });
+    const { buildBackup } = createBackup(db);
+    await expect(buildBackup()).rejects.toThrow(RangeError);
+    await expect(buildBackup()).rejects.toThrow(/backup too large/i);
+  });
+
+  it('settles a normal payload inside the caps without throwing', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeDb({
+      records: [{ date: '2024-01-01', original_steps: 8000 }],
+      settings: [{ key: 'active_step_goal', target_steps: 10000 }],
+    });
+    const { buildBackup } = createBackup(db);
+    await expect(buildBackup()).resolves.not.toThrow();
+  });
+});
+
 // ─── blobToBase64 ─────────────────────────────────────────────────────────────
 
 describe('blobToBase64()', () => {

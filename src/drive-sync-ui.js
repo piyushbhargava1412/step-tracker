@@ -122,7 +122,11 @@ export function createDriveSyncUI(
       reporter('✅ Backup uploaded to Drive successfully');
     } catch (err) {
       console.error('[drive-sync-ui]', err);
-      reporter('❌ Drive backup failed: ' + (err.message ?? err));
+      reporter(
+        err instanceof RangeError
+          ? '❌ Drive backup failed: backup too large'
+          : '❌ Drive backup failed: ' + (err.message ?? err)
+      );
     } finally {
       btn.disabled = false;
     }

@@ -17,6 +17,13 @@ export const BACKUP_FILENAME_PREFIX = 'step-tracker-backup-';
 export const MAX_BACKUP_RECORDS = 100_000;
 export const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
 
+/**
+ * Fixed byte overhead of the envelope wrapper (schema_version, exported_at keys)
+ * added when measuring the serialised payload so the export guard stays
+ * conservative relative to the full-envelope stringify used on import.
+ */
+const BACKUP_ENVELOPE_OVERHEAD_BYTES = 128;
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -51,6 +58,35 @@ export function base64ToBlob(dataUrl) {
     bytes[i] = binary.charCodeAt(i);
   }
   return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Symmetric export guard: rejects a payload that exceeds the same caps enforced
+ * by _validateEnvelope on import — before the full envelope is synchronously
+ * JSON.stringify-ed. The cheap record-count check runs first (no serialisation
+ * for the pathological multi-hundred-thousand-row case); the byte check then
+ * measures the two tables in per-table chunks to bound peak memory and
+ * main-thread blocking for multi-MB proof blobs.
+ * @param {object[]} daily_records
+ * @param {object[]} settings
+ * @throws {RangeError}
+ */
+function assertBackupWithinLimits(daily_records, settings) {
+  const rowCount = daily_records.length + settings.length;
+  if (rowCount > MAX_BACKUP_RECORDS) {
+    throw new RangeError(
+      `Backup too large: ${rowCount} rows exceeds MAX_BACKUP_RECORDS (${MAX_BACKUP_RECORDS})`
+    );
+  }
+  const serializedBytes =
+    JSON.stringify(daily_records).length +
+    JSON.stringify(settings).length +
+    BACKUP_ENVELOPE_OVERHEAD_BYTES;
+  if (serializedBytes > MAX_BACKUP_BYTES) {
+    throw new RangeError(
+      `Backup too large: serialised payload exceeds MAX_BACKUP_BYTES (${MAX_BACKUP_BYTES})`
+    );
+  }
 }
 
 function isFiniteNumber(value) {
@@ -198,6 +234,7 @@ export function createBackup(db) {
         db.daily_records.toArray(),
         db.settings.toArray(),
       ]);
+      assertBackupWithinLimits(daily_records, settings);
       return {
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: new Date().toISOString(),
