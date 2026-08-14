@@ -3,30 +3,14 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 // ─── Module-level export tests (no factory needed) ───────────────────────────
 
 describe('module-level exports', () => {
-  it('BACKUP_SCHEMA_VERSION is a non-empty named export', async () => {
+  it('BACKUP_SCHEMA_VERSION matches the exact schema version literal', async () => {
     const { BACKUP_SCHEMA_VERSION } = await import('./backup.js');
-    expect(BACKUP_SCHEMA_VERSION).toBeTruthy();
+    expect(BACKUP_SCHEMA_VERSION).toBe(1);
   });
 
-  it('BACKUP_FILENAME_PREFIX is a non-empty string export', async () => {
+  it('BACKUP_FILENAME_PREFIX matches the exact filename prefix literal', async () => {
     const { BACKUP_FILENAME_PREFIX } = await import('./backup.js');
-    expect(typeof BACKUP_FILENAME_PREFIX).toBe('string');
-    expect(BACKUP_FILENAME_PREFIX.length).toBeGreaterThan(0);
-  });
-
-  it('blobToBase64 is a named module-level export', async () => {
-    const { blobToBase64 } = await import('./backup.js');
-    expect(typeof blobToBase64).toBe('function');
-  });
-
-  it('base64ToBlob is a named module-level export', async () => {
-    const { base64ToBlob } = await import('./backup.js');
-    expect(typeof base64ToBlob).toBe('function');
-  });
-
-  it('_validateEnvelope is a named module-level export', async () => {
-    const { _validateEnvelope } = await import('./backup.js');
-    expect(typeof _validateEnvelope).toBe('function');
+    expect(BACKUP_FILENAME_PREFIX).toBe('step-tracker-backup-');
   });
 });
 
@@ -522,12 +506,10 @@ function makeEnvelope({ records = [makeRow()], settings = [{ key: 'active_step_g
 }
 
 describe('_validateEnvelope() — Task 10 per-row validation', () => {
-  it('MAX_BACKUP_RECORDS and MAX_BACKUP_BYTES are positive number exports', async () => {
+  it('MAX_BACKUP_RECORDS and MAX_BACKUP_BYTES match exact size-cap literals', async () => {
     const { MAX_BACKUP_RECORDS, MAX_BACKUP_BYTES } = await import('./backup.js');
-    expect(typeof MAX_BACKUP_RECORDS).toBe('number');
-    expect(MAX_BACKUP_RECORDS).toBeGreaterThan(0);
-    expect(typeof MAX_BACKUP_BYTES).toBe('number');
-    expect(MAX_BACKUP_BYTES).toBeGreaterThan(0);
+    expect(MAX_BACKUP_RECORDS).toBe(100000);
+    expect(MAX_BACKUP_BYTES).toBe(16 * 1024 * 1024);
   });
 
   it('accepts a valid multi-field daily_record row', async () => {

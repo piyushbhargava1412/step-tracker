@@ -37,14 +37,12 @@ function makeErrorResponse(status = 500) {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 describe('constants', () => {
-  it('DRIVE_APPDATA_FILE_NAME is a non-empty string', () => {
-    expect(typeof DRIVE_APPDATA_FILE_NAME).toBe('string');
-    expect(DRIVE_APPDATA_FILE_NAME.length).toBeGreaterThan(0);
+  it('DRIVE_APPDATA_FILE_NAME matches the exact AppData backup filename', () => {
+    expect(DRIVE_APPDATA_FILE_NAME).toBe('step_tracker_backup.json');
   });
 
-  it('DRIVE_API_BASE_URL is a non-empty string', () => {
-    expect(typeof DRIVE_API_BASE_URL).toBe('string');
-    expect(DRIVE_API_BASE_URL.length).toBeGreaterThan(0);
+  it('DRIVE_API_BASE_URL matches the exact Drive v3 API base URL', () => {
+    expect(DRIVE_API_BASE_URL).toBe('https://www.googleapis.com');
   });
 });
 
