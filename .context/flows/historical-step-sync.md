@@ -1,8 +1,8 @@
 # Flow: Historical Step Sync (Chunked Google Fit Aggregate Fetch)
 
 <!-- context-meta
-verification-commit: 889018e
-generated-at: 2026-08-13T00:00:00Z
+verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
+generated-at: 2026-08-14T00:00:00Z
 confidence: high
 -->
 
@@ -26,11 +26,17 @@ confidence: high
 6. `_upsertChunk` persists each chunk inside a Dexie `rw` transaction, merging against existing rows: `is_overridden: true` rows keep their user-authored `effective_*` and `override` values (only `original_*` is refreshed), and all other rows high-water-mark `effective_*` as `max(stored, incoming)` — a lowered/scrubbed Google Fit response can never reduce a user-visible step or distance count, while `original_*` always follows the raw cloud truth.
 7. When a full-history window completed, `_latchBackfillComplete` writes `{ key: 'initial_backfill_complete', value: true }` to the `settings` store; all future syncs collapse to a single incremental request.
 8. On success the final status line reports the day/request count and how far the history now reaches; a terminal failure writes the decision-12a message, logs via `console.error`, fail-stops (keeps already-persisted chunks), and the next click resumes at the correct older date. In the backfill-completed success message the anchor is rendered as the formatted local date `2013-01-01` (`_formatLocalDate(HISTORY_ANCHOR_DATE.getTime())`) rather than embedding the `HISTORY_ANCHOR_DATE` Date object — this avoids a locale-dependent `toString()` and matches the tests.
+9. **Fire-and-forget Drive backup (ST-012)**: when `driveSync` and `backup` collaborators are injected
+   (see `.context/flows/backup-and-cloud-sync.md`), a successful sync triggers a silent background push
+   to Google Drive AppData — gated on the persisted `drive_backup_enabled` opt-out setting, a cheap
+   dirty-check (`backup.hasUnpushedChanges()`), and an in-flight coalescing guard so overlapping syncs
+   upload at most once. This step never blocks, never throws, and never writes to `#sync-status` — a
+   Drive failure is isolated and logged only via `console.error('[drive-sync]', err)`.
 
 ## Data Touchpoints
 - **Entities**: One `daily_records` row per calendar day (`date` primary key, `original_*`/`effective_*` step and distance values, `is_overridden`, `override`, `synced_at`)
 - **Tables**: `daily_records` (Dexie) for step data; `settings` (Dexie) for the `initial_backfill_complete` latch key
-- **UI Surface**: `#sync-status` line via `reporter.sync()` — the whole status surface (no alert/toast/progress bar)
+- **UI Surface**: `#sync-status` line via `reporter.sync()` for progress/throttling/warning/failure messages. Terminal `✅`-prefixed success messages are instead rendered as a transient fading toast (`src/toast.js:showToast`, `src/ui-status.js:sync()`) and `#sync-status` is cleared — no persistent success text remains on the status line.
 
 ## Integrations
 - **Type**: API Call
@@ -43,8 +49,9 @@ confidence: high
 - Other `4xx` and network errors are terminal (fail-stop); every state (⏳ progress, ✅ success, ⚠️ transient, ❌ terminal, 🔑 auth) is surfaced via `reporter.sync()` → `#sync-status`.
 
 ## Scope
-- `src/steps.js` — the step-sync engine (factory `createStepSync(auth, db, reporter, doc = document)`)
+- `src/steps.js` — the step-sync engine (factory `createStepSync(auth, db, reporter, doc, driveSync, backup, settings)`; the last three collaborators are optional/injectable and drive the ST-012 post-sync Drive push described in step 9)
 - `src/main.js` — composition-root wiring (`#sync-btn` click → `stepSync.sync()`)
+- `src/toast.js` / `src/ui-status.js` — success-message toast surface (see step 8 / UI Surface above)
 
 ## Tests
 - `src/steps.test.js` — factory shape, DST-safe date helpers, window resolution, chunking, normalisation, retry policy, transactional upsert/override preservation, and the backfill latch.

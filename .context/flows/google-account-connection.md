@@ -1,8 +1,8 @@
 # Flow: Google Account Connection (OAuth Token Acquisition)
 
 <!-- context-meta
-verification-commit: 9a0d42930ab13cb2f6ee855ffffcb01f1e964595
-generated-at: 2026-08-10T15:55:56Z
+verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
+generated-at: 2026-08-14T00:00:00Z
 confidence: high
 -->
 
@@ -17,7 +17,7 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
 ## Core Path
 1. **Initialization**: On app start, `src/auth.js` calls `google.accounts.oauth2.initTokenClient()` with:
    - Client ID from `import.meta.env.VITE_CLIENT_ID` (loaded from `.env.local`)
-   - Scopes: `fitness.activity.read fitness.location.read` (space-delimited for both step activity and location)
+   - Scopes: `fitness.activity.read fitness.location.read drive.appdata` (space-delimited; ST-012 added `drive.appdata` so the same token also authorizes Google Drive AppData cloud backup — see `.context/flows/backup-and-cloud-sync.md`)
 
 2. **Token Request**: User clicks `#auth_btn` → calls `requestToken()` → `tokenClient.requestAccessToken()` triggers the Google consent/token popup.
 
@@ -51,10 +51,11 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
 
 ### OAuth Scopes (Space-Delimited)
 ```
-fitness.activity.read fitness.location.read
+fitness.activity.read fitness.location.read drive.appdata
 ```
 - `fitness.activity.read`: Read step count and activity data
 - `fitness.location.read`: Read location-based fitness data
+- `drive.appdata`: Read/write the app-private Google Drive AppData folder (ST-012 cloud backup; see `.context/flows/backup-and-cloud-sync.md`)
 
 ## Scope
 - `src/auth.js` (OAuth 2.0 initialization, token client setup, token storage, `onTokenReceived` listener, `requestToken(options)` for silent restore)
@@ -71,3 +72,4 @@ fitness.activity.read fitness.location.read
 - The implicit GSI token flow has **no refresh token**; silent restore works only while Google's `gsi_session` cookie is valid (a refresh keeps it; a full browser restart or a long gap may expire it, at which point the user reconnects once)
 - Configuration has been migrated from `config.example.js` / `config.local.js` with `window.APP_CONFIG.CLIENT_ID` to `.env.local` + `import.meta.env.VITE_CLIENT_ID`
 - Both fitness scopes are required for full functionality: activity read provides step counts, location read provides location-based insights
+- `drive.appdata` is requested in the same consent screen as the fitness scopes (single sign-in); a token missing this scope would only affect Drive cloud sync (`.context/flows/backup-and-cloud-sync.md`), not step sync — the two capabilities share one `auth.js` token but are otherwise independent

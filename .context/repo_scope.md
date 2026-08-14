@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-  - verification-commit: `889018e`
-  - generated-at: `2026-08-13T00:00:00Z`
+  - verification-commit: `7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a`
+  - generated-at: `2026-08-14T00:00:00Z`
   - confidence: `high`
 
 ## Purpose
@@ -26,6 +26,9 @@ This repository is a client-side step streak tracker web app that connects to Go
 - Group Challenge Tracker (`src/challenge.js`, `src/challenge-ui.js`) — `createChallenge(db)` engine persists `active_challenge` in Dexie `settings` store; `computeChallengeMetrics` derives "Latest Day" steps (today-1 while active, `end_date` once completed), cumulative total, day progress, and avg pace across the challenge window; `createChallengeUI` renders the mockup metric `#challenge-card` stacked below today's progress in `#tab-dashboard`; ⚙️ gear toggles the start/end date config; Save handler persists config; Copy handler formats and copies a plain-text group update to clipboard; re-renders on `data:records:mutated` event
 - Settings management (`src/settings.js`, `src/settings-ui.js`, `src/confirm.js`) — `createSettings(db)` engine reads/writes `sync_anchor_date` in Dexie `settings` store, counts/prunes `daily_records` before a given date, counts all records, and wipes the full database; `createSettingsUI(doc, settings, reporter, confirmFn)` renders `#settings-modal` with 📅 SYNC BOUNDARY / 🗑️ DATA PURGE OPTIONS sections (anchor-date picker, impact preview, prune/wipe actions, auto-save anchor on date change); `createConfirmAdapter(windowRef)` is an injectable seam replacing `window.confirm`; settings modal is opened via `#settings-btn`; successful mutations dispatch `data:records:mutated`
 - Pure shared utilities — `src/date-utils.js` (`_localDate`, `_addDaysUtc`; no DOM, no Dexie; shared by `goal.js`, `streak.js`, `steps.js`, `exporter.js`); `src/units.js` (`KM_TO_STEPS = 1312.33`; no imports; shared by `progress.js`, `records.js`)
+- Local database backup/restore (`src/backup.js`, `src/backup-ui.js`) — `createBackup(db)` serialises/restores the full `daily_records` + `settings` Dexie state as a versioned, size-capped JSON envelope (export/import via a dedicated `#tab-backup` panel); see `.context/flows/backup-and-cloud-sync.md`
+- Google Drive AppData cloud sync (`src/drive-sync.js`, `src/drive-sync-ui.js`) — `createDriveSync(...)` pushes/pulls the same backup envelope to/from the user's app-private Google Drive `appDataFolder` over the Drive v3 REST API (reusing the `auth.js` OAuth token, now scoped with `drive.appdata`); manual push/pull controls plus an automatic, opt-out post-sync push wired into `src/steps.js`'s sync flow and a cloud-recovery banner on clean install; see `.context/flows/backup-and-cloud-sync.md`
+- Storage persistence guidance (`src/storage-modal.js`) — interactive modal (opened from the `#db-status` badge) explaining browser storage-eviction risk and offering a manual retry of `src/storage.js`'s `requestPersistentStorage`; see `.context/flows/persistent-storage-modal.md`
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
 - Environment-based configuration (`.env.example`, `import.meta.env.VITE_CLIENT_ID`)

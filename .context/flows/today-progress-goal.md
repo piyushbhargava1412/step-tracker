@@ -1,8 +1,8 @@
 # Flow: Today's Progress Card & Goal Commitment
 
 <!-- context-meta
-verification-commit: a4e9d6fd1aeaab215e9ad706d637b8816f346474
-generated-at: 2026-08-12T06:00:00Z
+verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
+generated-at: 2026-08-14T00:00:00Z
 confidence: high
 -->
 
@@ -34,7 +34,7 @@ card, streak, calendar, and month-overview.
    - `target_steps` from the integer `stepGoal` (defaults to `DEFAULT_STEP_GOAL` on non-finite/absent values, pct=0 on target≤0).
    - `pct = min(100, round(steps / target_steps × 100))`, `remaining_steps`, `goalMet = pct >= 100`.
 4. `_buildCard(progress)` builds the card DOM (metric row, progress track+fill, `.goal-met-badge` or `.remaining-hint`).
-5. `_buildSelector(progress)` builds the goal-selector DOM: a `<select id="goal-select">` populated from `STEP_GOAL_OPTIONS` (imported from `src/goal.js`). The `change` listener calls `goal.setActiveStepGoal(Number(e.target.value))` and invokes the `onGoalApplied` callback (which triggers `streakUI.render()`, `calendarUI.render()`, and `monthOverview.render()` in `main.js`).
+5. `_buildSelector(progress)` builds the goal-selector DOM: a `<select id="goal-select">` populated from `STEP_GOAL_OPTIONS` (imported from `src/goal.js`). The `change` listener calls `goal.setActiveStepGoal(Number(e.target.value))` and invokes the `onGoalApplied` callback (which triggers `streakUI.render()`, `calendarUI.render()`, and `monthOverview.render()` in `main.js`). The selector is appended into `#active-lens` (the menu-bar "Active Lens" mount, `index.html`) when that element is present, falling back to the dashboard card container otherwise — so the goal selector now lives in the top nav bar rather than inside the progress card.
 6. Old `#progress-card` and `#goal-selector` elements are removed before inserting the freshly-built ones (idempotent re-render).
 7. On any data error, `reporter.db('❌ Progress load failed')` is called and `computeProgress(null, null)` produces a zero-state card; `render()` never throws.
 
@@ -52,6 +52,7 @@ card, streak, calendar, and month-overview.
 - `src/progress.js` — Pure computation (`getTodayRecord`, `computeProgress`)
 - `src/progress-ui.js` — Render layer (`createProgressUI`, `render`, `_buildCard`, `_buildSelector`)
 - `src/main.js` — Composition-root wiring (instantiation, load-time render, post-sync re-render, goal-change three-renderer fan-out)
+- `index.html` — `#active-lens` menu-bar mount for the goal selector (see Core Path step 5)
 - `styles.css` — `.card`, `.card-title`, `.metric-row`, `.metric-value`, `.metric-unit`, `.metric-sub`, `.progress-track`, `.progress-fill`, `.progress-fill--full`, `.goal-met-badge`, `.remaining-hint`, `.goal-selector`, `.goal-select`
 
 ## Tests
