@@ -4,8 +4,6 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
 import { JSDOM } from 'jsdom';
 import { createBackupUI } from './backup-ui.js';
 import { BACKUP_FILENAME_PREFIX } from './backup.js';
@@ -76,22 +74,54 @@ function simulateFileSelect(doc, input, text, filename = 'backup.json') {
   };
 }
 
-// ── Static scan ───────────────────────────────────────────────────────────────
-
-const backupUiSource = (() => {
-  try {
-    return fs.readFileSync(path.resolve(__dirname, 'backup-ui.js'), 'utf8');
-  } catch {
-    return null;
-  }
-})();
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('backup-ui.js — no innerHTML', () => {
-  it('backup-ui.js contains no innerHTML assignments', () => {
-    expect(backupUiSource).not.toBeNull();
-    expect(backupUiSource).not.toMatch(/\.innerHTML\s*=/);
+describe('backup-ui.js — no innerHTML (runtime contract)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('builds and drives the panel without ever assigning innerHTML', async () => {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
+
+    const ui = createBackupUI(doc, backup, reporter);
+    ui.render(container);
+    expect(innerHTMLSetter).not.toHaveBeenCalled();
+
+    // Export flow — capture anchor so no real navigation happens
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn().mockReturnValue('blob:mock-url'),
+      revokeObjectURL: vi.fn(),
+    });
+    const origCreateElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation((tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(() => {});
+      return el;
+    });
+    const exportBtn = container.querySelector('[data-action="export-backup"]');
+    exportBtn.click();
+    await vi.waitFor(() => expect(reporter).toHaveBeenCalled());
+
+    // Restore flow
+    const payload = {
+      schema_version: 1,
+      exported_at: '2024-01-01T00:00:00.000Z',
+      daily_records: [],
+      settings: [],
+    };
+    const input = container.querySelector('[data-action="import-backup"]');
+    const restore = simulateFileSelect(doc, input, JSON.stringify(payload));
+    await vi.waitFor(() => expect(backup.restoreBackup).toHaveBeenCalled());
+
+    expect(innerHTMLSetter).not.toHaveBeenCalled();
+
+    restore();
   });
 });
 

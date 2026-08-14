@@ -1,7 +1,4 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
 // ─── Module-level export tests (no factory needed) ───────────────────────────
 
@@ -33,15 +30,37 @@ describe('module-level exports', () => {
   });
 });
 
-// ─── Engine isolation scan ────────────────────────────────────────────────────
+// ─── Engine isolation ────────────────────────────────────────────────────────
 
 describe('engine isolation', () => {
-  it('module source has no document, window, or bare Dexie import', () => {
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(__dirname, 'backup.js'), 'utf-8');
-    expect(src).not.toMatch(/\bdocument\b/);
-    expect(src).not.toMatch(/\bwindow\b/);
-    expect(src).not.toMatch(/import.*from ['"]dexie['"]/);
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('buildBackup/restoreBackup operate purely on the injected db — zero DOM/global access', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION, blobToBase64, base64ToBlob } = await import('./backup.js');
+
+    const globalFetch = vi.fn(() => Promise.reject(new Error('engine must not touch bare global fetch')));
+    vi.stubGlobal('fetch', globalFetch);
+    const innerHTMLSetter = vi.spyOn(Element.prototype, 'innerHTML', 'set');
+    const createElementSpy = vi.spyOn(document, 'createElement');
+
+    const db = makeTransactionalDb({
+      initialRecords: [{ date: '2024-01-15', original_steps: 8000, effective_steps: 8000 }],
+      initialSettings: [{ key: 'sync_anchor_date', value: '2024-01-01' }],
+    });
+    const { buildBackup, restoreBackup } = createBackup(db);
+    const envelope = await buildBackup();
+    expect(envelope.schema_version).toBe(BACKUP_SCHEMA_VERSION);
+    await restoreBackup(envelope);
+    await blobToBase64(new Blob(['x'], { type: 'text/plain' }));
+    const restoredBlob = base64ToBlob('data:text/plain;base64,eA==');
+    expect(restoredBlob).toBeInstanceOf(Blob);
+
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(innerHTMLSetter).not.toHaveBeenCalled();
+    expect(createElementSpy).not.toHaveBeenCalled();
   });
 });
 

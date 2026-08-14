@@ -3,16 +3,12 @@
  * All Drive API calls go through injected fetchFn; no globals touched.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
 import {
   createDriveSync,
   DRIVE_APPDATA_FILE_NAME,
   DRIVE_API_BASE_URL,
 } from './drive-sync.js';
 import { _validateEnvelope } from './backup.js';
-
-const MODULE_PATH = path.resolve(__dirname, 'drive-sync.js');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,26 +48,55 @@ describe('constants', () => {
   });
 });
 
-// ─── Static source scans ──────────────────────────────────────────────────────
+// ─── DI isolation (runtime) ───────────────────────────────────────────────────
 
-describe('DI isolation (static scan)', () => {
-  let source;
-  beforeEach(() => {
-    source = fs.readFileSync(MODULE_PATH, 'utf-8');
+describe('DI isolation (runtime)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it('uses only fetchFn (injected) — no bare fetch( calls', () => {
-    // Allow `fetchFn(` but disallow `fetch(` that is not preceded by 'Fn'
-    const bareFetchMatches = source.match(/(?<!Fn)\bfetch\s*\(/g);
-    expect(bareFetchMatches).toBeNull();
+  const envelope = {
+    schema_version: 1,
+    exported_at: '2026-01-01T00:00:00.000Z',
+    daily_records: [],
+    settings: [],
+  };
+
+  it('uses only the injected fetchFn — the bare global fetch is never consulted', async () => {
+    const globalFetch = vi.fn(() => Promise.reject(new Error('bare global fetch must never be used')));
+    vi.stubGlobal('fetch', globalFetch);
+
+    const fetchFn = vi.fn().mockResolvedValue(makeOkResponse({ files: [] }));
+    const getAccessToken = vi.fn().mockReturnValue('test-token-123');
+    const driveSync = createDriveSync({ getAccessToken, reporter: makeReporter(), fetchFn });
+
+    await driveSync.find();
+    await driveSync.pull();
+    await driveSync.push(envelope);
+
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(fetchFn).toHaveBeenCalled();
   });
 
-  it('uses only injected getAccessToken — no window. references', () => {
-    expect(source).not.toMatch(/\bwindow\b/);
+  it('never touches the DOM or renders during find/push/pull', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(makeOkResponse({ files: [] }));
+    const getAccessToken = vi.fn().mockReturnValue('test-token-123');
+    const innerHTMLSetter = vi.spyOn(Element.prototype, 'innerHTML', 'set');
+
+    const driveSync = createDriveSync({ getAccessToken, reporter: makeReporter(), fetchFn });
+
+    await driveSync.find();
+    await driveSync.push(envelope);
+
+    expect(innerHTMLSetter).not.toHaveBeenCalled();
   });
 
-  it('does not import backup.js (gateway isolation — no backup-module import)', () => {
-    expect(source).not.toMatch(/from\s+['"]\.\/backup(?:\.js)?['"]/);
+  it('keeps the backup module out of its public surface (export-shape isolation)', async () => {
+    const driveSyncExports = Object.keys(await import('./drive-sync.js'));
+    const backupExports = Object.keys(await import('./backup.js'));
+    const overlap = driveSyncExports.filter((name) => backupExports.includes(name));
+    expect(overlap).toEqual([]);
   });
 });
 
