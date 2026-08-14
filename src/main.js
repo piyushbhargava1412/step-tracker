@@ -29,6 +29,7 @@ import { createBackup } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
+import { createStorageModal } from './storage-modal.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -130,6 +131,20 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window))
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
+  }
+
+  // ST-012 Task 9: interactive persistence badge modal (fail-open).
+  // The factory builds the guidance modal DOM in JS and attaches the
+  // #db-status click binding that opens it only in the "not persisted" state.
+  try {
+    const storageModal = createStorageModal(doc, reporter, navigator)
+    try {
+      storageModal.attach?.()
+    } catch (err) {
+      console.error('[main] storageModal.attach failed, continuing', err)
+    }
+  } catch (err) {
+    console.error('[main] createStorageModal failed, continuing', err)
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators

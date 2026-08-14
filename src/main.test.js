@@ -26,6 +26,12 @@ vi.mock('./drive-sync-ui.js', () => ({
   createDriveSyncUI: vi.fn(() => mockDriveSyncUIInstance)
 }))
 
+// ST-012 Task 9: mock storage-modal.js
+const mockStorageModalInstance = { attach: vi.fn(), open: vi.fn(), close: vi.fn() }
+vi.mock('./storage-modal.js', () => ({
+  createStorageModal: vi.fn(() => mockStorageModalInstance)
+}))
+
 
 // Task 5: mock records.js and image-processor.js
 const mockRecordsInstance = { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn().mockResolvedValue(undefined) }
@@ -188,6 +194,7 @@ import { createBackup } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
+import { createStorageModal } from './storage-modal.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1626,5 +1633,64 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(mockBackupInstance.restoreBackup).toHaveBeenCalledWith(mockEnvelope)
     expect(banner.hidden).toBe(true)
+  })
+})
+
+// ============================================================================
+// ST-012 Task 9: Interactive persistence badge modal wiring
+// ============================================================================
+
+describe('main.js — ST-012 Task 9: storage persistence badge modal wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockStorageModalInstance.attach.mockReset()
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('createStorageModal is instantiated once with (doc, shared reporter, navigator)', async () => {
+    await boot()
+    expect(createStorageModal).toHaveBeenCalledTimes(1)
+    expect(createStorageModal).toHaveBeenCalledWith(document, mockReporter, navigator)
+  })
+
+  it('storageModal.attach() is called exactly once during bootstrap', async () => {
+    await boot()
+    expect(mockStorageModalInstance.attach).toHaveBeenCalledTimes(1)
+  })
+
+  it('createStorageModal throwing during bootstrap is fail-open (bootstrap still resolves)', async () => {
+    createStorageModal.mockImplementationOnce(() => { throw new Error('modal init fail') })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(boot()).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] createStorageModal failed, continuing',
+      expect.any(Error)
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('storageModal.attach() throwing during bootstrap is fail-open', async () => {
+    mockStorageModalInstance.attach.mockImplementationOnce(() => { throw new Error('attach fail') })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(boot()).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[main] storageModal.attach failed, continuing',
+      expect.any(Error)
+    )
+    errorSpy.mockRestore()
   })
 })
