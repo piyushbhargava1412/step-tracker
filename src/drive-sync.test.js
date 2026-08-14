@@ -285,6 +285,46 @@ describe('createDriveSync — push()', () => {
     expect(opts.method).toBe('PATCH');
   });
 
+  it('second push() reuses the cached file ID — no List/find round-trip', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'cached-id' }] })) // find warms the cache
+      .mockResolvedValueOnce(makeOkResponse({ id: 'cached-id' })) // first push PATCH
+      .mockResolvedValueOnce(makeOkResponse({ id: 'cached-id' })); // second push: PATCH only
+
+    await driveSync.push(envelope);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+
+    await driveSync.push(envelope);
+
+    // The cached ID short-circuits the List endpoint — exactly one new call.
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    const [url, opts] = fetchFn.mock.calls[2];
+    expect(url).toContain('cached-id');
+    expect(url).not.toContain('spaces=appDataFolder');
+    expect(opts.method).toBe('PATCH');
+  });
+
+  it('404 on a cached-ID PATCH invalidates the cache, re-runs find(), then re-creates via POST', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'cached-id' }] })) // find warms the cache
+      .mockResolvedValueOnce(makeOkResponse({ id: 'cached-id' })) // first push PATCH
+      .mockResolvedValueOnce(makeErrorResponse(404)) // second push PATCH → 404
+      .mockResolvedValueOnce(makeOkResponse({ files: [] })) // fallback find → not found
+      .mockResolvedValueOnce(makeOkResponse({ id: 'recreated-id' })); // fallback POST create
+
+    await driveSync.push(envelope);
+    await expect(driveSync.push(envelope)).resolves.toBeUndefined();
+
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+    const calls = fetchFn.mock.calls;
+    expect(calls[2][0]).toContain('cached-id');
+    expect(calls[2][1].method).toBe('PATCH');
+    expect(calls[3][0]).toContain('spaces=appDataFolder');
+    expect(calls[3][1].method).toBe('GET');
+    expect(calls[4][0]).toContain('uploadType=multipart');
+    expect(calls[4][1].method).toBe('POST');
+  });
+
   it('returns gracefully without calling fetchFn when getAccessToken returns null (no throw)', async () => {
     getAccessToken.mockReturnValue(null);
 
@@ -403,6 +443,24 @@ describe('createDriveSync — pull()', () => {
     const result = await driveSync.pull();
 
     expect(result).toEqual(storedEnvelope);
+  });
+
+  it('pull() populates the cache so a later push() skips the find() round-trip', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'found-id' }] })) // pull find
+      .mockResolvedValueOnce(makeOkResponse(storedEnvelope)) // pull content
+      .mockResolvedValueOnce(makeOkResponse({ id: 'found-id' })); // push PATCH only
+
+    await driveSync.pull();
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+
+    await driveSync.push(storedEnvelope);
+
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    const [url, opts] = fetchFn.mock.calls[2];
+    expect(url).toContain('found-id');
+    expect(url).not.toContain('spaces=appDataFolder');
+    expect(opts.method).toBe('PATCH');
   });
 
   it('returns null without calling fetchFn for content when find returns null', async () => {

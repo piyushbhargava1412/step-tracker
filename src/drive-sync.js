@@ -109,9 +109,14 @@ function buildMultipartBody(metadata, data) {
  * }} deps
  */
 export function createDriveSync({ getAccessToken, reporter, fetchFn, validator = () => {} }) {
+  // Per-instance cache of the last-seen backup file ID, warmable by find() and
+  // pull() so a subsequent push() can skip the List round-trip entirely.
+  let cachedFileId = null;
+
   /**
    * Returns the Drive file ID for the backup file, or null if none exists.
    * Returns undefined (and notifies reporter) if there is no access token.
+   * Locating the file also warms the instance cache.
    * @returns {Promise<string|null|undefined>}
    */
   async function find() {
@@ -140,7 +145,9 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
 
       const data = await resp.json();
       const files = data?.files ?? [];
-      return files.length > 0 ? files[0].id : null;
+      const fileId = files.length > 0 ? files[0].id : null;
+      cachedFileId = fileId;
+      return fileId;
     } catch (err) {
       console.error('[drive-sync]', err);
       return null;
@@ -148,10 +155,41 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
   }
 
   /**
+   * One create/update upload round-trip with a freshly generated multipart body.
+   * fileId null ⇒ POST-create; otherwise PATCH-update that file.
+   * @param {string} token    Bearer token
+   * @param {string|null} fileId  Target backup file ID, or null to create
+   * @param {string} metadata Serialised metadata part
+   * @param {string} data     Serialised envelope part
+   * @returns {Promise<Response>}
+   */
+  async function upload(token, fileId, metadata, data) {
+    const { boundary, body } = buildMultipartBody(metadata, data);
+    const url = fileId
+      ? `${DRIVE_UPLOAD_URL}/${fileId}?uploadType=multipart`
+      : `${DRIVE_UPLOAD_URL}?uploadType=multipart`;
+    const method = fileId ? 'PATCH' : 'POST';
+    return fetchFn(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+  }
+
+  /**
    * Creates or updates the backup file in appDataFolder.
    * Uses multipart upload: metadata + JSON body.
    * Rejects on non-2xx HTTP responses and network failures so UI callers can
    * surface an ❌; the no-token path still returns gracefully.
+   *
+   * The discovered file ID is cached per createDriveSync instance. A warm cache
+   * skips the List find() round-trip (one network call per push). A 404 on the
+   * cached PATCH means the file was deleted out-of-band: the cache is
+   * invalidated, a fresh find() runs, and the upload retries once (straight to
+   * POST-create if the file is truly gone).
    *
    * Security contract (Task 18): no HTTP status code ever appears in a reporter
    * message or in the thrown error — the thrown error may be interpolated
@@ -175,29 +213,33 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
       return;
     }
 
+    const metadata = JSON.stringify({
+      name: DRIVE_APPDATA_FILE_NAME,
+      parents: ['appDataFolder'],
+    });
+    const data = JSON.stringify(envelope);
+
     let resp;
     try {
-      const existingId = await find();
-      const metadata = JSON.stringify({
-        name: DRIVE_APPDATA_FILE_NAME,
-        parents: ['appDataFolder'],
-      });
-      const data = JSON.stringify(envelope);
-      const { boundary, body } = buildMultipartBody(metadata, data);
+      let fileId = cachedFileId;
+      const usedCachedId = cachedFileId !== null;
+      if (!usedCachedId) {
+        // No cache yet: locate-or-null via the List endpoint (also warms cache).
+        fileId = await find();
+      }
 
-      const url = existingId
-        ? `${DRIVE_UPLOAD_URL}/${existingId}?uploadType=multipart`
-        : `${DRIVE_UPLOAD_URL}?uploadType=multipart`;
-      const method = existingId ? 'PATCH' : 'POST';
+      resp = await upload(token, fileId, metadata, data);
 
-      resp = await fetchFn(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body,
-      });
+      if (usedCachedId && fileId !== null && resp.status === 404) {
+        // File deleted out-of-band: drop the stale ID, re-locate, retry once.
+        console.error(
+          '[drive-sync]',
+          new Error(`Drive push failed: HTTP ${resp.status}`)
+        );
+        cachedFileId = null;
+        const relocatedId = await find();
+        resp = await upload(token, relocatedId, metadata, data);
+      }
     } catch (err) {
       console.error('[drive-sync]', err);
       if (!silent) {
