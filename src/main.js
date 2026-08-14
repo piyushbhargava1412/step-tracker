@@ -86,8 +86,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const auth = createAuth(config, reporter)
   auth.init()
 
-  // 6. Step sync engine
-  const stepSync = createStepSync(auth, db, reporter, doc)
+  // 6. Step sync engine — created after backup/driveSync (see below) so collaborators can be injected.
 
   // 6a. Goal + progress UI + streak engine (wired after db is ready)
   const goal = createGoal(db)
@@ -132,6 +131,9 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
+
+  // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
+  const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup)
 
   // Mount backup + cloud panels into #cloud-controls
   const cloudControls = doc.getElementById('cloud-controls')

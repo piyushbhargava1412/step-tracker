@@ -361,7 +361,9 @@ describe('main.js — Task 11 step sync wiring', () => {
       mockAuthInstance,
       mockDb,
       mockReporter,
-      document
+      document,
+      mockDriveSyncInstance,
+      mockBackupInstance
     )
   })
 

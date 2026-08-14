@@ -738,7 +738,7 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
  *                             global directly.
  * @returns {{ sync: Function }}
  */
-export function createStepSync(auth, db, reporter, doc = document) {
+export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null) {
   // Re-entrancy guard — lives in the factory closure, never at module level.
   let isSyncing = false;
 
@@ -841,6 +841,18 @@ export function createStepSync(auth, db, reporter, doc = document) {
         reporter.sync(
           `✅ Synced ${dayCount} days (${total} request${total === 1 ? '' : 's'}) — up to date.`
         );
+      }
+
+      // 9. Fire-and-forget Drive backup — must not block or suppress the ✅ status.
+      //    A Drive failure is isolated: logged with [drive-sync] prefix, never re-thrown.
+      if (driveSync && backup) {
+        (async () => {
+          try {
+            await driveSync.push(await backup.buildBackup());
+          } catch (err) {
+            console.error('[drive-sync]', err);
+          }
+        })();
       }
     } catch (error) {
       // Decision-12a error contract: every terminal path writes its exact

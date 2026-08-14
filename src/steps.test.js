@@ -2809,3 +2809,99 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
   });
 });
+
+// ── Task 8 (Review Loopback): Post-sync silent Drive upload hook ──────────────
+
+describe('Task 8: post-sync silent Drive upload hook', () => {
+  let auth, db, reporter, doc;
+  let driveSync, backup;
+
+  const TODAY = new Date(2025, 5, 19); // 2025-06-19
+
+  function stubFetch() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ bucket: [] }),
+      })
+    );
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = {
+      sync: vi.fn(),
+      db: vi.fn(),
+      auth: vi.fn(),
+    };
+    doc = { getElementById: vi.fn().mockReturnValue(null) };
+    driveSync = { push: vi.fn().mockResolvedValue(undefined) };
+    backup = { buildBackup: vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] }) };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('calls driveSync.push(buildBackup()) once after a successful sync', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    // Wait for the fire-and-forget to complete
+    await Promise.resolve();
+
+    expect(backup.buildBackup).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rejecting driveSync.push does not suppress the ✅ sync status', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+    driveSync.push = vi.fn().mockRejectedValue(new Error('Drive upload failed'));
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    // Wait for the fire-and-forget to complete
+    await Promise.resolve();
+
+    // ✅ status was written
+    const calls = reporter.sync.mock.calls.map(([msg]) => msg);
+    expect(calls.some((m) => m.startsWith('✅'))).toBe(true);
+    // Drive error logged with [drive-sync] prefix
+    expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(Error));
+  });
+
+  it('sync succeeds normally when driveSync is null (collaborator not provided)', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, null, null);
+    await engine.sync();
+
+    const calls = reporter.sync.mock.calls.map(([msg]) => msg);
+    expect(calls.some((m) => m.startsWith('✅'))).toBe(true);
+    // No Drive push attempted
+    expect(driveSync.push).not.toHaveBeenCalled();
+  });
+
+  it('sync succeeds normally when driveSync/backup are not passed (legacy call site)', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc);
+    await engine.sync();
+
+    const calls = reporter.sync.mock.calls.map(([msg]) => msg);
+    expect(calls.some((m) => m.startsWith('✅'))).toBe(true);
+  });
+});
