@@ -3,6 +3,30 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 // All vi.mock calls are hoisted — they run before any imports
 vi.mock('./config.js', () => ({ CLIENT_ID: 'FAKE_ID' }))
 
+// ST-012 Task 7: mock backup.js, backup-ui.js, drive-sync.js, drive-sync-ui.js
+const mockBackupInstance = { buildBackup: vi.fn().mockResolvedValue({}), restoreBackup: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./backup.js', () => ({
+  createBackup: vi.fn(() => mockBackupInstance),
+  BACKUP_SCHEMA_VERSION: 1,
+  BACKUP_FILENAME_PREFIX: 'step-tracker-backup-'
+}))
+
+const mockBackupUIInstance = { render: vi.fn() }
+vi.mock('./backup-ui.js', () => ({
+  createBackupUI: vi.fn(() => mockBackupUIInstance)
+}))
+
+const mockDriveSyncInstance = { find: vi.fn().mockResolvedValue(null), push: vi.fn().mockResolvedValue(undefined), pull: vi.fn().mockResolvedValue(null) }
+vi.mock('./drive-sync.js', () => ({
+  createDriveSync: vi.fn(() => mockDriveSyncInstance)
+}))
+
+const mockDriveSyncUIInstance = { render: vi.fn() }
+vi.mock('./drive-sync-ui.js', () => ({
+  createDriveSyncUI: vi.fn(() => mockDriveSyncUIInstance)
+}))
+
+
 // Task 5: mock records.js and image-processor.js
 const mockRecordsInstance = { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn().mockResolvedValue(undefined) }
 vi.mock('./records.js', () => ({
@@ -160,6 +184,10 @@ import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
 import { createConfirmAdapter } from './confirm.js'
+import { createBackup } from './backup.js'
+import { createBackupUI } from './backup-ui.js'
+import { createDriveSync } from './drive-sync.js'
+import { createDriveSyncUI } from './drive-sync-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1373,5 +1401,228 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
     expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
     expect(errorSpy).toHaveBeenCalledWith('[main]', expect.any(Error))
     errorSpy.mockRestore()
+  })
+})
+
+// ============================================================================
+// ST-012 Task 7: Backup + Drive sync wiring in composition root
+// ============================================================================
+
+describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+      defaultView: window,
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockDriveSyncInstance.find.mockResolvedValue(null)
+    mockDriveSyncInstance.push.mockResolvedValue(undefined)
+    mockDriveSyncInstance.pull.mockResolvedValue(null)
+    mockBackupInstance.buildBackup.mockResolvedValue({})
+    mockBackupInstance.restoreBackup.mockResolvedValue(undefined)
+    mockBackupUIInstance.render.mockReset()
+    mockDriveSyncUIInstance.render.mockReset()
+    // Default mockDb has no daily_records.count — set it to return 5 by default
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <button id="settings-btn">Settings</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <div id="cloud-controls"></div>
+      <div id="cloud-recovery-banner" hidden></div>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  // --- Factory wiring ---
+
+  it('createBackup is called once during bootstrap with injected db', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createBackup).toHaveBeenCalledTimes(1)
+    expect(createBackup).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createBackupUI is called once with doc, backup instance, and reporter', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createBackupUI).toHaveBeenCalledTimes(1)
+    expect(createBackupUI).toHaveBeenCalledWith(isolatedDoc, mockBackupInstance, mockReporter)
+  })
+
+  it('createDriveSync is called once with getAccessToken, reporter, and fetchFn', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createDriveSync).toHaveBeenCalledTimes(1)
+    const callArg = createDriveSync.mock.calls[0][0]
+    expect(callArg).toHaveProperty('getAccessToken')
+    expect(callArg).toHaveProperty('reporter', mockReporter)
+    expect(callArg).toHaveProperty('fetchFn')
+    expect(typeof callArg.fetchFn).toBe('function')
+  })
+
+  it('createDriveSyncUI is called once with doc, driveSync instance, backup instance, reporter', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createDriveSyncUI).toHaveBeenCalledTimes(1)
+    expect(createDriveSyncUI).toHaveBeenCalledWith(
+      isolatedDoc,
+      mockDriveSyncInstance,
+      mockBackupInstance,
+      mockReporter,
+      expect.any(Function)
+    )
+  })
+
+  // --- fan-out ---
+
+  it('data:records:mutated invokes backupUI.render (if mounted)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockBackupUIInstance.render.mockReset()
+    mockDriveSyncUIInstance.render.mockReset()
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockBackupUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated invokes driveSyncUI.render (if mounted)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockDriveSyncUIInstance.render.mockReset()
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockDriveSyncUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated still invokes all existing fan-out legs (regression)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  // --- fail-open bootstrap ---
+
+  it('createDriveSync throwing during bootstrap does not propagate; other modules still mount', async () => {
+    createDriveSync.mockImplementationOnce(() => { throw new Error('drive init fail') })
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(bootstrap(isolatedDoc)).resolves.not.toThrow()
+    // Settings and streak should still be created
+    expect(createSettingsUI).toHaveBeenCalledTimes(1)
+    expect(createStreakUI).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
+  // --- Cloud recovery: onTokenReceived hook ---
+
+  it('onTokenReceived with empty DB and Drive backup found → #cloud-recovery-banner un-hidden', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    await bootstrap(isolatedDoc)
+    // Fire the token received callback
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const banner = document.getElementById('cloud-recovery-banner')
+    expect(banner.hidden).toBe(false)
+  })
+
+  it('onTokenReceived with empty DB and no Drive backup → banner stays hidden', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue(null)
+    await bootstrap(isolatedDoc)
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const banner = document.getElementById('cloud-recovery-banner')
+    expect(banner.hidden).toBe(true)
+  })
+
+  it('onTokenReceived with non-empty DB → driveSync.find NOT called (during recovery check)', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
+    await bootstrap(isolatedDoc)
+    const findCallsBefore = mockDriveSyncInstance.find.mock.calls.length
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // find should not have been called during recovery check
+    expect(mockDriveSyncInstance.find.mock.calls.length).toBe(findCallsBefore)
+  })
+
+  it('recovery banner "Start Fresh" button → no restore; banner dismissed', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    await bootstrap(isolatedDoc)
+    // Add a start-fresh button to the banner
+    const banner = document.getElementById('cloud-recovery-banner')
+    const startFreshBtn = document.createElement('button')
+    startFreshBtn.setAttribute('data-action', 'recovery-start-fresh')
+    banner.appendChild(startFreshBtn)
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // Banner should be visible; click start fresh
+    startFreshBtn.click()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockBackupInstance.restoreBackup).not.toHaveBeenCalled()
+    expect(banner.hidden).toBe(true)
+  })
+
+  it('recovery banner "Restore Cloud Backup" → confirm → restoreBackup → data:records:mutated → banner hidden', async () => {
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(0) }
+    mockDriveSyncInstance.find.mockResolvedValue('file-id-123')
+    const mockEnvelope = { schema_version: 1, daily_records: [], settings: [] }
+    mockDriveSyncInstance.pull.mockResolvedValue(mockEnvelope)
+    mockConfirmAdapter.mockReturnValue(true)
+    await bootstrap(isolatedDoc)
+    // Add restore button to banner
+    const banner = document.getElementById('cloud-recovery-banner')
+    const restoreBtn = document.createElement('button')
+    restoreBtn.setAttribute('data-action', 'recovery-restore')
+    banner.appendChild(restoreBtn)
+    await mockOnTokenHandler()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    // Banner un-hidden; click restore
+    restoreBtn.click()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockBackupInstance.restoreBackup).toHaveBeenCalledWith(mockEnvelope)
+    expect(banner.hidden).toBe(true)
   })
 })

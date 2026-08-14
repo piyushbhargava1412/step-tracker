@@ -69,7 +69,14 @@
     </main>
 
 
-    <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
+    <!-- CLOUD RECOVERY BANNER — bare shell; main.js un-hides and wires this on clean install with Drive backup -->
+    <div id="cloud-recovery-banner" class="recovery-banner" hidden>
+        <p class="recovery-banner__msg">☁️ A cloud backup was found. Would you like to restore it?</p>
+        <button class="btn btn-primary" data-action="recovery-restore">Restore Cloud Backup</button>
+        <button class="btn btn-secondary" data-action="recovery-start-fresh">Start Fresh</button>
+    </div>
+
+        <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
     <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden></div>
 
     <!-- FOOTER -->

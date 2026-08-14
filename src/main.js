@@ -25,6 +25,10 @@ import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
 import { createConfirmAdapter } from './confirm.js'
+import { createBackup } from './backup.js'
+import { createBackupUI } from './backup-ui.js'
+import { createDriveSync } from './drive-sync.js'
+import { createDriveSyncUI } from './drive-sync-ui.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -100,6 +104,41 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)
   const settings = createSettings(db)
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
+
+  // ST-012: Backup engine + UI (fail-open)
+  let backup = null
+  let backupUI = null
+  try {
+    backup = createBackup(db)
+  } catch (err) {
+    console.error('[main] createBackup failed, continuing', err)
+  }
+  try {
+    backupUI = createBackupUI(doc, backup, reporter)
+  } catch (err) {
+    console.error('[main] createBackupUI failed, continuing', err)
+  }
+
+  // ST-012: Drive sync gateway + UI (fail-open)
+  let driveSync = null
+  let driveSyncUI = null
+  try {
+    driveSync = createDriveSync({ getAccessToken: auth.getAccessToken.bind(auth), reporter, fetchFn: fetch.bind(window) })
+  } catch (err) {
+    console.error('[main] createDriveSync failed, continuing', err)
+  }
+  try {
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window))
+  } catch (err) {
+    console.error('[main] createDriveSyncUI failed, continuing', err)
+  }
+
+  // Mount backup + cloud panels into #cloud-controls
+  const cloudControls = doc.getElementById('cloud-controls')
+  if (cloudControls) {
+    try { backupUI?.render?.(cloudControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
+    try { driveSyncUI?.render?.(cloudControls) } catch (err) { console.error('[main] driveSyncUI.render failed, continuing', err) }
+  }
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
@@ -162,6 +201,41 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       console.error('[main] failed to persist google connection flag, continuing', err)
     }
     await runSync()
+
+    // ST-012: Cloud auto-recovery on clean install (empty DB + Drive backup exists)
+    try {
+      const count = await db?.daily_records?.count?.()
+      if (count === 0 && driveSync) {
+        const fileId = await driveSync.find()
+        if (fileId) {
+          const banner = doc.getElementById('cloud-recovery-banner')
+          if (banner) {
+            banner.hidden = false
+            // Wire banner action buttons (delegated listener on banner)
+            const confirmFn = createConfirmAdapter(window)
+            banner.addEventListener('click', async (e) => {
+              const action = e.target?.closest('[data-action]')?.getAttribute('data-action')
+              if (action === 'recovery-start-fresh') {
+                banner.hidden = true
+              } else if (action === 'recovery-restore') {
+                try {
+                  const envelope = await driveSync.pull()
+                  if (envelope) {
+                    await backup?.restoreBackup?.(envelope)
+                    doc.dispatchEvent(new CustomEvent('data:records:mutated'))
+                  }
+                  banner.hidden = true
+                } catch (err) {
+                  console.error('[main] cloud recovery restore failed', err)
+                }
+              }
+            })
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[main] cloud recovery check failed, continuing', err)
+    }
   })
 
   // 7c. Restore the connection after a refresh: when the user connected before,
@@ -226,6 +300,16 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       await searchUI.render()
     } catch (err) {
       console.error('[main]', err)
+    }
+    try {
+      backupUI?.render?.()
+    } catch (err) {
+      console.error('[main] backupUI.render failed after mutation, continuing', err)
+    }
+    try {
+      driveSyncUI?.render?.()
+    } catch (err) {
+      console.error('[main] driveSyncUI.render failed after mutation, continuing', err)
     }
   })
 
