@@ -736,9 +736,13 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
  *                             createStatusReporter(doc = document): accepting a
  *                             defaulted collaborator rather than reaching for a
  *                             global directly.
+ * @param {object|null} driveBackupPrefs  - Collaborator exposing
+ *                             getDriveBackupEnabled(). When null (legacy call
+ *                             sites), the post-sync Drive auto-upload is
+ *                             treated as enabled (default).
  * @returns {{ sync: Function }}
  */
-export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null) {
+export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
   // Re-entrancy guard — lives in the factory closure, never at module level.
   let isSyncing = false;
 
@@ -848,9 +852,17 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       //    re-thrown, and run silent so the background upload never surfaces a
       //    user-visible reporter message (Task 18 — no Drive reporter surface
       //    on the post-sync hook).
+      //    Task 27 (opt-out): the persisted drive_backup_enabled setting is
+      //    consulted BEFORE any backup is built, so a user who disabled the
+      //    auto-upload incurs no DB serialisation cost and no push at all.
       if (driveSync && backup) {
         (async () => {
           try {
+            const enabled =
+              driveBackupPrefs?.getDriveBackupEnabled
+                ? await driveBackupPrefs.getDriveBackupEnabled()
+                : true;
+            if (!enabled) return;
             await driveSync.push(await backup.buildBackup(), { silent: true });
           } catch (err) {
             console.error('[drive-sync]', err);

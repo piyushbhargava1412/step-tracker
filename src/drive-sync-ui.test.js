@@ -48,12 +48,19 @@ function makeReporter() {
   return { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
 }
 
+function makeDriveBackupPrefs({ enabled = true } = {}) {
+  return {
+    getDriveBackupEnabled: vi.fn().mockResolvedValue(enabled),
+    setDriveBackupEnabled: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('createDriveSyncUI', () => {
   let doc, container, driveSync, backup, reporter, confirmFn, ui;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     doc = buildDoc();
     container = doc.getElementById('cloud-controls');
     driveSync = makeDriveSync();
@@ -61,7 +68,7 @@ describe('createDriveSyncUI', () => {
     reporter = makeReporter();
     confirmFn = vi.fn().mockReturnValue(true);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
   });
 
   afterEach(() => {
@@ -108,7 +115,7 @@ describe('createDriveSyncUI', () => {
     const freshContainer = freshDoc.getElementById('cloud-controls');
     driveSync = makeDriveSync({ pushResult: DRIVE_PUSH_SKIPPED });
     ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn);
-    ui.render(freshContainer);
+    await ui.render(freshContainer);
 
     const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
     btn.click();
@@ -124,7 +131,7 @@ describe('createDriveSyncUI', () => {
     const freshContainer = freshDoc.getElementById('cloud-controls');
     driveSync = makeDriveSync({ pushResult: undefined });
     ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn);
-    ui.render(freshContainer);
+    await ui.render(freshContainer);
 
     const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
     btn.click();
@@ -138,7 +145,7 @@ describe('createDriveSyncUI', () => {
     const failure = new Error('network error');
     driveSync = makeDriveSync({ pushResult: failure });
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
@@ -163,7 +170,7 @@ describe('createDriveSyncUI', () => {
     const bk = { buildBackup: vi.fn().mockRejectedValue(tooLarge), restoreBackup: vi.fn() };
     const drive = makeDriveSync();
     ui = createDriveSyncUI(doc, drive, bk, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const btn = container.querySelector('[data-action="backup-to-drive"]');
@@ -186,7 +193,7 @@ describe('createDriveSyncUI', () => {
     const envelope = { schema_version: 1, exported_at: '2024-01-15T10:00:00Z', daily_records: [], settings: [] };
     driveSync = makeDriveSync({ pullResult: envelope });
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
     btn.click();
@@ -202,7 +209,7 @@ describe('createDriveSyncUI', () => {
     driveSync = makeDriveSync({ pullResult: envelope });
     confirmFn = vi.fn().mockReturnValue(true);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     const btn = container.querySelector('[data-action="restore-from-drive"]');
@@ -220,7 +227,7 @@ describe('createDriveSyncUI', () => {
     driveSync = makeDriveSync({ pullResult: envelope });
     confirmFn = vi.fn().mockReturnValue(false);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     const btn = container.querySelector('[data-action="restore-from-drive"]');
@@ -235,7 +242,7 @@ describe('createDriveSyncUI', () => {
   it('pull returns null (no backup): restoreBackup NOT called; reporter informs user', async () => {
     driveSync = makeDriveSync({ pullResult: null });
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
     btn.click();
@@ -251,7 +258,7 @@ describe('createDriveSyncUI', () => {
     backup = makeBackup({ restoreResult: new Error('restore failed') });
     confirmFn = vi.fn().mockReturnValue(true);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn);
-    ui.render(container);
+    await ui.render(container);
 
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     const btn = container.querySelector('[data-action="restore-from-drive"]');
@@ -276,7 +283,7 @@ describe('createDriveSyncUI', () => {
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     confirmFn = vi.fn().mockReturnValue(true);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, _validateEnvelope);
-    ui.render(container);
+    await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
     btn.click();
@@ -305,7 +312,7 @@ describe('createDriveSyncUI', () => {
     const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
     confirmFn = vi.fn().mockReturnValue(true);
     ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validateSpy);
-    ui.render(container);
+    await ui.render(container);
 
     const btn = container.querySelector('[data-action="restore-from-drive"]');
     btn.click();
@@ -320,11 +327,11 @@ describe('createDriveSyncUI', () => {
 
   // ── DOM contract ─────────────────────────────────────────────────────────────
 
-  it('builds and re-renders the panel without ever assigning innerHTML', () => {
+  it('builds and re-renders the panel without ever assigning innerHTML', async () => {
     const innerHTMLSetter = vi.spyOn(doc.defaultView.Element.prototype, 'innerHTML', 'set');
 
     // Re-mount under the spy — any innerHTML assignment in render would be caught
-    ui.render(container);
+    await ui.render(container);
 
     expect(innerHTMLSetter).not.toHaveBeenCalled();
   });
@@ -333,7 +340,7 @@ describe('createDriveSyncUI', () => {
 
   it('re-mounting aborts previous listeners; no duplicate firings on second mount', async () => {
     // Second mount
-    ui.render(container);
+    await ui.render(container);
 
     const btn = container.querySelector('[data-action="backup-to-drive"]');
     btn.click();
@@ -341,5 +348,89 @@ describe('createDriveSyncUI', () => {
 
     // buildBackup called exactly once (not twice from two listeners)
     expect(backup.buildBackup).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Task 27: auto-backup opt-out toggle ──────────────────────────────────────
+
+describe('Task 27: auto-backup opt-out toggle', () => {
+  let doc, container, driveSync, backup, reporter, confirmFn, prefs, ui;
+
+  beforeEach(async () => {
+    doc = buildDoc();
+    container = doc.getElementById('cloud-controls');
+    driveSync = makeDriveSync();
+    backup = makeBackup();
+    reporter = makeReporter();
+    confirmFn = vi.fn().mockReturnValue(true);
+    prefs = makeDriveBackupPrefs();
+    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    await ui.render(container);
+  });
+
+  it('renders a checkbox labelled "Automatically back up to Drive after each sync"', async () => {
+    const cb = container.querySelector('[data-action="toggle-drive-backup"]');
+    expect(cb).not.toBeNull();
+    expect(cb.type).toBe('checkbox');
+    expect(container.textContent).toContain(
+      'Automatically back up to Drive after each sync'
+    );
+  });
+
+  it('checkbox is checked when the persisted pref is enabled (default true)', async () => {
+    const cb = container.querySelector('[data-action="toggle-drive-backup"]');
+    expect(cb.checked).toBe(true);
+    expect(prefs.getDriveBackupEnabled).toHaveBeenCalledTimes(1);
+  });
+
+  it('checkbox is unchecked when the persisted pref is disabled', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    prefs = makeDriveBackupPrefs({ enabled: false });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    await ui.render(freshContainer);
+
+    const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
+    expect(cb.checked).toBe(false);
+  });
+
+  it('toggling the checkbox off persists false via setDriveBackupEnabled', async () => {
+    const cb = container.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(prefs.setDriveBackupEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('toggling the checkbox on persists true via setDriveBackupEnabled', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    prefs = makeDriveBackupPrefs({ enabled: false });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    await ui.render(freshContainer);
+
+    const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(prefs.setDriveBackupEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('manual "Back up to Drive" button still uploads when the toggle is off', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    prefs = makeDriveBackupPrefs({ enabled: false });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, undefined, prefs);
+    await ui.render(freshContainer);
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(backup.buildBackup).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledTimes(1);
+    expect(reporter.sync).toHaveBeenCalled();
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
+    expect(calls.some(m => m.startsWith('✅'))).toBe(true);
   });
 });

@@ -128,7 +128,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), _validateEnvelope)
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), _validateEnvelope, settings)
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
@@ -148,7 +148,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
-  const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup)
+  const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup, settings)
 
   // Mount backup + cloud panels into their own containers so neither render
   // clears the other's output (each render() wipes its container first).

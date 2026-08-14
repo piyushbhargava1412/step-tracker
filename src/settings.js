@@ -1,6 +1,12 @@
 export const SYNC_ANCHOR_KEY = 'sync_anchor_date';
 export const DEFAULT_SYNC_ANCHOR = '2018-01-01';
 
+/** Key gating the post-sync background Drive auto-upload (Task 27). */
+export const DRIVE_BACKUP_ENABLED_KEY = 'drive_backup_enabled';
+
+/** Auto-upload is enabled by default; only an explicit `false` disables it. */
+export const DEFAULT_DRIVE_BACKUP_ENABLED = true;
+
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function isValidDate(dateStr) {
@@ -31,6 +37,44 @@ export function createSettings(db) {
   async function setSyncAnchorDate(date) {
     assertValidDate(date, 'setSyncAnchorDate');
     await db.settings.put({ key: SYNC_ANCHOR_KEY, value: date, updated_at: new Date().toISOString() });
+  }
+
+  /**
+   * Read whether the post-sync background Drive auto-upload is enabled.
+   * Defaults to enabled; only a persisted boolean `false` disables it. Fails
+   * open to enabled (true) on a read error so a corrupt settings read can
+   * never silently turn off backups a user still expects (Task 27).
+   *
+   * @returns {Promise<boolean>}
+   */
+  async function getDriveBackupEnabled() {
+    try {
+      const row = await db.settings.get(DRIVE_BACKUP_ENABLED_KEY);
+      if (row == null) return DEFAULT_DRIVE_BACKUP_ENABLED;
+      return row.value !== false;
+    } catch (err) {
+      console.error('[settings]', err);
+      return DEFAULT_DRIVE_BACKUP_ENABLED;
+    }
+  }
+
+  /**
+   * Persist the opt-out toggle for the post-sync background Drive auto-upload.
+   * Only boolean values are accepted — anything else fails fast before a write.
+   *
+   * @param {boolean} enabled
+   * @returns {Promise<void>}
+   * @throws {TypeError} When `enabled` is not a boolean.
+   */
+  async function setDriveBackupEnabled(enabled) {
+    if (typeof enabled !== 'boolean') {
+      throw new TypeError('[settings] setDriveBackupEnabled requires a boolean');
+    }
+    await db.settings.put({
+      key: DRIVE_BACKUP_ENABLED_KEY,
+      value: enabled,
+      updated_at: new Date().toISOString(),
+    });
   }
 
   async function countRecordsBefore(date) {
@@ -74,5 +118,5 @@ export function createSettings(db) {
     }
   }
 
-  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, countAllRecords, pruneRecordsBefore, wipeDatabase };
+  return { getSyncAnchorDate, setSyncAnchorDate, countRecordsBefore, countAllRecords, pruneRecordsBefore, wipeDatabase, getDriveBackupEnabled, setDriveBackupEnabled };
 }

@@ -372,7 +372,8 @@ describe('main.js — Task 11 step sync wiring', () => {
       mockReporter,
       document,
       mockDriveSyncInstance,
-      mockBackupInstance
+      mockBackupInstance,
+      mockSettingsInstance
     )
   })
 
@@ -1513,7 +1514,8 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockBackupInstance,
       mockReporter,
       mockConfirmAdapter,
-      _validateEnvelope
+      _validateEnvelope,
+      mockSettingsInstance
     )
   })
 

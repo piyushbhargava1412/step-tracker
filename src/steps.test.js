@@ -2944,3 +2944,98 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     expect(calls.some((m) => m.startsWith('✅'))).toBe(true);
   });
 });
+
+// ── Task 27: post-sync Drive auto-upload opt-out (drive_backup_enabled) ───────
+
+describe('Task 27: post-sync Drive auto-upload opt-out', () => {
+  let auth, db, reporter, doc;
+  let driveSync, backup, prefs;
+
+  const TODAY = new Date(2025, 5, 19);
+
+  function stubFetch() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ bucket: [] }),
+      })
+    );
+  }
+
+  /** Flush the fire-and-forget IIFE chain: pref read → buildBackup → push. */
+  async function flush() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = {
+      sync: vi.fn(),
+      db: vi.fn(),
+      auth: vi.fn(),
+    };
+    doc = { getElementById: vi.fn().mockReturnValue(null) };
+    driveSync = { push: vi.fn().mockResolvedValue(undefined) };
+    backup = { buildBackup: vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] }) };
+    prefs = {
+      getDriveBackupEnabled: vi.fn().mockResolvedValue(true),
+      setDriveBackupEnabled: vi.fn(),
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('toggle OFF → the post-sync hook skips the push entirely — buildBackup is NOT called', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+    prefs.getDriveBackupEnabled.mockResolvedValue(false);
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    await engine.sync();
+    await flush();
+
+    expect(prefs.getDriveBackupEnabled).toHaveBeenCalledTimes(1);
+    expect(backup.buildBackup).not.toHaveBeenCalled();
+    expect(driveSync.push).not.toHaveBeenCalled();
+  });
+
+  it('toggle ON → the post-sync hook builds the backup and pushes with the silent flag', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    await engine.sync();
+    await flush();
+
+    expect(prefs.getDriveBackupEnabled).toHaveBeenCalledTimes(1);
+    expect(backup.buildBackup).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledWith(
+      expect.objectContaining({ schema_version: 1 }),
+      { silent: true }
+    );
+  });
+
+  it('no prefs collaborator injected → defaults to enabled and still pushes (backward compatible)', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+    await flush();
+
+    expect(backup.buildBackup).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledTimes(1);
+  });
+});
