@@ -746,6 +746,12 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
   // Re-entrancy guard — lives in the factory closure, never at module level.
   let isSyncing = false;
 
+  // Task 28: coalescing guard for the fire-and-forget post-sync upload. Holds
+  // the in-flight push promise so an overlapping sync's hook uploads at most
+  // once. Lives here (not on driveSync) so the manual "Back up to Drive"
+  // button and the recovery-banner restore are never coalesced or skipped.
+  let postSyncPush = null;
+
   /**
    * Synchronise Google Fit step data into the local Dexie database.
    *
@@ -855,17 +861,32 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       //    Task 27 (opt-out): the persisted drive_backup_enabled setting is
       //    consulted BEFORE any backup is built, so a user who disabled the
       //    auto-upload incurs no DB serialisation cost and no push at all.
+      //    Task 28 (coalescing): the in-flight guard is set synchronously before
+      //    the first await so an overlapping sync's hook sees it and skips —
+      //    concurrent post-sync pushes upload exactly once. The guard lives on
+      //    the steps closure, never on driveSync, so manual pushes and the
+      //    cloud-recovery restore are always allowed through.
+      //    Task 28 (dirty-check): the upload is gated on the backup collaborator's
+      //    cheap change signature — an unchanged DB since the last successful
+      //    push skips both the re-serialisation and the network upload. markPushed
+      //    records the state only after the push succeeds, so a failed upload is
+      //    retried on the next sync.
       if (driveSync && backup) {
-        (async () => {
+        if (postSyncPush) return;
+        postSyncPush = (async () => {
           try {
             const enabled =
               driveBackupPrefs?.getDriveBackupEnabled
                 ? await driveBackupPrefs.getDriveBackupEnabled()
                 : true;
             if (!enabled) return;
+            if (!(await backup.hasUnpushedChanges())) return;
             await driveSync.push(await backup.buildBackup(), { silent: true });
+            await backup.markPushed();
           } catch (err) {
             console.error('[drive-sync]', err);
+          } finally {
+            postSyncPush = null;
           }
         })();
       }

@@ -20,6 +20,7 @@ export function makeStatefulDb({ seed = [], flag = undefined, syncAnchor = undef
   const rows = new Map(seed.map((r) => [r.date, r]));
   let flagValue = flag;
   const anchorValue = syncAnchor;
+  const settingsRows = [];
   const sortAsc = () =>
     [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
   return {
@@ -31,10 +32,14 @@ export function makeStatefulDb({ seed = [], flag = undefined, syncAnchor = undef
         return flagValue === undefined ? undefined : { key, value: flagValue };
       }),
       put: vi.fn(async (row) => {
+        settingsRows.push(row);
         flagValue = row.value;
       }),
+      toArray: vi.fn(async () => [...settingsRows]),
     },
     daily_records: {
+      count: vi.fn(async () => rows.size),
+      toArray: vi.fn(async () => sortAsc()),
       orderBy: vi.fn(() => ({
         first: vi.fn(async () => sortAsc()[0]),
         last: vi.fn(async () => {

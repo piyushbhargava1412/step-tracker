@@ -216,6 +216,60 @@ export function _validateEnvelope(parsed) {
  * @returns {{ buildBackup: Function, restoreBackup: Function }}
  */
 export function createBackup(db) {
+  // Session-level dirty state (Task 28): the signature of the last state that
+  // was successfully pushed to Drive. null means "nothing pushed yet this
+  // session" — treated as always dirty so the first sync always uploads.
+  let lastPushedSignature = null;
+
+  /**
+   * Cheap change-detector signature of the daily_records store: record count
+   * plus the newest row's synced_at. Uses two indexed reads only (count() and
+   * orderBy('date').last()) — never a full table scan or serialisation. The
+   * signature only needs to flip whenever a fresh upload would actually differ.
+   *
+   * @returns {Promise<string>}  `${count}:${newestRow.synced_at ?? ''}`
+   */
+  async function computeSignature() {
+    const [count, latest] = await Promise.all([
+      db.daily_records.count(),
+      db.daily_records.orderBy('date').last(),
+    ]);
+    return `${count}:${latest?.synced_at ?? ''}`;
+  }
+
+  /**
+   * Whether the store has changed since the last successful push. Fails OPEN:
+   * if the signature cannot be computed (read error), it reports dirty so the
+   * caller errs toward uploading rather than silently skipping a backup.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async function hasUnpushedChanges() {
+    try {
+      return (await computeSignature()) !== lastPushedSignature;
+    } catch (err) {
+      console.error('[backup]', err);
+      return true;
+    }
+  }
+
+  /**
+   * Record the current store state as the last successfully pushed state.
+   * Only meaningful after a push succeeded; the caller must not invoke this on
+   * a failed push, or the failure would be masked as already backed up. A
+   * signature read failure is logged and swallowed — the worst outcome is one
+   * redundant upload on the next sync, never data loss.
+   *
+   * @returns {Promise<void>}
+   */
+  async function markPushed() {
+    try {
+      lastPushedSignature = await computeSignature();
+    } catch (err) {
+      console.error('[backup]', err);
+    }
+  }
+
   /**
    * Reads all daily_records and settings rows from Dexie and returns a
    * versioned backup envelope. Records are serialised verbatim (full-fidelity,
@@ -274,5 +328,5 @@ export function createBackup(db) {
     }
   }
 
-  return { buildBackup, restoreBackup };
+  return { buildBackup, restoreBackup, computeSignature, hasUnpushedChanges, markPushed };
 }

@@ -656,3 +656,97 @@ describe('restoreBackup() — Task 10 no write on invalid rows', () => {
     expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── createBackup — Task 28: dirty-check signature ───────────────────────────
+
+describe('createBackup — Task 28 dirty-check signature', () => {
+  /**
+   * Minimal Dexie double exposing only the surface the signature methods may
+   * touch: an indexed count() plus the newest row via orderBy('date').last().
+   * @param {Array=}  opts.records   Rows to serve (sorted by date internally).
+   * @param {boolean=} opts.countError  When set, count() rejects.
+   */
+  function makeSignatureDb({ records = [], countError = false } = {}) {
+    const sorted = [...records].sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      daily_records: {
+        count: countError
+          ? vi.fn().mockRejectedValue(new Error('count failed'))
+          : vi.fn().mockResolvedValue(records.length),
+        orderBy: vi.fn(() => ({
+          last: vi.fn().mockResolvedValue(sorted[sorted.length - 1] ?? undefined),
+        })),
+      },
+    };
+  }
+
+  it('computeSignature reflects record count + newest row synced_at', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeSignatureDb({
+      records: [
+        { date: '2025-06-15', synced_at: '2025-06-15T10:00:00.000Z' },
+        { date: '2025-06-20', synced_at: '2025-06-20T10:00:00.000Z' },
+      ],
+    });
+    const { computeSignature } = createBackup(db);
+    await expect(computeSignature()).resolves.toBe(
+      '2:2025-06-20T10:00:00.000Z'
+    );
+  });
+
+  it('computeSignature on an empty store yields "0:" (no newest row)', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeSignatureDb();
+    const { computeSignature } = createBackup(db);
+    await expect(computeSignature()).resolves.toBe('0:');
+  });
+
+  it('hasUnpushedChanges is true on a fresh session — nothing has been pushed yet', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeSignatureDb({
+      records: [{ date: '2025-06-15', synced_at: '2025-06-15T10:00:00.000Z' }],
+    });
+    const { hasUnpushedChanges } = createBackup(db);
+    await expect(hasUnpushedChanges()).resolves.toBe(true);
+  });
+
+  it('markPushed records the current state — hasUnpushedChanges turns false', async () => {
+    const { createBackup } = await import('./backup.js');
+    const db = makeSignatureDb({
+      records: [{ date: '2025-06-15', synced_at: '2025-06-15T10:00:00.000Z' }],
+    });
+    const { hasUnpushedChanges, markPushed } = createBackup(db);
+    await markPushed();
+    await expect(hasUnpushedChanges()).resolves.toBe(false);
+  });
+
+  it('a store that gains a row after markPushed flips hasUnpushedChanges back to true', async () => {
+    const { createBackup } = await import('./backup.js');
+    const rows = [
+      { date: '2025-06-15', synced_at: '2025-06-15T10:00:00.000Z' },
+    ];
+    const sorted = () => [...rows].sort((a, b) => a.date.localeCompare(b.date));
+    const db = {
+      daily_records: {
+        count: vi.fn(async () => rows.length),
+        orderBy: vi.fn(() => ({
+          last: vi.fn(async () => sorted().at(-1)),
+        })),
+      },
+    };
+    const { hasUnpushedChanges, markPushed } = createBackup(db);
+    await markPushed();
+    await expect(hasUnpushedChanges()).resolves.toBe(false);
+    rows.push({ date: '2025-06-20', synced_at: '2025-06-20T10:00:00.000Z' });
+    await expect(hasUnpushedChanges()).resolves.toBe(true);
+  });
+
+  it('a count read failure fails OPEN — hasUnpushedChanges returns true and logs [backup]', async () => {
+    const { createBackup } = await import('./backup.js');
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const db = makeSignatureDb({ countError: true });
+    const { hasUnpushedChanges } = createBackup(db);
+    await expect(hasUnpushedChanges()).resolves.toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith('[backup]', expect.any(Error));
+  });
+});
