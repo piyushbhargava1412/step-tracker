@@ -22,18 +22,19 @@ describe('index.html tabbed shell contract', () => {
     expect(document.getElementById('auth-btn')).not.toBeNull();
   });
 
-  it('four [data-tab] buttons exist with correct values', () => {
+  it('five [data-tab] buttons exist with correct values', () => {
     const tabs = document.querySelectorAll('[data-tab]');
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5);
     const values = Array.from(tabs).map(t => t.dataset.tab);
     expect(values).toContain('dashboard');
     expect(values).toContain('calendar');
     expect(values).toContain('search');
     expect(values).toContain('spatial');
+    expect(values).toContain('backup');
   });
 
-  it('all four tab panels are present', () => {
-    for (const name of ['dashboard', 'calendar', 'search', 'spatial']) {
+  it('all five tab panels are present', () => {
+    for (const name of ['dashboard', 'calendar', 'search', 'spatial', 'backup']) {
       expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
     }
   });

@@ -1865,3 +1865,45 @@ button {
     opacity: 0.5;
     pointer-events: none;
 }
+
+/* ── Backup Panel ────────────────────────────────────────────────────────────── */
+
+.backup-panel {
+    padding: 1.5rem;
+    max-width: 600px;
+}
+
+.backup-panel h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    color: var(--text-primary);
+}
+
+.backup-section {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.backup-section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.backup-section p {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.backup-file-label {
+    cursor: pointer;
+    display: inline-block;
+    position: relative;
+    overflow: hidden;
+}
