@@ -1537,6 +1537,49 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(mockDriveSyncUIInstance.render).toHaveBeenCalledTimes(1)
   })
 
+  it('data:records:mutated passes the container element to backupUI.render and driveSyncUI.render', async () => {
+    await bootstrap(isolatedDoc)
+    const container = isolatedDoc.getElementById('cloud-controls')
+    vi.clearAllMocks()
+    mockBackupUIInstance.render.mockReset()
+    mockDriveSyncUIInstance.render.mockReset()
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockBackupUIInstance.render).toHaveBeenCalledWith(container)
+    expect(mockDriveSyncUIInstance.render).toHaveBeenCalledWith(container)
+  })
+
+  it('data:records:mutated fan-out stays fail-open when #cloud-controls is absent', async () => {
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <button id="settings-btn">Settings</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <div id="cloud-recovery-banner" hidden></div>
+    `
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockBackupUIInstance.render.mockReset()
+    mockDriveSyncUIInstance.render.mockReset()
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mockBackupUIInstance.render).not.toHaveBeenCalled()
+    expect(mockDriveSyncUIInstance.render).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('backupUI.render failed'),
+      expect.any(Error)
+    )
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('driveSyncUI.render failed'),
+      expect.any(Error)
+    )
+    errorSpy.mockRestore()
+  })
+
   it('data:records:mutated still invokes all existing fan-out legs (regression)', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()

@@ -321,15 +321,17 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     } catch (err) {
       console.error('[main]', err)
     }
-    try {
-      backupUI?.render?.()
-    } catch (err) {
-      console.error('[main] backupUI.render failed after mutation, continuing', err)
-    }
-    try {
-      driveSyncUI?.render?.()
-    } catch (err) {
-      console.error('[main] driveSyncUI.render failed after mutation, continuing', err)
+    if (cloudControls) {
+      try {
+        backupUI?.render?.(cloudControls)
+      } catch (err) {
+        console.error('[main] backupUI.render failed after mutation, continuing', err)
+      }
+      try {
+        driveSyncUI?.render?.(cloudControls)
+      } catch (err) {
+        console.error('[main] driveSyncUI.render failed after mutation, continuing', err)
+      }
     }
   })
 
