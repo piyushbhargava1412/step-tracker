@@ -1907,3 +1907,41 @@ button {
     position: relative;
     overflow: hidden;
 }
+
+/* ─── Cloud Sync Panel ───────────────────────────────────────────────────────── */
+.cloud-sync-panel {
+    padding: 1.5rem;
+    max-width: 600px;
+}
+
+.cloud-sync-panel h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    color: var(--text-primary);
+}
+
+.cloud-sync-section {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.cloud-sync-section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.cloud-sync-section p {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+#cloud-controls {
+    margin-top: 1.5rem;
+}
