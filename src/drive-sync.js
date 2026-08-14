@@ -3,11 +3,14 @@
  *
  * createDriveSync({ getAccessToken, reporter, fetchFn, validator })
  *   find()           → string | null    file ID if the backup exists, else null
- *   push(envelope, { silent }) → void    create (POST) or update (PATCH) the backup
+ *   push(envelope, { silent }) → void    create (POST) or update (PATCH) the backup;
+ *                              resolves DRIVE_PUSH_SKIPPED when no access token exists
  *   pull()           → object | null    parsed envelope, or null if not found
  *
  * All methods:
  *  - Guard on getAccessToken() === null: reporter.auth(...), return, never throw.
+ *    push() returns the exported DRIVE_PUSH_SKIPPED sentinel on this path so
+ *    callers can distinguish "no upload happened" from a successful upload.
  *  - find()/pull() catch every network error or non-2xx: console.error('[drive-sync]', err),
  *    optionally reporter.db(...), resolve to null/undefined (never reject).
  *  - push() PROPAGATES failures to the caller: non-2xx and network errors log
@@ -28,6 +31,14 @@
 
 export const DRIVE_APPDATA_FILE_NAME = 'step_tracker_backup.json';
 export const DRIVE_API_BASE_URL = 'https://www.googleapis.com';
+
+/**
+ * Sentinel resolved by push() when the backup was NOT uploaded because there is
+ * no Google access token. Distinct from the undefined success value so callers
+ * (e.g. drive-sync-ui) can tell "no upload happened" from "uploaded fine" and
+ * avoid reporting a false success toast. Frozen so the identity is trustworthy.
+ */
+export const DRIVE_PUSH_SKIPPED = Object.freeze({ skipped: true });
 
 const DRIVE_FILES_URL = `${DRIVE_API_BASE_URL}/drive/v3/files`;
 const DRIVE_UPLOAD_URL = `${DRIVE_API_BASE_URL}/upload/drive/v3/files`;
@@ -202,7 +213,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
    *
    * @param {object} envelope               The backup envelope produced by backup.buildBackup()
    * @param {{ silent?: boolean }} [options]  Suppresses all reporter.* signalling.
-   * @returns {Promise<void>}
+   * @returns {Promise<void|typeof DRIVE_PUSH_SKIPPED>}
    */
   async function push(envelope, { silent = false } = {}) {
     const token = getAccessToken();
@@ -210,7 +221,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
       if (!silent) {
         reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
       }
-      return;
+      return DRIVE_PUSH_SKIPPED;
     }
 
     const metadata = JSON.stringify({

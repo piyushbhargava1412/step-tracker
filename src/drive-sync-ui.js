@@ -112,13 +112,20 @@ export function createDriveSyncUI(
 
   /**
    * Handles the "Back up to Drive" action.
+   * Only reports ✅ when an actual upload occurred. A push that was skipped
+   * (no access token → DRIVE_PUSH_SKIPPED sentinel) surfaces an informational
+   * ℹ️ notice consistent with the no-token reporter message — never a ✅.
    * @param {HTMLButtonElement} btn
    */
   async function _handleBackupNow(btn) {
     btn.disabled = true;
     try {
       const envelope = await backup.buildBackup();
-      await driveSync.push(envelope);
+      const result = await driveSync.push(envelope);
+      if (result?.skipped === true) {
+        reporter.sync('ℹ️ Google Account not connected — Drive sync unavailable');
+        return;
+      }
       reporter.sync('✅ Backup uploaded to Drive successfully');
     } catch (err) {
       console.error('[drive-sync-ui]', err);

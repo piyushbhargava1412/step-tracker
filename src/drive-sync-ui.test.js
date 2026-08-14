@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { createDriveSyncUI } from './drive-sync-ui.js';
 import { _validateEnvelope } from './backup.js';
+import { DRIVE_PUSH_SKIPPED } from './drive-sync.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,37 @@ describe('createDriveSyncUI', () => {
     expect(reporter.sync).toHaveBeenCalled();
     const msg = reporter.sync.mock.calls[reporter.sync.mock.calls.length - 1][0];
     expect(msg).toMatch(/^✅/);
+  });
+
+  it('no-token push (skip sentinel) shows NO ✅ success toast — only an informational ℹ️ notice', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    driveSync = makeDriveSync({ pushResult: DRIVE_PUSH_SKIPPED });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn);
+    ui.render(freshContainer);
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
+    expect(calls.some(m => m.startsWith('✅'))).toBe(false);
+    expect(calls).toContain('ℹ️ Google Account not connected — Drive sync unavailable');
+  });
+
+  it('explicit success (push resolves undefined) still shows the ✅ success toast', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    driveSync = makeDriveSync({ pushResult: undefined });
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn);
+    ui.render(freshContainer);
+
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const calls = reporter.sync.mock.calls.map(c => c[0]);
+    expect(calls.some(m => m.startsWith('✅'))).toBe(true);
   });
 
   it('push rejects: reporter gets ❌ message, console.error with [drive-sync-ui] logged, NO data:records:mutated', async () => {

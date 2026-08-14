@@ -7,6 +7,7 @@ import {
   createDriveSync,
   DRIVE_APPDATA_FILE_NAME,
   DRIVE_API_BASE_URL,
+  DRIVE_PUSH_SKIPPED,
 } from './drive-sync.js';
 import { _validateEnvelope } from './backup.js';
 
@@ -326,8 +327,20 @@ describe('createDriveSync — push()', () => {
   it('returns gracefully without calling fetchFn when getAccessToken returns null (no throw)', async () => {
     getAccessToken.mockReturnValue(null);
 
-    await expect(driveSync.push(envelope)).resolves.toBeUndefined();
+    await expect(driveSync.push(envelope)).resolves.toBe(DRIVE_PUSH_SKIPPED);
 
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(reporter.auth).toHaveBeenCalled();
+  });
+
+  it('no-token push resolves to the exported skip sentinel — never undefined', async () => {
+    getAccessToken.mockReturnValue(null);
+
+    const result = await driveSync.push(envelope);
+
+    expect(result).not.toBeUndefined();
+    expect(result).toBe(DRIVE_PUSH_SKIPPED);
+    expect(result.skipped).toBe(true);
     expect(fetchFn).not.toHaveBeenCalled();
     expect(reporter.auth).toHaveBeenCalled();
   });
@@ -406,10 +419,10 @@ describe('createDriveSync — push()', () => {
     );
   });
 
-  it('push(envelope, { silent: true }) with no token — resolves and surfaces nothing', async () => {
+  it('push(envelope, { silent: true }) with no token — resolves to the skip sentinel and surfaces nothing', async () => {
     getAccessToken.mockReturnValue(null);
 
-    await expect(driveSync.push(envelope, { silent: true })).resolves.toBeUndefined();
+    await expect(driveSync.push(envelope, { silent: true })).resolves.toBe(DRIVE_PUSH_SKIPPED);
     expect(reporter.auth).not.toHaveBeenCalled();
     expect(reporter.db).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
