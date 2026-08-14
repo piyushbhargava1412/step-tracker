@@ -9,6 +9,17 @@
 export const BACKUP_SCHEMA_VERSION = 1;
 export const BACKUP_FILENAME_PREFIX = 'step-tracker-backup-';
 
+/**
+ * Size-cap guards against oversized payloads reaching IndexedDB.
+ * MAX_BACKUP_RECORDS bounds the total number of rows; MAX_BACKUP_BYTES bounds
+ * the serialised envelope size (relevant for large proof-image data URLs).
+ */
+export const MAX_BACKUP_RECORDS = 100_000;
+export const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PROTOTYPE_POLLUTION_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 // ─── Pure helpers (module-level, independently testable) ─────────────────────
 
 /**
@@ -42,9 +53,87 @@ export function base64ToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNumeric(value) {
+  return (
+    isFiniteNumber(value) ||
+    (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value)))
+  );
+}
+
+/**
+ * Guards a single row object against prototype-pollution keys. Also validates
+ * that the row is a plain (non-array, non-null) object. Read-only — never mutates.
+ * @param {unknown} row
+ * @param {string} label - 'daily_record' | 'settings'
+ * @throws {TypeError}
+ */
+function assertNoPollutionKeys(row, label) {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+    throw new TypeError(`Backup ${label} row must be an object`);
+  }
+  const hasPollutionKey = Object.keys(row).some((key) => PROTOTYPE_POLLUTION_KEYS.has(key));
+  if (hasPollutionKey) {
+    throw new TypeError(`Backup ${label} row contains a reserved prototype-pollution key`);
+  }
+}
+
+/**
+ * Validates a single daily_record row. Only `date` is strictly required; any
+ * optional field is type-checked when present so restore stays tolerant of the
+ * documented variants (override null / absent, missing distances, etc.).
+ * @param {object} row
+ * @throws {TypeError}
+ */
+function validateDailyRecord(row) {
+  assertNoPollutionKeys(row, 'daily_record');
+  if (typeof row.date !== 'string' || row.date === '' || !DATE_RE.test(row.date)) {
+    throw new TypeError(`daily_record has invalid date: ${String(row.date)}`);
+  }
+  for (const field of ['original_steps', 'effective_steps']) {
+    if (row[field] !== undefined && !isFiniteNumber(row[field])) {
+      throw new TypeError(`daily_record ${field} must be a number`);
+    }
+  }
+  for (const field of ['original_distance_km', 'effective_distance_km']) {
+    if (row[field] !== undefined && !isNumeric(row[field])) {
+      throw new TypeError(`daily_record ${field} must be numeric`);
+    }
+  }
+  const override = row.override;
+  if (override !== undefined && override !== null) {
+    if (typeof override !== 'object' || Array.isArray(override)) {
+      throw new TypeError('daily_record override must be an object or null');
+    }
+    if (override.effective_steps !== undefined && !isFiniteNumber(override.effective_steps)) {
+      throw new TypeError('daily_record override.effective_steps must be a number');
+    }
+    if (override.reason !== undefined && typeof override.reason !== 'string') {
+      throw new TypeError('daily_record override.reason must be a string');
+    }
+  }
+  if (row.synced_at !== undefined && typeof row.synced_at !== 'string') {
+    throw new TypeError('daily_record synced_at must be a string');
+  }
+}
+
+/**
+ * Validates a single settings row. Read-only — never mutates.
+ * @param {object} row
+ * @throws {TypeError}
+ */
+function validateSettings(request) {
+  assertNoPollutionKeys(request, 'settings');
+}
+
 /**
  * Pure envelope validator. Throws TypeError on any structural failure so callers
- * can catch early before any Dexie write.
+ * can catch early before any Dexie write. Validates every daily_records and
+ * settings element (prototype-pollution keys, per-field types, size caps).
+ * Never mutates incoming rows — restore writes them verbatim.
  * @param {unknown} parsed
  * @throws {TypeError}
  */
@@ -66,6 +155,19 @@ export function _validateEnvelope(parsed) {
   if (!Array.isArray(parsed.settings)) {
     throw new TypeError('Backup envelope settings must be an array');
   }
+  const rowCount = parsed.daily_records.length + parsed.settings.length;
+  if (rowCount > MAX_BACKUP_RECORDS) {
+    throw new TypeError(
+      `Backup too large: ${rowCount} rows exceeds MAX_BACKUP_RECORDS (${MAX_BACKUP_RECORDS})`
+    );
+  }
+  if (JSON.stringify(parsed).length > MAX_BACKUP_BYTES) {
+    throw new TypeError(
+      `Backup too large: serialised envelope exceeds MAX_BACKUP_BYTES (${MAX_BACKUP_BYTES})`
+    );
+  }
+  parsed.daily_records.forEach(validateDailyRecord);
+  parsed.settings.forEach(validateSettings);
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────

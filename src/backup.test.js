@@ -436,3 +436,179 @@ describe('restoreBackup()', () => {
     expect(errSpy).toHaveBeenCalledWith('[backup]', expect.any(Error));
   });
 });
+
+// ─── _validateEnvelope hardening — per-row validation (Task 10) ──────────────
+
+function makeRow(overrides = {}) {
+  return {
+    date: '2024-01-01',
+    original_steps: 8000,
+    effective_steps: 8000,
+    original_distance_km: 6.4,
+    effective_distance_km: 6.4,
+    ...overrides,
+  };
+}
+
+function makeEnvelope({ records = [makeRow()], settings = [{ key: 'active_step_goal', target_steps: 10000 }] } = {}) {
+  return {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    daily_records: records,
+    settings,
+  };
+}
+
+describe('_validateEnvelope() — Task 10 per-row validation', () => {
+  it('MAX_BACKUP_RECORDS and MAX_BACKUP_BYTES are positive number exports', async () => {
+    const { MAX_BACKUP_RECORDS, MAX_BACKUP_BYTES } = await import('./backup.js');
+    expect(typeof MAX_BACKUP_RECORDS).toBe('number');
+    expect(MAX_BACKUP_RECORDS).toBeGreaterThan(0);
+    expect(typeof MAX_BACKUP_BYTES).toBe('number');
+    expect(MAX_BACKUP_BYTES).toBeGreaterThan(0);
+  });
+
+  it('accepts a valid multi-field daily_record row', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow()] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).not.toThrow();
+  });
+
+  it('rejects a daily_record row carrying a __proto__ key', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const row = JSON.parse(
+      '{"date":"2024-01-01","original_steps":8000,"__proto__":{"polluted":true}}'
+    );
+    const envelope = makeEnvelope({ records: [row] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a settings row carrying a constructor key', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const settingsRow = JSON.parse('{"key":"x","constructor":{"polluted":true}}');
+    const envelope = makeEnvelope({ settings: [settingsRow] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row missing the required date', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow({ date: undefined })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row with a non-YYYY-MM-DD date', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow({ date: '01/15/2024' })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row with non-numeric original_steps', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow({ original_steps: 'many' })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row with non-numeric effective_distance_km', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow({ effective_distance_km: 'far' })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row whose override is not an object or null', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({ records: [makeRow({ override: 'nope' })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a daily_record row whose override.effective_steps is non-numeric', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const envelope = makeEnvelope({
+      records: [makeRow({ override: { effective_steps: 'ten', reason: 'manual' } })],
+    });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a payload exceeding MAX_BACKUP_RECORDS', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION, MAX_BACKUP_RECORDS } = await import('./backup.js');
+    const records = Array.from({ length: MAX_BACKUP_RECORDS + 1 }, () => makeRow());
+    const envelope = makeEnvelope({ records });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+
+  it('rejects a payload whose serialised size exceeds MAX_BACKUP_BYTES', async () => {
+    const { _validateEnvelope, BACKUP_SCHEMA_VERSION, MAX_BACKUP_BYTES } = await import('./backup.js');
+    const hugeField = 'x'.repeat(MAX_BACKUP_BYTES + 1);
+    const envelope = makeEnvelope({ records: [makeRow({ synced_at: hugeField })] });
+    envelope.schema_version = BACKUP_SCHEMA_VERSION;
+    expect(() => _validateEnvelope(envelope)).toThrow(TypeError);
+  });
+});
+
+// ─── restoreBackup security boundary — Task 10 ───────────────────────────────
+
+describe('restoreBackup() — Task 10 no write on invalid rows', () => {
+  it('rejects a __proto__-polluted daily_record before any transaction', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    const row = JSON.parse(
+      '{"date":"2024-01-01","original_steps":8000,"__proto__":{"polluted":true}}'
+    );
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: [row],
+      settings: [],
+    };
+    await expect(restoreBackup(envelope)).rejects.toThrow(TypeError);
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.daily_records.bulkPut).not.toHaveBeenCalled();
+    expect(db.settings.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized payload before any transaction', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION, MAX_BACKUP_RECORDS } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    const records = Array.from(
+      { length: MAX_BACKUP_RECORDS + 1 },
+      () => ({ date: '2024-01-01', original_steps: 8000 })
+    );
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: records,
+      settings: [],
+    };
+    await expect(restoreBackup(envelope)).rejects.toThrow(TypeError);
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.daily_records.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it('restores a valid envelope including override:null and missing-override rows', async () => {
+    const { createBackup, BACKUP_SCHEMA_VERSION } = await import('./backup.js');
+    const db = makeTransactionalDb();
+    const { restoreBackup } = createBackup(db);
+    const envelope = {
+      schema_version: BACKUP_SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      daily_records: [
+        { date: '2024-01-16', original_steps: 5000, override: null },
+        { date: '2024-01-17', original_steps: 6000 },
+      ],
+      settings: [{ key: 'active_step_goal', target_steps: 10000 }],
+    };
+    await expect(restoreBackup(envelope)).resolves.not.toThrow();
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+});
