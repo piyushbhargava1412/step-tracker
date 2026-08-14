@@ -1467,6 +1467,7 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
+      <div id="backup-controls"></div>
       <div id="cloud-controls"></div>
       <div id="cloud-recovery-banner" hidden></div>
     `
@@ -1537,19 +1538,20 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(mockDriveSyncUIInstance.render).toHaveBeenCalledTimes(1)
   })
 
-  it('data:records:mutated passes the container element to backupUI.render and driveSyncUI.render', async () => {
+  it('data:records:mutated passes each panel its own container (backup → #backup-controls, cloud → #cloud-controls)', async () => {
     await bootstrap(isolatedDoc)
-    const container = isolatedDoc.getElementById('cloud-controls')
+    const backupContainer = isolatedDoc.getElementById('backup-controls')
+    const cloudContainer = isolatedDoc.getElementById('cloud-controls')
     vi.clearAllMocks()
     mockBackupUIInstance.render.mockReset()
     mockDriveSyncUIInstance.render.mockReset()
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(mockBackupUIInstance.render).toHaveBeenCalledWith(container)
-    expect(mockDriveSyncUIInstance.render).toHaveBeenCalledWith(container)
+    expect(mockBackupUIInstance.render).toHaveBeenCalledWith(backupContainer)
+    expect(mockDriveSyncUIInstance.render).toHaveBeenCalledWith(cloudContainer)
   })
 
-  it('data:records:mutated fan-out stays fail-open when #cloud-controls is absent', async () => {
+  it('data:records:mutated fan-out stays fail-open when the panel containers are absent', async () => {
     document.body.innerHTML = `
       <button id="auth-btn">Connect</button>
       <button id="sync-btn">Sync Steps</button>
@@ -1826,5 +1828,120 @@ describe('main.js — ST-012 Task 9: storage persistence badge modal wiring', ()
       expect.any(Error)
     )
     errorSpy.mockRestore()
+  })
+})
+
+// ============================================================================
+// ST-012 Task 23: separate mount containers for backup and cloud panels
+//
+// Integration tests: the REAL backup-ui.js / drive-sync-ui.js render functions
+// run inside the composition root (mocked factories re-routed to the actual
+// modules), so both panels' DOM output must coexist after mount and after a
+// data:records:mutated fan-out. This guards against the regression where both
+// render() calls targeted the same #cloud-controls container and the second
+// cleared the first's output.
+// ============================================================================
+
+describe('main.js — ST-012 Task 23: separate mount containers for backup and cloud panels', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+      defaultView: window,
+    }
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockDriveSyncInstance.find.mockResolvedValue(null)
+    mockDriveSyncInstance.push.mockResolvedValue(undefined)
+    mockDriveSyncInstance.pull.mockResolvedValue(null)
+    mockBackupInstance.buildBackup.mockResolvedValue({})
+    mockBackupInstance.restoreBackup.mockResolvedValue(undefined)
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <button id="settings-btn">Settings</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <div id="backup-controls"></div>
+      <div id="cloud-controls"></div>
+      <div id="cloud-recovery-banner" hidden></div>
+    `
+    // Re-route the mocked factories to the ACTUAL UI modules so the real
+    // render() functions write real DOM into the injected containers.
+    const { createBackupUI: realCreateBackupUI } = await vi.importActual('./backup-ui.js')
+    const { createDriveSyncUI: realCreateDriveSyncUI } = await vi.importActual('./drive-sync-ui.js')
+    createBackupUI.mockImplementation((doc, backup, reporter) =>
+      realCreateBackupUI(doc, backup, reporter)
+    )
+    createDriveSyncUI.mockImplementation((doc, driveSync, backup, reporter, confirmFn, validator) =>
+      realCreateDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, validator)
+    )
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+    // Restore the default mocked factories so later describes keep the mocked
+    // render() instances instead of the real DOM-writing modules.
+    createBackupUI.mockImplementation(() => mockBackupUIInstance)
+    createDriveSyncUI.mockImplementation(() => mockDriveSyncUIInstance)
+  })
+
+  it('mounts the local backup panel AND the cloud panel into separate containers (both visible after bootstrap)', async () => {
+    await bootstrap(isolatedDoc)
+    const backupPanel = document.getElementById('backup-controls')
+    const cloudPanel = document.getElementById('cloud-controls')
+    expect(backupPanel.querySelector('[data-action="export-backup"]')).not.toBeNull()
+    expect(backupPanel.querySelector('[data-action="import-backup"]')).not.toBeNull()
+    expect(cloudPanel.querySelector('[data-action="backup-to-drive"]')).not.toBeNull()
+    expect(cloudPanel.querySelector('[data-action="restore-from-drive"]')).not.toBeNull()
+    expect(backupPanel.textContent).toContain('Backup & Restore')
+    expect(backupPanel.textContent).toContain('Export Backup')
+    expect(backupPanel.textContent).toContain('Restore from Backup')
+    expect(cloudPanel.textContent).toContain('Google Drive Sync')
+    expect(cloudPanel.textContent).toContain('Back up to Drive')
+    expect(cloudPanel.textContent).toContain('Restore from Drive')
+  })
+
+  it('BOTH panels survive a data:records:mutated fan-out (each re-renders into its own container)', async () => {
+    await bootstrap(isolatedDoc)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const backupPanel = document.getElementById('backup-controls')
+    const cloudPanel = document.getElementById('cloud-controls')
+    expect(backupPanel.textContent).toContain('Backup & Restore')
+    expect(backupPanel.textContent).toContain('Export Backup')
+    expect(backupPanel.textContent).toContain('Restore from Backup')
+    expect(cloudPanel.textContent).toContain('Google Drive Sync')
+    expect(cloudPanel.textContent).toContain('Back up to Drive')
+    expect(cloudPanel.textContent).toContain('Restore from Drive')
+    // No panel render may clear the other panel's output.
+    expect(backupPanel.textContent).not.toContain('Google Drive Sync')
+    expect(cloudPanel.textContent).not.toContain('Backup & Restore')
   })
 })

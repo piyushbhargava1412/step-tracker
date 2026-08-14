@@ -150,10 +150,14 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
   const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup)
 
-  // Mount backup + cloud panels into #cloud-controls
+  // Mount backup + cloud panels into their own containers so neither render
+  // clears the other's output (each render() wipes its container first).
+  const backupControls = doc.getElementById('backup-controls')
   const cloudControls = doc.getElementById('cloud-controls')
+  if (backupControls) {
+    try { backupUI?.render?.(backupControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
+  }
   if (cloudControls) {
-    try { backupUI?.render?.(cloudControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
     try { driveSyncUI?.render?.(cloudControls) } catch (err) { console.error('[main] driveSyncUI.render failed, continuing', err) }
   }
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
@@ -330,12 +334,14 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     } catch (err) {
       console.error('[main]', err)
     }
-    if (cloudControls) {
+    if (backupControls) {
       try {
-        backupUI?.render?.(cloudControls)
+        backupUI?.render?.(backupControls)
       } catch (err) {
         console.error('[main] backupUI.render failed after mutation, continuing', err)
       }
+    }
+    if (cloudControls) {
       try {
         driveSyncUI?.render?.(cloudControls)
       } catch (err) {
