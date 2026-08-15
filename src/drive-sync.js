@@ -226,7 +226,6 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
 
     const metadata = JSON.stringify({
       name: DRIVE_APPDATA_FILE_NAME,
-      parents: ['appDataFolder'],
     });
     const data = JSON.stringify(envelope);
 

@@ -28,12 +28,20 @@ vi.mock('./drive-sync-ui.js', () => ({
   createDriveSyncUI: vi.fn(() => mockDriveSyncUIInstance)
 }))
 
-// ST-012 Task 9: mock storage-modal.js
-const mockStorageModalInstance = { attach: vi.fn(), open: vi.fn(), close: vi.fn() }
-vi.mock('./storage-modal.js', () => ({
-  createStorageModal: vi.fn(() => mockStorageModalInstance)
+// Storage Health: protection-matrix logic + panel (replaces storage-modal.js)
+const mockRefreshStorageProtectionBadge = vi.fn().mockResolvedValue(undefined)
+const mockRequestSilentPersistAndRefreshBadge = vi.fn().mockResolvedValue(undefined)
+vi.mock('./storage-health.js', () => ({
+  refreshStorageProtectionBadge: (...args) => mockRefreshStorageProtectionBadge(...args),
+  requestSilentPersistAndRefreshBadge: (...args) => mockRequestSilentPersistAndRefreshBadge(...args),
+  BACKUP_DISABLED_TEXT: '⚠️ Backup Disabled',
+  CLOUD_SYNCED_TEXT: '☁️ Cloud Synced',
 }))
 
+const mockStorageHealthUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./storage-health-ui.js', () => ({
+  createStorageHealthUI: vi.fn(() => mockStorageHealthUIInstance)
+}))
 
 // Task 5: mock records.js and image-processor.js
 const mockRecordsInstance = { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn().mockResolvedValue(undefined) }
@@ -177,7 +185,7 @@ import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
-import { initTabs } from './tabs.js'
+import { initTabs, switchTab } from './tabs.js'
 import { createStepSync } from './steps.js'
 import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
@@ -196,7 +204,12 @@ import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
-import { createStorageModal } from './storage-modal.js'
+import {
+  refreshStorageProtectionBadge,
+  requestSilentPersistAndRefreshBadge,
+  BACKUP_DISABLED_TEXT,
+} from './storage-health.js'
+import { createStorageHealthUI } from './storage-health-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1519,7 +1532,8 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockBackupInstance,
       mockReporter,
       mockConfirmAdapter,
-      mockSettingsInstance
+      mockSettingsInstance,
+      navigator
     )
   })
 
@@ -1622,63 +1636,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
 
 // ============================================================================
 // ST-012 Task 9: Interactive persistence badge modal wiring
-// ============================================================================
-
-describe('main.js — ST-012 Task 9: storage persistence badge modal wiring', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
-    mockProgressUIInstance.render.mockResolvedValue(undefined)
-    mockStreakUIInstance.render.mockResolvedValue(undefined)
-    mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
-    mockChallengeUIInstance.render.mockResolvedValue(undefined)
-    mockSearchUIInstance.render.mockResolvedValue(undefined)
-    mockSettingsUIInstance.render.mockResolvedValue(undefined)
-    mockStepSyncInstance.sync.mockResolvedValue(undefined)
-    mockStorageModalInstance.attach.mockReset()
-    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
-  })
-
-  afterEach(() => {
-    document.body.innerHTML = ''
-  })
-
-  it('createStorageModal is instantiated once with (doc, shared reporter, navigator, storage)', async () => {
-    await boot()
-    expect(createStorageModal).toHaveBeenCalledTimes(1)
-    expect(createStorageModal).toHaveBeenCalledWith(document, mockReporter, navigator, window.localStorage)
-  })
-
-  it('storageModal.attach() is called exactly once during bootstrap', async () => {
-    await boot()
-    expect(mockStorageModalInstance.attach).toHaveBeenCalledTimes(1)
-  })
-
-  it('createStorageModal throwing during bootstrap is fail-open (bootstrap still resolves)', async () => {
-    createStorageModal.mockImplementationOnce(() => { throw new Error('modal init fail') })
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(boot()).resolves.toBeUndefined()
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[main] createStorageModal failed, continuing',
-      expect.any(Error)
-    )
-    errorSpy.mockRestore()
-  })
-
-  it('storageModal.attach() throwing during bootstrap is fail-open', async () => {
-    mockStorageModalInstance.attach.mockImplementationOnce(() => { throw new Error('attach fail') })
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(boot()).resolves.toBeUndefined()
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[main] storageModal.attach failed, continuing',
-      expect.any(Error)
-    )
-    errorSpy.mockRestore()
-  })
-})
-
 // ============================================================================
 // ST-012 Task 23: separate mount containers for backup and cloud panels
 //
@@ -1790,5 +1747,132 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     // No panel render may clear the other panel's output.
     expect(backupPanel.textContent).not.toContain('Google Drive Cloud Sync')
     expect(cloudPanel.textContent).not.toContain('Local JSON Files')
+  })
+})
+
+// ============================================================================
+// Storage Health: protection-matrix badge + panel wiring (replaces the old
+// storage-modal.js nagging popup).
+// ============================================================================
+
+describe('main.js — Storage Health wiring', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+      defaultView: window,
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockStorageHealthUIInstance.render.mockClear()
+    mockRefreshStorageProtectionBadge.mockClear()
+    mockRequestSilentPersistAndRefreshBadge.mockClear()
+    mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <nav class="tab-bar">
+        <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-btn" data-tab="backup">Backup</button>
+      </nav>
+      <div id="tab-dashboard"></div>
+      <div id="tab-backup" style="display:none"></div>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <div id="storage-health-controls"></div>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  it('refreshStorageProtectionBadge runs once during bootstrap, after settings is ready', async () => {
+    await bootstrap(isolatedDoc)
+    expect(mockRefreshStorageProtectionBadge).toHaveBeenCalledTimes(1)
+    expect(mockRefreshStorageProtectionBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
+  })
+
+  it('createStorageHealthUI is instantiated once with (doc, settings, reporter, navigator)', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createStorageHealthUI).toHaveBeenCalledTimes(1)
+    expect(createStorageHealthUI).toHaveBeenCalledWith(isolatedDoc, mockSettingsInstance, mockReporter, navigator)
+  })
+
+  it('storageHealthUI.render is called with #storage-health-controls when present', async () => {
+    await bootstrap(isolatedDoc)
+    expect(mockStorageHealthUIInstance.render).toHaveBeenCalledWith(
+      document.getElementById('storage-health-controls')
+    )
+  })
+
+  it('bootstrap does not throw when #storage-health-controls is missing (fail-open)', async () => {
+    document.getElementById('storage-health-controls').remove()
+    await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
+  })
+
+  it('data:storage-health:refresh re-renders the storage-health panel', async () => {
+    await bootstrap(isolatedDoc)
+    mockStorageHealthUIInstance.render.mockClear()
+    isolatedDoc.dispatchEvent(new CustomEvent('data:storage-health:refresh'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockStorageHealthUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking #auth-btn silently requests persist + badge refresh alongside auth.requestToken()', async () => {
+    await bootstrap(isolatedDoc)
+    mockRequestSilentPersistAndRefreshBadge.mockClear()
+    document.getElementById('auth-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
+  })
+
+  it('clicking #sync-btn silently requests persist + badge refresh alongside the sync pipeline', async () => {
+    await bootstrap(isolatedDoc)
+    mockRequestSilentPersistAndRefreshBadge.mockClear()
+    document.getElementById('sync-btn').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking #db-status when it reads "Backup Disabled" navigates to the Backup tab', async () => {
+    await bootstrap(isolatedDoc)
+    switchTab.mockClear()
+    document.getElementById('db-status').textContent = BACKUP_DISABLED_TEXT
+    document.getElementById('db-status').click()
+    expect(switchTab).toHaveBeenCalledWith('backup', isolatedDoc)
+  })
+
+  it('clicking #db-status when it does NOT read "Backup Disabled" does nothing', async () => {
+    await bootstrap(isolatedDoc)
+    switchTab.mockClear()
+    document.getElementById('db-status').textContent = '☁️ Cloud Synced'
+    document.getElementById('db-status').click()
+    expect(switchTab).not.toHaveBeenCalled()
   })
 })

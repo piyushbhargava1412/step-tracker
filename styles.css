@@ -1772,6 +1772,17 @@ button {
     width: 100%;
 }
 
+.storage-modal-status {
+    margin: 12px 0 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--accent-amber);
+}
+
+.storage-modal-status[hidden] {
+    display: none;
+}
+
 #settings-modal .modal-dialog {
     background: var(--bg-card-solid);
     border: 1px solid var(--bg-card-border);
@@ -2044,5 +2055,53 @@ button {
     font-size: 0.8rem;
     color: var(--text-muted);
     cursor: pointer;
+}
+
+/* ── Storage & Data Health panel — full-width, above the backup grid ────────── */
+
+.storage-health-panel {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.storage-health-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--bg-card-border);
+    font-size: 0.875rem;
+}
+
+.storage-health-row:last-of-type {
+    border-bottom: none;
+}
+
+.storage-health-label {
+    color: var(--text-muted);
+}
+
+.storage-health-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.storage-health-action {
+    margin-top: 1rem;
+}
+
+.storage-health-hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--accent-amber);
+}
+
+.storage-health-hint[hidden] {
+    display: none;
 }
 

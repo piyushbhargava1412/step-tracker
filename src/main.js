@@ -29,7 +29,13 @@ import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
-import { createStorageModal } from './storage-modal.js'
+import { switchTab } from './tabs.js'
+import {
+  refreshStorageProtectionBadge,
+  requestSilentPersistAndRefreshBadge,
+  BACKUP_DISABLED_TEXT,
+} from './storage-health.js'
+import { createStorageHealthUI } from './storage-health-ui.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -105,6 +111,15 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const settings = createSettings(db)
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
 
+  // Redefine the #db-status badge to account for Drive Cloud Auto-Sync state
+  // now that settings is available (fail-open — a read error leaves whatever
+  // requestPersistentStorage already wrote in place).
+  try {
+    await refreshStorageProtectionBadge(reporter, settings, navigator)
+  } catch (err) {
+    console.error('[main] refreshStorageProtectionBadge failed, continuing', err)
+  }
+
   // ST-012: Backup engine + UI (fail-open)
   let backup = null
   let backupUI = null
@@ -128,38 +143,50 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings)
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, navigator)
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
 
-  // ST-012 Task 9: interactive persistence badge modal (fail-open).
-  // The factory builds the guidance modal DOM in JS and attaches the
-  // #db-status click binding that opens it only in the "not persisted" state.
+  // Storage & Data Health panel (fail-open) — replaces the old nagging
+  // persistence modal with a plain status panel + direct-action button.
+  let storageHealthUI = null
   try {
-    const storageModal = createStorageModal(doc, reporter, navigator, storage)
-    try {
-      storageModal.attach?.()
-    } catch (err) {
-      console.error('[main] storageModal.attach failed, continuing', err)
-    }
+    storageHealthUI = createStorageHealthUI(doc, settings, reporter, navigator)
   } catch (err) {
-    console.error('[main] createStorageModal failed, continuing', err)
+    console.error('[main] createStorageHealthUI failed, continuing', err)
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
   const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup, settings)
 
-  // Mount backup + cloud panels into their own containers so neither render
-  // clears the other's output (each render() wipes its container first).
+  // Mount backup + cloud + storage-health panels into their own containers so
+  // no render clears another's output (each render() wipes its container first).
   const backupControls = doc.getElementById('backup-controls')
   const cloudControls = doc.getElementById('cloud-controls')
+  const storageHealthControls = doc.getElementById('storage-health-controls')
   if (backupControls) {
     try { backupUI?.render?.(backupControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
   }
   if (cloudControls) {
     try { driveSyncUI?.render?.(cloudControls) } catch (err) { console.error('[main] driveSyncUI.render failed, continuing', err) }
   }
+  if (storageHealthControls) {
+    try { await storageHealthUI?.render?.(storageHealthControls) } catch (err) { console.error('[main] storageHealthUI.render failed, continuing', err) }
+  }
+
+  // The Storage Health panel and the cloud-sync toggle live in separate
+  // modules/mount points; drive-sync-ui.js dispatches this event rather than
+  // holding a direct reference so a Drive-state change (toggle, manual push)
+  // still refreshes the panel's Drive row.
+  doc.addEventListener('data:storage-health:refresh', async () => {
+    if (!storageHealthControls) return
+    try {
+      await storageHealthUI?.render?.(storageHealthControls)
+    } catch (err) {
+      console.error('[main] storageHealthUI.render failed after refresh event, continuing', err)
+    }
+  })
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
@@ -178,10 +205,17 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     }
   })
 
-  // 7. Bind auth button
+  // 7. Bind auth button. Connect/Reconnect is a storage-protection-relevant
+  // user gesture: silently request navigator.storage.persist() alongside it
+  // (fire-and-forget — never blocks or delays the auth flow).
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
-    authBtn.addEventListener('click', () => auth.requestToken())
+    authBtn.addEventListener('click', () => {
+      auth.requestToken()
+      requestSilentPersistAndRefreshBadge(reporter, settings, navigator).catch((err) => {
+        console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
+      })
+    })
   }
 
   // 7a. Shared post-sync re-render pipeline (SF-12: re-render after each sync).
@@ -249,10 +283,18 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     settingsBtn.addEventListener('click', () => settingsUI.open())
   }
 
-  // 8. Bind sync button (SF-12: re-render after each sync click)
+  // 8. Bind sync button (SF-12: re-render after each sync click). Sync Steps
+  // is a storage-protection-relevant user gesture: silently request
+  // navigator.storage.persist() alongside it (fire-and-forget, never delays
+  // or blocks the sync pipeline).
   const syncBtn = doc.getElementById('sync-btn')
   if (syncBtn) {
-    syncBtn.addEventListener('click', runSync)
+    syncBtn.addEventListener('click', () => {
+      requestSilentPersistAndRefreshBadge(reporter, settings, navigator).catch((err) => {
+        console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
+      })
+      runSync()
+    })
   }
 
   // 8a. Register data:records:mutated listener for override recalculation (fail-open)
@@ -314,6 +356,18 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const tabBar = doc.querySelector('.tab-bar')
   if (tabBar) {
     initTabs(tabBar, doc)
+  }
+
+  // 9a. #db-status pill: when it reads "Backup Disabled" (unbacked-up state),
+  // clicking it jumps straight to the Backup tab instead of popping up a
+  // modal — the badge is otherwise informational and not clickable.
+  const dbStatusEl = doc.getElementById('db-status')
+  if (dbStatusEl) {
+    dbStatusEl.addEventListener('click', () => {
+      if (dbStatusEl.textContent === BACKUP_DISABLED_TEXT) {
+        switchTab('backup', doc)
+      }
+    })
   }
 
   // 10. Render Today's Progress card on page load (fail-open)

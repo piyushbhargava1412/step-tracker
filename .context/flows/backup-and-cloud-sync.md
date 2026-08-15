@@ -71,16 +71,24 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
    otherwise fetches and JSON-parses the file, then runs the injected `validator` (wired to
    `backup.js`'s `_validateEnvelope`) over the **untrusted remote payload** before returning — a
    validator rejection re-throws as `TypeError` so no restore write ever happens on a tampered payload.
-7. `createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)` renders "☁️ Back
-   Up to Drive" / "🔄 Restore from Drive" buttons (the restore button paired with an amber "⚠️
-   Overwrites local database" badge) plus the auto-upload toggle inline beside the backup button, and
-   a "🕒 Last cloud sync: …" metadata line (`driveBackupPrefs.getLastDriveSync()` /
+7. `createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator)`
+   renders "☁️ Back Up to Drive" / "🔄 Restore from Drive" buttons (the restore button paired with an
+   amber "⚠️ Overwrites local database" badge) plus the auto-upload toggle inline beside the backup
+   button, and a "🕒 Last cloud sync: …" metadata line (`driveBackupPrefs.getLastDriveSync()` /
    `formatLastSyncLine` in `src/backup-format.js`). Manual backup-now reports ✅ only on an actual
    upload — a `DRIVE_PUSH_SKIPPED` result surfaces an informational ℹ️, never a false-success ✅ — and
    on success persists `{ at, bytes }` via `driveBackupPrefs.setLastDriveSync` (logged, not surfaced,
    on a persistence failure). Manual restore warns via the injected `confirmFn` before overwriting
    local data (last-write-wins), then re-validates defensively in `backup.restoreBackup` even though
    `driveSync.pull()` already validated, and dispatches `data:records:mutated` on success.
+   **ST-013**: a successful auto-upload toggle write also silently calls
+   `requestSilentPersistAndRefreshBadge` (`src/storage-health.js` — requests
+   `navigator.storage.persist()` with no UI feedback, then refreshes the `#db-status` header badge);
+   a failed toggle write skips both the persist request and the event below. Both a successful toggle
+   write and a successful manual backup dispatch `data:storage-health:refresh` on `doc` so the
+   separately-mounted Storage Health panel (`src/storage-health-ui.js`, on the same Backup tab) picks
+   up the new Drive state without the two modules holding a direct reference to each other; see
+   `.context/flows/storage-health.md`.
 
 ### Opt-Out Toggle for Background Auto-Upload (Task 27)
 8. `src/settings.js` persists a `drive_backup_enabled` row (`DRIVE_BACKUP_ENABLED_KEY`, default
@@ -131,7 +139,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/backup-ui.js` — local backup panel renderer (`createBackupUI(doc, backup, reporter, confirmFn, settings = null)`)
 - `src/backup-format.js` — pure, DI-testable formatting helpers for the metadata lines (`formatBytes`, `formatLastExportLine`, `formatLastSyncLine`)
 - `src/drive-sync.js` — Drive v3 AppData gateway (`createDriveSync({ getAccessToken, reporter, fetchFn, validator })`; exports `DRIVE_APPDATA_FILE_NAME`, `DRIVE_API_BASE_URL`, `DRIVE_PUSH_SKIPPED`)
-- `src/drive-sync-ui.js` — cloud sync panel renderer (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs)`)
+- `src/drive-sync-ui.js` — cloud sync panel renderer (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator)`)
 - `src/settings.js` — `drive_backup_enabled` preference (`getDriveBackupEnabled`, `setDriveBackupEnabled`, `DRIVE_BACKUP_ENABLED_KEY`, `DEFAULT_DRIVE_BACKUP_ENABLED`) plus last-export/last-sync metadata (`getLastLocalExport`, `setLastLocalExport`, `getLastDriveSync`, `setLastDriveSync`, `LAST_LOCAL_EXPORT_KEY`, `LAST_DRIVE_SYNC_KEY`)
 - `src/steps.js` — post-sync fire-and-forget push hook (coalescing + dirty-check), injected `driveSync`/`backup`/`settings` collaborators
 - `src/auth.js` — `drive.appdata` OAuth scope
@@ -143,7 +151,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/backup-ui.test.js` — render, export download seam, last-export metadata line + persistence, restore confirm-gate (confirm/cancel paths), restore file read/parse/validate, `data:records:mutated` dispatch, error paths.
 - `src/backup-format.test.js` — `formatBytes`/`formatLastExportLine`/`formatLastSyncLine` pure formatting (null/invalid input, same-day vs. prior-day dates).
 - `src/drive-sync.test.js` — `find`/`push`/`pull` DI isolation (injected `fetchFn`), no-token paths, multipart boundary collision handling, stale-cache 404 retry, silent-mode reporter suppression, validator rejection path.
-- `src/drive-sync-ui.test.js` — render, backup-now/restore-from-cloud handlers, `DRIVE_PUSH_SKIPPED` vs. success reporting, last-sync metadata line + persistence, auto-backup toggle read/write/revert-on-failure.
+- `src/drive-sync-ui.test.js` — render, backup-now/restore-from-cloud handlers, `DRIVE_PUSH_SKIPPED` vs. success reporting, last-sync metadata line + persistence, auto-backup toggle read/write/revert-on-failure, ST-013 toggle-triggered silent persist + badge refresh + `data:storage-health:refresh` dispatch (and the failed-write path where neither fires), manual-backup-success `data:storage-health:refresh` dispatch.
 - `src/settings.test.js` — `getLastLocalExport`/`setLastLocalExport`, `getLastDriveSync`/`setLastDriveSync` round-trip, fail-open reads, guard-clause writes.
 - `src/steps.test.js` — post-sync push gating (opt-out, dirty-check, in-flight coalescing).
 - `src/main.test.js` — `backupUI`/`driveSyncUI` wiring with the confirm adapter and `settings` collaborator.

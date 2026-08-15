@@ -20,11 +20,19 @@
  * The collaborator may be null (defaults to enabled, "No cloud backup found")
  * so legacy call sites still render.
  *
+ * Toggling auto-backup is a storage-protection-relevant user gesture: it
+ * silently requests navigator.storage.persist() and refreshes the shared
+ * #db-status header badge (storage-health.js), then dispatches
+ * `data:storage-health:refresh` so the Storage Health panel's Drive row
+ * (and a manual backup's freshly-recorded size) stay in sync without a
+ * cross-module reference between the two panels.
+ *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
 
 import { formatLastSyncLine } from './backup-format.js';
+import { requestSilentPersistAndRefreshBadge } from './storage-health.js';
 
 export function createDriveSyncUI(
   doc,
@@ -32,7 +40,8 @@ export function createDriveSyncUI(
   backup,
   reporter,
   confirmFn,
-  driveBackupPrefs = null
+  driveBackupPrefs = null,
+  nav = navigator
 ) {
   let controller = null;
   let syncMetaEl = null;
@@ -189,6 +198,10 @@ export function createDriveSyncUI(
    * The click event has already toggled the input's checked state, so the new
    * value is read straight off the element. A failed write is logged and the
    * checkbox is reverted so the UI never lies about the persisted state.
+   *
+   * A successful change is a storage-protection-relevant gesture: it silently
+   * requests navigator.storage.persist() and refreshes the header badge, then
+   * notifies the Storage Health panel to re-read the (now-changed) Drive row.
    * @param {HTMLInputElement} checkbox
    */
   async function _handleToggleBackup(checkbox) {
@@ -199,6 +212,26 @@ export function createDriveSyncUI(
     } catch (err) {
       console.error('[drive-sync-ui]', err);
       checkbox.checked = !next;
+      return;
+    }
+    try {
+      await requestSilentPersistAndRefreshBadge(reporter, driveBackupPrefs, nav);
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
+    }
+    _dispatchStorageHealthRefresh();
+  }
+
+  /**
+   * Notifies the (separately mounted) Storage Health panel that
+   * drive-auto-sync-dependent state changed, without either module holding a
+   * direct reference to the other.
+   */
+  function _dispatchStorageHealthRefresh() {
+    try {
+      doc.dispatchEvent(new doc.defaultView.CustomEvent('data:storage-health:refresh'));
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
     }
   }
 
@@ -245,6 +278,7 @@ export function createDriveSyncUI(
       const entry = { at: new Date().toISOString(), bytes: JSON.stringify(envelope).length };
       await driveBackupPrefs.setLastDriveSync(entry);
       if (syncMetaEl) syncMetaEl.textContent = formatLastSyncLine(entry);
+      _dispatchStorageHealthRefresh();
     } catch (err) {
       console.error('[drive-sync-ui]', err);
     }
