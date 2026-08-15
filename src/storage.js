@@ -1,7 +1,7 @@
 /**
  * Compact header-badge copy for the #db-status persistence pill. Kept here
- * (the non-DOM capability module) as the single source of truth; storage-modal.js
- * re-exports both for the badge-click marker check and its own reporter calls.
+ * (the non-DOM capability module) as the single source of truth; PERSISTED_TEXT
+ * is reused by src/storage-health.js's drive-aware badge computation.
  */
 export const NOT_PERSISTED_TEXT = '⚠️ Unprotected';
 export const PERSISTED_TEXT = '🛡️ Storage Safe';

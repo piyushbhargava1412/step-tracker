@@ -36,7 +36,7 @@ step aggregates from Google Fit, and computes the current streak client-side wit
 | Search / filter / export flow | [flows/search-lab-export.md](.context/flows/search-lab-export.md) |
 | Settings, sync horizon, data prune / wipe flow | [flows/settings-data-management.md](.context/flows/settings-data-management.md) |
 | Local backup & Google Drive cloud sync flow | [flows/backup-and-cloud-sync.md](.context/flows/backup-and-cloud-sync.md) |
-| Persistent storage guidance modal flow | [flows/persistent-storage-modal.md](.context/flows/persistent-storage-modal.md) |
+| Storage Health protection matrix, silent persist gestures & panel | [flows/storage-health.md](.context/flows/storage-health.md) |
 | Group Challenge Tracker flow | [flows/group-challenge-tracker.md](.context/flows/group-challenge-tracker.md) |
 
 ## Business Flows
@@ -52,7 +52,7 @@ relevant to your current task.**
 - [Search Lab — Filter & Export Daily Records](.context/flows/search-lab-export.md)
 - [Settings — Sync Horizon & Data Management](.context/flows/settings-data-management.md)
 - [Local Backup/Restore & Google Drive Cloud Sync](.context/flows/backup-and-cloud-sync.md)
-- [Persistent Storage Guidance Modal](.context/flows/persistent-storage-modal.md)
+- [Storage Health — Protection Matrix, Silent Persist Gestures & Panel](.context/flows/storage-health.md)
 - [Group Challenge Tracker](.context/flows/group-challenge-tracker.md)
 
 <!-- repo-agentifier:managed:end -->

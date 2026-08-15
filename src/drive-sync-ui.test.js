@@ -513,4 +513,84 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     const calls = reporter.sync.mock.calls.map(c => c[0]);
     expect(calls.some(m => m.startsWith('✅'))).toBe(true);
   });
+
+  // ── Storage-protection gesture: toggling auto-backup ─────────────────────
+
+  it('toggling the checkbox silently requests navigator.storage.persist()', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const nav = { storage: { persist: vi.fn().mockResolvedValue(true), persisted: vi.fn().mockResolvedValue(true) } };
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs, nav);
+    await ui.render(freshContainer);
+
+    const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(nav.storage.persist).toHaveBeenCalledTimes(1);
+  });
+
+  it('toggling the checkbox refreshes the #db-status header badge via the reporter', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    const nav = { storage: { persist: vi.fn().mockResolvedValue(true), persisted: vi.fn().mockResolvedValue(true) } };
+    reporter.db.mockClear();
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs, nav);
+    await ui.render(freshContainer);
+
+    const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(reporter.db).toHaveBeenCalled();
+  });
+
+  it('toggling the checkbox dispatches data:storage-health:refresh', async () => {
+    ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, prefs);
+    await ui.render(container);
+
+    const dispatchSpy = vi.spyOn(doc, 'dispatchEvent');
+    const cb = container.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const refreshed = dispatchSpy.mock.calls.some((c) => c[0].type === 'data:storage-health:refresh');
+    expect(refreshed).toBe(true);
+  });
+
+  it('a failed toggle write does NOT request persist or dispatch the refresh event', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    prefs = makeDriveBackupPrefs();
+    prefs.setDriveBackupEnabled.mockRejectedValue(new Error('write failed'));
+    const nav = { storage: { persist: vi.fn().mockResolvedValue(true), persisted: vi.fn().mockResolvedValue(true) } };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs, nav);
+    await ui.render(freshContainer);
+
+    const dispatchSpy = vi.spyOn(freshDoc, 'dispatchEvent');
+    const cb = freshContainer.querySelector('[data-action="toggle-drive-backup"]');
+    cb.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(nav.storage.persist).not.toHaveBeenCalled();
+    const refreshed = dispatchSpy.mock.calls.some((c) => c[0].type === 'data:storage-health:refresh');
+    expect(refreshed).toBe(false);
+  });
+
+  it('a successful manual "Back up to Drive" dispatches data:storage-health:refresh', async () => {
+    const freshDoc = buildDoc();
+    const freshContainer = freshDoc.getElementById('cloud-controls');
+    prefs = makeDriveBackupPrefs();
+    ui = createDriveSyncUI(freshDoc, driveSync, backup, reporter, confirmFn, prefs);
+    await ui.render(freshContainer);
+
+    const dispatchSpy = vi.spyOn(freshDoc, 'dispatchEvent');
+    const btn = freshContainer.querySelector('[data-action="backup-to-drive"]');
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const refreshed = dispatchSpy.mock.calls.some((c) => c[0].type === 'data:storage-health:refresh');
+    expect(refreshed).toBe(true);
+  });
 });
