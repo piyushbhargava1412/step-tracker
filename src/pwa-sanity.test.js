@@ -65,6 +65,11 @@ describe('PWA sanity spine', () => {
     expect(swSource).toContain('response.clone()');
   });
 
+  it('caches opaque no-cors responses in the SWR branch (review warning 2)', () => {
+    const swrWindow = swSource.slice(swSource.indexOf("policy === 'STALE_WHILE_REVALIDATE'"));
+    expect(swrWindow).toMatch(/response\.ok\s*\|\|\s*response\.type\s*===\s*'opaque'/);
+  });
+
   it('includes both fitness AND drive bypass markers (ST-012 drive.appdata scope)', () => {
     expect(swSource).toContain('/fitness/');
     expect(swSource).toContain('/drive/');

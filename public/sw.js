@@ -78,7 +78,7 @@ async function handleFetch(request) {
       const cached = await cache.match(request);
       const network = fetch(request)
         .then((response) => {
-          if (response.ok) {
+          if (response.ok || response.type === 'opaque') {
             cache.put(request, response.clone());
           }
           return response;
