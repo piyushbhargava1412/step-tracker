@@ -79,3 +79,49 @@ describe('PWA sanity spine', () => {
     expect(swSource).not.toMatch(/skipWaiting|clients\.claim/);
   });
 });
+
+describe('CI deploy workflow', () => {
+  let workflowSource;
+
+  beforeAll(() => {
+    workflowSource = readRepoFile('../.github/workflows/deploy.yml');
+  });
+
+  it('triggers on push to main', () => {
+    expect(workflowSource).toContain('push:');
+    expect(workflowSource).toContain('branches: [main]');
+  });
+
+  it('runs the gate in order: npm ci → npm test → npm run build', () => {
+    const ci = workflowSource.indexOf('npm ci');
+    const test = workflowSource.indexOf('npm test');
+    const build = workflowSource.indexOf('npm run build');
+    expect(ci).toBeGreaterThan(-1);
+    expect(test).toBeGreaterThan(ci);
+    expect(build).toBeGreaterThan(test);
+  });
+
+  it('maps the GOOGLE_CLIENT_ID secret to VITE_CLIENT_ID at build time (SF-7)', () => {
+    expect(workflowSource).toMatch(/VITE_CLIENT_ID:\s*\${{ secrets\.GOOGLE_CLIENT_ID }}/);
+  });
+
+  it('references all three secrets via ${{ secrets.* }} only', () => {
+    expect(workflowSource).toContain('${{ secrets.GOOGLE_CLIENT_ID }}');
+    expect(workflowSource).toContain('${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    expect(workflowSource).toContain('${{ secrets.CLOUDFLARE_ACCOUNT_ID }}');
+  });
+
+  it('pins cloudflare/wrangler-action@v3 for the Pages deploy of dist/', () => {
+    expect(workflowSource).toContain('cloudflare/wrangler-action@v3');
+    expect(workflowSource).toContain('pages deploy dist --project-name=step-tracker');
+  });
+
+  it('sets minimal contents: read permissions', () => {
+    expect(workflowSource).toMatch(/permissions:\s*\n\s*contents:\s*read/);
+  });
+
+  it('contains no credential-shaped literals', () => {
+    expect(workflowSource).not.toMatch(/apps\.googleusercontent\.com/);
+    expect(workflowSource).not.toMatch(/\b[a-f0-9]{32}\b/);
+  });
+});
