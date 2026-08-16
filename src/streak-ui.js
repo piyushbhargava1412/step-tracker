@@ -23,7 +23,7 @@ import { DEFAULT_STEP_GOAL } from './goal.js';
  */
 const ALLOWANCE_METRICS = [
   { key: 'allowance95', label: '95% Tolerance' },
-  { key: 'allowance90', label: '90% Tolerance' },
+  { key: 'allowance99', label: '99% Tolerance' },
 ];
 
 const RUNS_EMPTY_TEXT = 'No qualifying streak periods yet';
@@ -31,7 +31,7 @@ const RUNS_EMPTY_TEXT = 'No qualifying streak periods yet';
 /** Zero-state result used when streak.compute() rejects. */
 function _zeroState() {
   return {
-    tolerance: { actual: 0, allowance95: 0, allowance90: 0 },
+    tolerance: { actual: 0, allowance95: 0, allowance99: 0 },
     hallOfFame: [],
     lifetime: { metDays: 0, totalDays: 0, pct: 0 },
     activeStepGoal: DEFAULT_STEP_GOAL,
@@ -152,10 +152,10 @@ function _buildActual(doc, actual) {
 }
 
 /**
- * The two allowance chips (95% / 90%).
+ * The two allowance chips (95% / 99%).
  *
  * @param {Document} doc
- * @param {{ allowance95: number, allowance90: number }} tolerance
+ * @param {{ allowance95: number, allowance99: number }} tolerance
  * @returns {HTMLElement}
  */
 function _buildAllowances(doc, tolerance) {

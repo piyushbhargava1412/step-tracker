@@ -51,15 +51,15 @@ function makeStreakReject(err) {
 
 /** Zero-state compute result (mirrors _zeroState()). */
 const ZERO_RESULT = {
-  tolerance: { actual: 0, allowance95: 0, allowance90: 0 },
+  tolerance: { actual: 0, allowance95: 0, allowance99: 0 },
   hallOfFame: [],
   lifetime: { metDays: 0, totalDays: 0, pct: 0 },
   activeStepGoal: DEFAULT_STEP_GOAL, // 10000
 };
 
-/** AC Scenario: 19 / 39 / 39 (story's worked tolerance example). */
+/** AC Scenario: 19 / 39 / 19 (story's worked tolerance example). */
 const TOLERANCE_RESULT = {
-  tolerance: { actual: 19, allowance95: 39, allowance90: 39 },
+  tolerance: { actual: 19, allowance95: 39, allowance99: 19 },
   hallOfFame: [],
   lifetime: { metDays: 40, totalDays: 100, pct: 40.0 },
   activeStepGoal: DEFAULT_STEP_GOAL,
@@ -67,7 +67,7 @@ const TOLERANCE_RESULT = {
 
 /** Custom/legacy step goal not matching any preset. */
 const GOAL_NO_MATCH_RESULT = {
-  tolerance: { actual: 2, allowance95: 2, allowance90: 2 },
+  tolerance: { actual: 2, allowance95: 2, allowance99: 2 },
   hallOfFame: [],
   lifetime: { metDays: 5, totalDays: 10, pct: 50 },
   activeStepGoal: 6000,
@@ -377,7 +377,7 @@ describe('createStreakUI', () => {
       expect(container.querySelectorAll('.streak-allowance').length).toBe(2);
     });
 
-    it('allowance labels read "95% Tolerance" then "90% Tolerance"', async () => {
+    it('allowance labels read "95% Tolerance" then "99% Tolerance"', async () => {
       const doc = buildDoc();
       const streak = makeStreak(ZERO_RESULT);
       const reporter = { db: vi.fn() };
@@ -388,10 +388,10 @@ describe('createStreakUI', () => {
       const labels = Array.from(
         doc.querySelectorAll('.streak-allowance .streak-allowance-label'),
       ).map((el) => el.textContent);
-      expect(labels).toEqual(['95% Tolerance', '90% Tolerance']);
+      expect(labels).toEqual(['95% Tolerance', '99% Tolerance']);
     });
 
-    it('allowance values come from result.tolerance (39 / 39)', async () => {
+    it('allowance values come from result.tolerance (39 / 19)', async () => {
       const doc = buildDoc();
       const streak = makeStreak(TOLERANCE_RESULT);
       const reporter = { db: vi.fn() };
@@ -402,7 +402,7 @@ describe('createStreakUI', () => {
       const values = Array.from(
         doc.querySelectorAll('.streak-allowance .streak-allowance-value'),
       ).map((el) => el.textContent);
-      expect(values).toEqual(['39', '39']);
+      expect(values).toEqual(['39', '19']);
     });
 
     it('zero-state allowances both read 0', async () => {

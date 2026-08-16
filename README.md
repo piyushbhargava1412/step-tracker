@@ -141,28 +141,31 @@ The Dashboard calculates three tolerance streak metrics via `computeToleranceStr
 
 | Metric | What it counts |
 |--------|---------------|
-| **`actual`** (100%) | Consecutive passing days backward from anchor; any miss terminates. |
-| **`allowance95`** (95%) | Days in the backward window where `misses ≤ floor(d / 20)` — one allowed miss per 20 calendar days. |
-| **`allowance90`** (90%) | Days in the backward window where `misses ≤ floor(d / 10)` — one allowed miss per 10 calendar days. |
+| **`actual`** (100%) | Consecutive passing days backward from anchor; any day below goal terminates. Strict — no leniency. |
+| **`allowance95`** (95%) | Longest backward window where true misses stay within budget: `misses ≤ floor(d / 20)` — one allowed miss per 20 calendar days. |
+| **`allowance99`** (99%) | Longest backward window where true misses stay within budget: `misses ≤ floor(d / 100)` — one allowed miss per 100 calendar days. |
 
 Constants (from `src/streak.js`):
 - `ALLOWANCE_WINDOW_95 = 20` (95% tier)
-- `ALLOWANCE_WINDOW_90 = 10` (90% tier)
+- `ALLOWANCE_WINDOW_99 = 100` (99% tier)
+- `NEAR_MISS_RATIO = 0.95` — the per-day near-miss bar for the tolerance tiers
 
-**Anchor rule**: the walk starts at `today` if today's record exists and `effective_steps >= stepGoal`; otherwise today is excluded and the walk starts at yesterday. Today is never charged as a miss.
+**Anchor rule**: the walk starts at `today` if today's record exists and `effective_steps >= stepGoal`; otherwise today is excluded and the walk starts at yesterday. Today is never charged as a miss — the bar stays strict here even though past days get near-miss leniency.
 
-**Miss rule**: a missing past day reads as 0 steps and counts as a miss. The 100% engine terminates on the first miss. Each allowance engine spends one miss unit (`misses += 1`) and keeps walking while `misses <= floor(d / N)`, recording the furthest affordable depth. Once `misses > floor(d / N)` that engine freezes.
+**Miss rule**: a missing past day reads as 0 steps and counts as a miss. The 100% engine freezes on the first day below goal. For the tolerance tiers, a past day counts as **met** when `effective_steps >= round(NEAR_MISS_RATIO × stepGoal)` — e.g. 5,800 of a 6k goal (97%) is treated as achieved. Only days *below* that near-miss bar are "true misses" that spend the tier's density budget.
 
-**`earliestRecordDate` bound**: the walk ends when `day < earliestRecordDate` — the oldest synced record. This prevents allowance engines from walking into pre-history indefinitely.
+**Longest-compliant-window**: each allowance engine reports the *maximum* depth `d` whose window it can afford, not the last depth before a violation. The density predicate is non-monotonic — clean days dilute the miss ratio — so a window that violates mid-history can become compliant again once enough clean days accumulate (e.g. 2 misses in the first 100 days, then clean: the 99% tier recovers at depth 200). The engine therefore walks to `earliestRecordDate` unconditionally and keeps the deepest qualifying depth. Ordering invariant: `actual ≤ allowance99 ≤ allowance95`.
+
+**`earliestRecordDate` bound**: the walk ends when `day < earliestRecordDate` — the oldest synced record. This prevents engines from walking into pre-history indefinitely, so no value can exceed it.
 
 **Depth convention**: the anchor day is `d = 1`; `d` increments by one per calendar day walked back. `floor(d / N)` is load-bearing — the AC arithmetic only holds with a 1-based depth.
 
-**AC Scenario 2 worked example** (39 days, one miss at depth 20):
-- 39 days of data; day 20 is the only miss.
-- `actual`: terminates at the miss → **19**.
-- `allowance95`: at depth 20 the budget is `floor(20/20) = 1`; 1 miss ≤ 1 → affordable. Walk continues through all 39 days → **39**.
-- `allowance90`: at depth 20 the budget is `floor(20/10) = 2`; 1 miss ≤ 2 → affordable. Walk continues through all 39 days → **39**.
-- Result: `{ actual: 19, allowance95: 39, allowance90: 39 }`.
+**AC Scenario 2 worked example** (39 days, one true miss at depth 20):
+- 39 days of data; day 20 is the only true miss.
+- `actual`: freezes at the first strict miss → **19**.
+- `allowance95`: budget is 1 from depth 20 on (`floor(20/20) = 1`) and the window stays compliant through all 39 days → **39**.
+- `allowance99`: budget is 0 for every depth ≤ 100, so the deepest qualifying depth is **19**.
+- Result: `{ actual: 19, allowance95: 39, allowance99: 19 }`.
 
 ### Tier Streaks
 
@@ -186,7 +189,7 @@ The Dashboard renders the results in the **Active Streaks** card (`#streak-card`
 
 - **Header**: "Active Streaks" title + a goal badge ("5k Goal", "7.5k Goal", "10k Goal", "15k Goal").
 - **Actual (100%)**: the headline `tolerance.actual` number above a full-width progress bar.
-- **Allowances**: two chips showing the `allowance95` and `allowance90` day counts.
+- **Allowances**: two chips showing the `allowance95` and `allowance99` day counts.
 - **Best Runs**: the Hall of Fame top three as `#rank / days / year-span` rows (e.g. `#1  1,178 days  2021-2025`), titled "🏆 Best Runs at 10,000".
 
 ### Lifetime Compliance Banner

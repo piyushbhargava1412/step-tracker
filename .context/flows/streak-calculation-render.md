@@ -8,7 +8,7 @@ confidence: high
 
 ## Overview
 Reads persisted daily step records and the active step goal (a scalar integer), computes a
-three-metric tolerance streak (100% / 95% / 90% windows), fixed-threshold tier streaks,
+three-metric tolerance streak (100% / 95% / 99% windows), fixed-threshold tier streaks,
 Hall of Fame periods, and lifetime 10k-day totals, then renders the Active Streaks card
 (`#streak-card`) into the dashboard.
 
@@ -28,10 +28,15 @@ Hall of Fame periods, and lifetime 10k-day totals, then renders the Active Strea
    also evaluates four fixed-threshold tier streaks (4 000 / 6 000 / 8 500 / 10 000 steps), Hall of
    Fame periods, and lifetime 10k-step metrics.
 3. Tolerance engine constants (from `src/streak.js`):
-   - `ALLOWANCE_WINDOW_95 = 20` — 95% tier: `floor(d / 20)` misses allowed in `d`-day window.
-   - `ALLOWANCE_WINDOW_90 = 10` — 90% tier: `floor(d / 10)` misses allowed in `d`-day window.
-4. Missing or below-goal today is "in progress" for active streaks; missing or failing past days
-   terminate the run; non-finite values fail the day.
+   - `ALLOWANCE_WINDOW_95 = 20` — 95% tier: `floor(d / 20)` true misses allowed in a `d`-day window.
+   - `ALLOWANCE_WINDOW_99 = 100` — 99% tier: `floor(d / 100)` true misses allowed in a `d`-day window.
+   - `NEAR_MISS_RATIO = 0.95` — per-day near-miss bar for the tolerance tiers only: a past day at
+     `>= round(0.95 × goal)` steps counts as met (e.g. 5,800 of a 6k goal is treated as achieved).
+4. Missing or below-goal today is "in progress" for active streaks (strict bar, even though past
+   days get near-miss leniency); missing or failing past days terminate the 100% run; non-finite
+   values fail the day. The allowance tiers report the **longest-compliant-window** — the maximum
+   depth whose miss density stays within budget, so a window that violates mid-history can recover
+   once clean days dilute the miss ratio (walks to `earliestRecordDate` unconditionally).
 5. `streakUI.render()` replaces `#lifetime-banner` (first) and `#streak-card` (stale nodes are
    removed first) and reports a zero-state on data failure. The render consumes
    `{ tolerance, hallOfFame, lifetime, activeStepGoal }` from the compute result.
@@ -46,7 +51,7 @@ Two dashboard nodes are injected, in order:
 - **Actual (100%)** — `.streak-actual`: `.streak-actual-label` "Actual (100%)" + `.streak-number`
   (headline `tolerance.actual`) above a `.streak-bar` with a 100%-wide `.streak-bar-fill`.
 - **Allowances** — `.streak-allowances`: two `.streak-allowance` chips
-  (`.streak-allowance-label` + `.streak-allowance-value`) for 95% and 90% tolerance.
+   (`.streak-allowance-label` + `.streak-allowance-value`) for 95% and 99% tolerance.
 - **Best Runs** — `.streak-runs`: `.streak-runs-title` "🏆 Best Runs at `<goal>`"
   (thousands-separated) then up to three `.streak-run` rows (`.streak-run-rank`, `.streak-run-days`,
   `.streak-run-range`). Ranges collapse to a single year for same-year runs ("2026") or
@@ -67,20 +72,22 @@ them. The lifetime banner renders `lifetime` (met/total days + percentage).
 - **Channel**: N/A
 
 ## Scope
-- `src/streak.js` — pure calculations and Dexie read orchestration; exports `ALLOWANCE_WINDOW_95`, `ALLOWANCE_WINDOW_90`, `computeToleranceStreaks`
+- `src/streak.js` — pure calculations and Dexie read orchestration; exports `ALLOWANCE_WINDOW_95`, `ALLOWANCE_WINDOW_99`, `NEAR_MISS_RATIO`, `computeToleranceStreaks`
 - `src/streak-ui.js` — lifetime banner + Active Streaks card renderer; renders `tolerance`, `hallOfFame`, `lifetime`, `activeStepGoal`
 - `src/main.js` — lifecycle wiring and post-sync / post-goal-change rendering
 - `src/goal.js`, `src/db.js` — goal engine (step scalar) and schema
 - `styles.css` — streak presentation (`.streak-header`, `.goal-badge`, `.streak-actual`, `.streak-bar`, `.streak-allowances`, `.streak-runs`)
 
 ## Tests
-- `src/streak.test.js` — tolerance engine (100%/95%/90% windows), tier calculations, HoF, lifetime 10k, goal resolution from scalar
+- `src/streak.test.js` — tolerance engine (100%/95%/99% windows), tier calculations, HoF, lifetime 10k, goal resolution from scalar
 - `src/streak-ui.test.js` — render with full result, zero-state, idempotency, allowances build, best-runs build, goal badge
 
 ## Notes
 - Unified streak and `goal_history` per-date resolution have been replaced by the scalar step lens.
   `computeToleranceStreaks` is the primary computation primitive.
-- Records are sorted by date and compared with `>=`; the current day is an in-progress exception for active streaks.
+- Records are sorted by date and compared with `>=`; the current day is an in-progress exception
+  for active streaks. Tolerance tiers apply near-miss leniency to past days (`>= round(0.95 × goal)`
+  counts as met) while `actual` and the Hall of Fame keep the strict full-goal bar.
 - The render layer is the **sole DOM writer** for the streak feature; nodes are built with
   `createElement`/`textContent` only (no `innerHTML`, no inline `onclick`).
 - `_localDate` is imported from `src/date-utils.js` (not `src/goal.js`).
