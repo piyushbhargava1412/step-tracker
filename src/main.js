@@ -36,6 +36,7 @@ import {
   BACKUP_DISABLED_TEXT,
 } from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
+import { createSwRegister } from './sw-register.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -155,6 +156,14 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     storageHealthUI = createStorageHealthUI(doc, settings, reporter, navigator)
   } catch (err) {
     console.error('[main] createStorageHealthUI failed, continuing', err)
+  }
+
+  // ST-013: Service Worker registration (fail-open; PROD-gated inside the
+  // factory — the dev server must never register a SW over Vite HMR assets).
+  try {
+    await createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } }).register()
+  } catch (err) {
+    console.error('[main] SW registration failed, continuing', err)
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
