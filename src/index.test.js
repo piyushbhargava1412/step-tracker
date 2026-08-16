@@ -75,6 +75,18 @@ describe('index.html tabbed shell contract', () => {
     expect(html).toContain('styles.css');
   });
 
+  it('manifest link present exactly once with href="/manifest.json"', () => {
+    const links = document.querySelectorAll('link[rel="manifest"]');
+    expect(links.length).toBe(1);
+    expect(links[0].getAttribute('href')).toBe('/manifest.json');
+  });
+
+  it('theme-color meta present exactly once with content="#0ea5e9"', () => {
+    const metas = document.querySelectorAll('meta[name="theme-color"]');
+    expect(metas.length).toBe(1);
+    expect(metas[0].getAttribute('content')).toBe('#0ea5e9');
+  });
+
   it('no app.js script tag remains', () => {
     expect(html).not.toMatch(/<script[^>]+src=["'][^"']*app\.js["']/);
   });

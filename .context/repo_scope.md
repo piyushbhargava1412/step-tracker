@@ -1,8 +1,8 @@
 # Repository Scope
 
 ## Context Meta
-  - verification-commit: `74fa46903f2fe0d51e91869ea7a846be7edfadcf`
-  - generated-at: `2026-08-14T13:00:00Z`
+  - verification-commit: `HEAD`
+  - generated-at: `2026-08-16T11:48:29Z`
   - confidence: `high`
 
 ## Purpose
@@ -29,6 +29,8 @@ This repository is a client-side step streak tracker web app that connects to Go
 - Local database backup/restore (`src/backup.js`, `src/backup-ui.js`) — `createBackup(db)` serialises/restores the full `daily_records` + `settings` Dexie state as a versioned, size-capped JSON envelope (export/import via a dedicated `#tab-backup` panel); see `.context/flows/backup-and-cloud-sync.md`
 - Google Drive AppData cloud sync (`src/drive-sync.js`, `src/drive-sync-ui.js`) — `createDriveSync(...)` pushes/pulls the same backup envelope to/from the user's app-private Google Drive `appDataFolder` over the Drive v3 REST API (reusing the `auth.js` OAuth token, now scoped with `drive.appdata`); manual push/pull controls plus an automatic, opt-out post-sync push wired into `src/steps.js`'s sync flow; see `.context/flows/backup-and-cloud-sync.md`
 - Storage Health protection matrix (`src/storage-health.js`, `src/storage-health-ui.js`) — combines Drive Cloud Auto-Sync state with `navigator.storage.persisted()` into a single `#db-status` badge and a "💾 Storage & Data Health" panel on the Backup tab; `navigator.storage.persist()` is requested silently behind the Sync Steps / Connect / Drive-toggle gestures (plus the panel's own button) rather than via a nagging modal; see `.context/flows/storage-health.md`
+- PWA install & offline app-shell caching (`public/manifest.json`, `public/icons/*.png`, `public/sw.js`, `src/sw-policy.js`, `src/sw-register.js`) — a checked-in web app manifest + install icons make the app installable (iOS/Android/desktop); a hand-written classic service worker precaches the app shell and applies a per-request caching policy (`CACHE_FIRST` same-origin, `NETWORK_ONLY` for Google Fit/Drive REST calls, `STALE_WHILE_REVALIDATE` for the GSI script, network-first for HTML navigations); registration is fire-and-forget, PROD-gated, and fail-open from `src/main.js` bootstrap; see `.context/flows/pwa-offline-install.md`
+- Cloudflare Pages CI/CD deploy (`.github/workflows/deploy.yml`) — test-gated GitHub Actions workflow deploying every push to `main` (`npm ci` → `npm test` → `npm run build` → `wrangler-action` Pages deploy); see `.context/flows/pwa-offline-install.md`
 - Build tooling and dev server (Vite 8, `vite.config.js`)
 - Unit test suite (Vitest 4, `src/*.test.js`)
 - Environment-based configuration (`.env.example`, `import.meta.env.VITE_CLIENT_ID`)
@@ -36,9 +38,10 @@ This repository is a client-side step streak tracker web app that connects to Go
 ## Out-of-Scope / Boundaries
 - No backend service
 - No server-side persistence/database
-- No CI/CD workflows in repo (`.github/workflows/` not detected)
 - No linting or type-checking toolchain detected
+- The service worker (`public/sw.js`) only caches the static app shell and passes through/never
+  caches Google Fit, Drive, or GSI-auth network calls — it is not an offline-first data-sync layer
 
 ## Evidence Base
-- Source scanned: `src/` (all modules + tests), `index.html`, `styles.css`, `package.json`, `vite.config.js`, `.env.example`, `README.md`, `.arcus/plans/PRD.md`
+- Source scanned: `src/` (all modules + tests), `index.html`, `styles.css`, `package.json`, `vite.config.js`, `.env.example`, `README.md`, `.arcus/plans/PRD.md`, `public/` (manifest, icons, service worker), `.github/workflows/deploy.yml`
 - Ignore rules: `.gitignore` (ignores `.env.local`, `node_modules/`, `dist/`, `.arcus/`, `.krill/`, `.idea/`)

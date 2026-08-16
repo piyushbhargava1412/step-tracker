@@ -43,6 +43,12 @@ vi.mock('./storage-health-ui.js', () => ({
   createStorageHealthUI: vi.fn(() => mockStorageHealthUIInstance)
 }))
 
+// ST-013 Task 6: mock sw-register.js
+const mockSwRegistrar = { register: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./sw-register.js', () => ({
+  createSwRegister: vi.fn(() => mockSwRegistrar)
+}))
+
 // Task 5: mock records.js and image-processor.js
 const mockRecordsInstance = { overrideRecord: vi.fn().mockResolvedValue(undefined), revertRecord: vi.fn().mockResolvedValue(undefined) }
 vi.mock('./records.js', () => ({
@@ -210,6 +216,7 @@ import {
   BACKUP_DISABLED_TEXT,
 } from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
+import { createSwRegister } from './sw-register.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -245,6 +252,7 @@ describe('main.js — composition root bootstrap', () => {
     // Restore default resolved promise for initDB
     initDB.mockResolvedValue(undefined)
     requestPersistentStorage.mockResolvedValue(undefined)
+    mockSwRegistrar.register.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -1874,5 +1882,37 @@ describe('main.js — Storage Health wiring', () => {
     document.getElementById('db-status').textContent = '☁️ Cloud Synced'
     document.getElementById('db-status').click()
     expect(switchTab).not.toHaveBeenCalled()
+  })
+
+  it('invokes createSwRegister exactly once with a nav and a config.prod field', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createSwRegister).toHaveBeenCalledTimes(1)
+    expect(createSwRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nav: navigator,
+        config: expect.objectContaining({ prod: expect.any(Boolean) }),
+      })
+    )
+  })
+
+  it('invokes sw-register register() but does not wait for it (fire-and-forget)', async () => {
+    let registerResolved = false
+    const pendingPromise = new Promise((resolve) => setTimeout(() => { registerResolved = true; resolve() }, 10))
+    mockSwRegistrar.register.mockReturnValue(pendingPromise)
+    await bootstrap(isolatedDoc)
+    // register() was invoked exactly once
+    expect(mockSwRegistrar.register).toHaveBeenCalledTimes(1)
+    // bootstrap resolved without waiting for registration to complete
+    expect(registerResolved).toBe(false)
+    // allow the pending promise to settle to avoid unhandled rejection
+    await pendingPromise
+  })
+
+  it('fails open when sw register() rejects (console.error [main] prefix, bootstrap resolves)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSwRegistrar.register.mockRejectedValueOnce(new Error('registration failed'))
+    await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[main]'), expect.anything())
+    errorSpy.mockRestore()
   })
 })
