@@ -1,11 +1,49 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  CACHE_FIRST,
+  STALE_WHILE_REVALIDATE,
+  NETWORK_ONLY,
+  SKIP,
+  classifyRequestUrl,
+} from './sw-policy.js';
 
 const readRepoFile = (relativePath) =>
   readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 
 const swPath = '../public/sw.js';
 const policyPath = 'sw-policy.js';
+
+const LOCAL_ORIGIN = 'http://localhost:1981';
+
+const SHARED_URL_TABLE = [
+  ['http://localhost:1981/', LOCAL_ORIGIN, CACHE_FIRST],
+  ['http://localhost:1981/styles.css', LOCAL_ORIGIN, CACHE_FIRST],
+  ['http://localhost:1981/manifest.json', LOCAL_ORIGIN, CACHE_FIRST],
+  ['http://localhost:1981/assets/index-abc123.js', LOCAL_ORIGIN, CACHE_FIRST],
+  ['https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', LOCAL_ORIGIN, NETWORK_ONLY],
+  ['https://www.googleapis.com/drive/v3/files', LOCAL_ORIGIN, NETWORK_ONLY],
+  ['https://www.googleapis.com/drive/v3/files/abc123', LOCAL_ORIGIN, NETWORK_ONLY],
+  ['https://googleapis.com/drive/v3/files', LOCAL_ORIGIN, NETWORK_ONLY],
+  ['HTTPS://WWW.GOOGLEAPIS.COM/drive/v3/files', LOCAL_ORIGIN, NETWORK_ONLY],
+  ['https://accounts.google.com/gsi/client', LOCAL_ORIGIN, STALE_WHILE_REVALIDATE],
+  ['https://fonts.googleapis.com/css2?family=Roboto', LOCAL_ORIGIN, SKIP],
+  ['https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2', LOCAL_ORIGIN, SKIP],
+  ['https://third-party.example.com/widget.js', LOCAL_ORIGIN, SKIP],
+  ['data:text/plain,hello', LOCAL_ORIGIN, SKIP],
+  ['blob:https://example.com/uuid', LOCAL_ORIGIN, SKIP],
+  ['ftp://example.com/file', LOCAL_ORIGIN, SKIP],
+  ['chrome-extension://abc123/manifest.json', LOCAL_ORIGIN, SKIP],
+  ['https://www.googleapis.com/fitnessev/v1/anything', LOCAL_ORIGIN, SKIP],
+  ['https://www.googleapis.com/fitness-preview/v1/anything', LOCAL_ORIGIN, SKIP],
+  ['https://example.com:8443/x', 'https://example.com', SKIP],
+  ['', LOCAL_ORIGIN, SKIP],
+  [null, LOCAL_ORIGIN, SKIP],
+  [undefined, LOCAL_ORIGIN, SKIP],
+  [42, LOCAL_ORIGIN, SKIP],
+  ['not a url', LOCAL_ORIGIN, SKIP],
+  ['//no-scheme', LOCAL_ORIGIN, SKIP],
+];
 
 describe('PWA sanity spine', () => {
   let swSource;
@@ -201,5 +239,59 @@ describe('README setup, deployment, and PWA-install guide', () => {
   it('contains no credential-shaped literals', () => {
     expect(readme).not.toMatch(/apps\.googleusercontent\.com/);
     expect(readme).not.toMatch(/\b[a-f0-9]{32}\b/);
+  });
+});
+
+describe('sw.js embedded classifier semantic parity', () => {
+  let swSource;
+  let swClassifier;
+
+  beforeAll(() => {
+    swSource = readRepoFile(swPath);
+
+    const fnStart = swSource.indexOf('function classifyRequestUrl');
+    expect(fnStart).toBeGreaterThan(-1);
+
+    let braceDepth = 0;
+    let fnEnd = fnStart;
+    for (let i = fnStart; i < swSource.length; i++) {
+      if (swSource[i] === '{') braceDepth++;
+      if (swSource[i] === '}') {
+        braceDepth--;
+        if (braceDepth === 0) {
+          fnEnd = i + 1;
+          break;
+        }
+      }
+    }
+    const fnSource = swSource.slice(fnStart, fnEnd);
+
+    swClassifier = new Function(
+      'urlString',
+      'origin',
+      fnSource + '\nreturn classifyRequestUrl(urlString, origin);'
+    );
+  });
+
+  it.each(SHARED_URL_TABLE)(
+    'sw.js classifier classifies %p (origin %p) identically to src/sw-policy.js',
+    (urlString, origin, expected) => {
+      const swResult = swClassifier(urlString, origin);
+      const policyResult = classifyRequestUrl(urlString, origin);
+      expect(swResult).toBe(policyResult);
+      expect(swResult).toBe(expected);
+    }
+  );
+
+  it('preserves the Network-Only REST bypass for all fitness and drive paths', () => {
+    const restUrls = [
+      'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',
+      'https://www.googleapis.com/drive/v3/files/abc123',
+    ];
+    for (const url of restUrls) {
+      const swResult = swClassifier(url, LOCAL_ORIGIN);
+      expect(swResult).toBe(NETWORK_ONLY);
+      expect(swResult).not.toBe(CACHE_FIRST);
+    }
   });
 });
