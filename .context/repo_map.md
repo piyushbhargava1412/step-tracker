@@ -1,19 +1,27 @@
 # Repository Map
 
 ## Context Meta
-- verification-commit: `74fa46903f2fe0d51e91869ea7a846be7edfadcf`
-- generated-at: `2026-08-14T13:00:00Z`
+- verification-commit: `HEAD`
+- generated-at: `2026-08-16T11:48:29Z`
 - confidence: `high`
 
 ## Top-Level Layout
-- `index.html` — main page shell, Google Identity script include, tab-bar UI
+- `index.html` — main page shell, Google Identity script include, tab-bar UI, PWA `<link
+  rel="manifest">` + `<meta name="theme-color">` (ST-013)
 - `styles.css` — styling for dark-themed single-page UI with tab panels
 - `src/` — ES module source tree (see Implementation Areas)
+- `public/` — static files served unmodified at the site root by Vite: `manifest.json` (web app
+  manifest), `icons/icon-192.png` / `icons/icon-512.png` (install icons), `sw.js` (classic,
+  non-module service worker — hand-mirrors `src/sw-policy.js`'s caching policy; ST-013; see
+  `.context/flows/pwa-offline-install.md`)
+- `.github/workflows/deploy.yml` — GitHub Actions: test-gated Cloudflare Pages deploy on push to
+  `main` (ST-013)
 - `package.json` — npm manifest; declares Vite, Vitest, Dexie dependencies
 - `package-lock.json` — lockfile
 - `vite.config.js` — Vite dev/build config and Vitest test config (`jsdom` environment)
 - `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
-- `README.md` — setup guide, Google Cloud Console registration, and Step Sync engine documentation
+- `README.md` — setup guide, Google Cloud Console registration, Step Sync engine documentation,
+  Cloudflare Pages deployment, PWA install, and offline-usage documentation
 - `.arcus/plans/PRD.md` — detailed product requirements and future module vision
 
 ## Tech Stack
@@ -44,6 +52,8 @@
     - `#settings-modal` delegated click/change (`data-action`, `data-field`) → prune / wipe / close-settings / toggle-clear-all actions + auto-save anchor on date change (from `src/settings-ui.js`)
   - `data-tab="backup"` → `#tab-backup` panel (`#backup-controls`, `#cloud-controls`) → local export/import + Google Drive cloud sync controls (from `src/backup-ui.js` + `src/drive-sync-ui.js`, ST-012; see `.context/flows/backup-and-cloud-sync.md`)
   - `#db-status` badge click (when showing the "⚠️ Backup Disabled" state only) → `switchTab('backup', doc)`, jumping to the Backup tab's Storage Health panel; a no-op in the "☁️ Cloud Synced" / "🛡️ Storage Safe" states (from `src/main.js` + `src/storage-health.js`, ST-013; see `.context/flows/storage-health.md`)
+  - `DOMContentLoaded` → `bootstrap()` also fires a fire-and-forget, PROD-gated, fail-open service-worker registration: `createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } }).register()` (from `src/sw-register.js`, ST-013; see `.context/flows/pwa-offline-install.md`)
+  - Browser Service Worker lifecycle (`install`/`activate`/`fetch`) on `public/sw.js`, registered at scope `/` — precaches the app shell, applies a mirrored `src/sw-policy.js` caching policy, network-first navigations, stale-while-revalidate for the GSI script (ST-013; see `.context/flows/pwa-offline-install.md`)
 - `DOMContentLoaded` → `bootstrap()` also calls `progressUI.render()`, `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`, `searchUI.render()`, `challengeUI.render()`, and `settingsUI.render()` on load
 - `data:records:mutated` fan-out now also calls `searchUI.render()` (in addition to progressUI, streakUI, calendarUI, monthOverview, challengeUI)
 
@@ -88,16 +98,21 @@
 - Storage Health protection matrix: `src/storage-health.js` (`computeBadgeText`/`isProtected` pure matrix combining `drive_backup_enabled` + `navigator.storage.persisted()`; `refreshStorageProtectionBadge(reporter, settings, nav)` and `requestSilentPersistAndRefreshBadge(reporter, settings, nav)` orchestration; exports `CLOUD_SYNCED_TEXT`, `BACKUP_DISABLED_TEXT`; ST-013, replaces `src/storage-modal.js`)
 - Storage Health panel renderer: `src/storage-health-ui.js` (`createStorageHealthUI(doc, settings, reporter, nav = navigator)` → `{ render }`; renders the "💾 Storage & Data Health" panel — Drive Cloud Backup status, Local Browser Storage status, `[ 🛡️ Request Browser Storage Protection ]` direct-action button (no modal) — into `#storage-health-controls`; ST-013)
 - Transient toast notifier: `src/toast.js` (`showToast(doc, message, ms)`; single shared `#app-toast` fade-out popup; used by `src/ui-status.js`'s `sync()` method to surface terminal `✅` sync-success messages instead of the persistent `#sync-status` line)
+- PWA caching-policy classifier: `src/sw-policy.js` (pure, no DOM/Dexie/`navigator`/`caches`/`fetch`; `classifyRequestUrl(urlString, origin)` → `CACHE_FIRST` | `STALE_WHILE_REVALIDATE` | `NETWORK_ONLY` | `SKIP`; hand-mirrored into `public/sw.js`'s classic-worker `fetch` handler; ST-013; see `.context/flows/pwa-offline-install.md`)
+- Service worker registration: `src/sw-register.js` (`createSwRegister({ nav, config, log })` → `{ register() }`; PROD-gated, fail-open — no-op on non-PROD or missing `nav.serviceWorker.register`; wired fire-and-forget from `src/main.js` bootstrap; ST-013)
 
 ## Testing Surfaces
-- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, override-form, search, search-ui, exporter, date-utils, units, challenge, challenge-ui, settings, settings-ui, confirm, backup, backup-ui, backup-format, drive-sync, drive-sync-ui, storage-health, storage-health-ui
+- Unit tests: `src/*.test.js` (Vitest 4, jsdom) — auth, config, db, storage, tabs, ui-status, main, steps, styles, docs, goal, progress, progress-ui, streak, streak-ui, calendar, calendar-ui, month-overview, records, image-processor, override-form, search, search-ui, exporter, date-utils, units, challenge, challenge-ui, settings, settings-ui, confirm, backup, backup-ui, backup-format, drive-sync, drive-sync-ui, storage-health, storage-health-ui, sw-policy, sw-register, manifest, pwa-sanity, index (manifest link/theme-color assertions)
 - Integration/functional/acceptance/performance tests: Not found
 - Shell script tests: Not found
 
 ## CI/CD
-- GitHub workflows: Not found (`.github/workflows/*`)
+- GitHub workflows: `.github/workflows/deploy.yml` — triggers on `push` to `main`; test-gated
+  (`npm ci` → `npm test` → `npm run build` with `VITE_CLIENT_ID` from the `GOOGLE_CLIENT_ID` secret)
+  → `cloudflare/wrangler-action@v3` deploys `dist/` to the Cloudflare Pages project `step-tracker`
+  using `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets; `permissions: contents: read` (ST-013)
 - Other CI configs (`.gitlab-ci.yml`, `Jenkinsfile`, etc.): Not found
-- Pipeline stages: Not found
+- Pipeline stages: checkout → setup-node (20, npm cache) → `npm ci` → `npm test` → `npm run build` → Cloudflare Pages deploy
 
 ## Build & Run Commands
 
