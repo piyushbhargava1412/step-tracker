@@ -33,12 +33,16 @@
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create or select a project
-3. Create an OAuth 2.0 Client ID (application type: Web)
-4. Add the following to **Authorized JavaScript Origins**:
+3. Enable the **Fitness API** and the **Drive API** under **APIs & Services → Library**
+4. Configure the **OAuth consent screen** (External) — the scopes requested at first sign-in will be listed there
+5. Create an OAuth 2.0 Client ID (application type: Web)
+6. Add the following to **Authorized JavaScript Origins** (explicit per-client-ID restrictions):
    - `http://localhost:1981`
-5. Add the following to **Authorized Redirect URIs**:
+   - `https://<your-project>.pages.dev`
+7. Add the following to **Authorized Redirect URIs**:
    - `http://localhost:1981`
-6. Copy the generated Client ID and set it in your `.env.local` file as `VITE_CLIENT_ID`
+   - `https://<your-project>.pages.dev`
+8. Copy the generated Client ID and set it in your `.env.local` file as `VITE_CLIENT_ID`
 
 ### Running the Application
 
@@ -60,12 +64,57 @@ npm run build
 ### Configuration Notes
 - Configuration is loaded from `.env.local` at build/dev time via Vite
 - The `VITE_CLIENT_ID` environment variable is the authoritative OAuth 2.0 Client ID
-- Legacy configuration files (`config.local.js`, `config.example.js`) have been retired
+- Legacy configuration files (`config.local.js`, `config.example.js`) have been retired — the successor flow is `cp .env.example .env.local` and setting `VITE_CLIENT_ID` there; no other configuration file is read
 
 ### Google Account Connection & Session
 - Click **Connect Google Account** once to authorize; the moment a token arrives the app **auto-syncs** — no separate Sync Steps click is needed.
 - The connection survives a **page refresh**: a boolean `google_connected` flag is stored in `localStorage` (never the token itself), and on the next load the app asks Google Identity Services for a fresh token silently (`prompt: ''`). When that succeeds, the auto-sync runs again; if Google's session has expired, you simply click Connect once more.
 - Limitation: the in-browser token flow has no refresh token, so the silent restore depends on Google's session cookie. A normal refresh keeps it alive; a fully closed/reopened browser or a long gap may require one reconnect click.
+
+## Deploying to Cloudflare Pages
+
+The repo ships a GitHub Actions workflow (`.github/workflows/deploy.yml`) that deploys every push to `main`. The Pages project itself must be created **once** (the workflow cannot create it):
+
+1. **Create the Pages project** (one-time) — either via the Cloudflare dashboard (**Workers & Pages → Create → Pages**) or the Wrangler CLI:
+   ```bash
+   npm install -g wrangler
+   wrangler login
+   wrangler pages project create step-tracker
+   ```
+   The project name must be exactly `step-tracker` — the workflow deploys to it with `--project-name=step-tracker`.
+2. **Add three repository secrets** (GitHub repo → **Settings → Secrets and variables → Actions**), named exactly:
+   - `GOOGLE_CLIENT_ID` — the OAuth 2.0 Client ID from Google Cloud Console
+   - `CLOUDFLARE_API_TOKEN` — a Cloudflare API token with **Cloudflare Pages: Edit** permission
+   - `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account ID
+   Never commit these values — the workflow references them only as `${{ secrets.* }}`.
+3. **Deploy by pushing to `main`:**
+   ```bash
+   git push origin main
+   ```
+   The workflow runs `npm ci` → `npm test` (gate) → `vite build` with `VITE_CLIENT_ID` injected from the `GOOGLE_CLIENT_ID` secret → `wrangler-action` Pages deploy of `dist/`. Every subsequent push to `main` deploys automatically to `https://<your-project>.pages.dev`.
+
+## Install as a PWA
+
+Once deployed (or on `localhost:1981`), the app is installable:
+
+- **iOS Safari**: open the app → tap **Share** → **Add to Home Screen** → **Add**
+- **Android Chrome**: open the app → tap the **⋮** menu → **Install app** (or **Add to Home screen**)
+- **Desktop Chrome/Edge**: click the install icon in the address bar (Chrome: also via **⋮ → Install step-tracker**)
+
+The installed app launches full-screen from the home screen with its own icon.
+
+## Offline Usage
+
+After the app has loaded successfully at least once, the app shell — Dashboard, Calendar, Search Lab, and Backup tabs plus tab navigation — works offline, and your synced records remain readable from local IndexedDB storage. What still needs a network connection:
+
+- **Google sign-in**: the GSI bootstrap script is served stale-while-revalidate; signing in always requires connectivity
+- **Step sync and Drive sync**: Google Fit (`googleapis.com/fitness/*`) and Drive (`googleapis.com/drive/*`) REST calls always go straight to the network — tokens and sync data are never served from cache
+
+The **Spatial Map** tab is an empty placeholder panel in this version — no renderer exists, and it is out of scope for this story; its empty shell loads offline like the other tabs.
+
+## Service Worker Updates
+
+The service worker versioned caches update on next visit after a deploy (update-on-next-visit — no auto-reload). If you see an older version, simply **refresh** the page (or close and reopen the tab) to activate the waiting update.
 
 ## Step Sync
 

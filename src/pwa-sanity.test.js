@@ -125,3 +125,63 @@ describe('CI deploy workflow', () => {
     expect(workflowSource).not.toMatch(/\b[a-f0-9]{32}\b/);
   });
 });
+
+describe('README setup, deployment, and PWA-install guide', () => {
+  let readme;
+
+  beforeAll(() => {
+    readme = readRepoFile('../README.md');
+  });
+
+  it('documents both OAuth authorized origins, including the pages.dev host', () => {
+    expect(readme).toContain('http://localhost:1981');
+    expect(readme).toContain('https://<your-project>.pages.dev');
+  });
+
+  it('documents Fitness API AND Drive API enablement', () => {
+    expect(readme).toContain('Fitness API');
+    expect(readme).toContain('Drive API');
+  });
+
+  it('documents the .env.local + VITE_CLIENT_ID configuration flow', () => {
+    expect(readme).toContain('.env.local');
+    expect(readme).toContain('VITE_CLIENT_ID');
+  });
+
+  it('never instructs creating a config.local.js or copying config.example.js', () => {
+    expect(readme).not.toMatch(/copy config\.example\.js|create a config\.local\.js/);
+  });
+
+  it('documents the one-time Cloudflare Pages project setup and pages.dev hosting', () => {
+    expect(readme).toContain('pages.dev');
+    expect(readme).toMatch(/pages project create/);
+  });
+
+  it('documents the three GitHub secrets in secret context, never as literal values', () => {
+    expect(readme).toContain('GOOGLE_CLIENT_ID');
+    expect(readme).toContain('CLOUDFLARE_API_TOKEN');
+    expect(readme).toContain('CLOUDFLARE_ACCOUNT_ID');
+  });
+
+  it('covers PWA install for iOS Safari, Android Chrome, and Desktop Chrome/Edge', () => {
+    expect(readme).toContain('Add to Home Screen');
+    expect(readme).toContain('iOS Safari');
+    expect(readme).toContain('Android Chrome');
+  });
+
+  it('documents the service worker refresh-to-update note', () => {
+    expect(readme).toMatch(/refresh/i);
+    expect(readme).toMatch(/^## Service Worker Updates/m);
+  });
+
+  it('scopes offline usage to implemented surfaces with the Spatial Map placeholder note', () => {
+    expect(readme).toMatch(/^## Offline Usage/m);
+    expect(readme).toContain('Spatial Map');
+    expect(readme).toContain('placeholder');
+  });
+
+  it('contains no credential-shaped literals', () => {
+    expect(readme).not.toMatch(/apps\.googleusercontent\.com/);
+    expect(readme).not.toMatch(/\b[a-f0-9]{32}\b/);
+  });
+});
