@@ -18,7 +18,14 @@ export const HALL_OF_FAME_SIZE = 3; // podium entries
 
 // Parameterized Tolerance Streak Engine — one allowed miss per N calendar days.
 export const ALLOWANCE_WINDOW_95 = 20; // 95% tier: floor(d / 20) misses allowed
-export const ALLOWANCE_WINDOW_90 = 10; // 90% tier: floor(d / 10) misses allowed
+export const ALLOWANCE_WINDOW_99 = 100; // 99% tier: floor(d / 100) misses allowed
+
+// Near-miss per-day bar for the tolerance tiers only: a day at or above
+// NEAR_MISS_RATIO of goal counts as met, so e.g. 5800 of a 6k goal is treated
+// as achieved for the 95%/99% engines. `actual` and the Hall of Fame keep the
+// strict full-goal bar. Deliberately distinct from search.js's NEAR_MISS_BAND_PCT
+// (a 10% band for the Search Lab filter) — different feature, different leniency.
+export const NEAR_MISS_RATIO = 0.95;
 function _zeroTierStreaks() { return TIER_STEP_THRESHOLDS.map((threshold) => ({ threshold, active: 0, best: 0 })); }
 
 /**
@@ -173,7 +180,7 @@ function _computeTierStreaksPrepared(usable, today) {
  * Periods are ranked by `days` desc, then `startDate` desc (recency
  * tie-break, SF-7). Returns up to `HALL_OF_FAME_SIZE` entries.
  *
- * Strict only: the Hall of Fame reports best *runs*, so there are no 95%/90%
+ * Strict only: the Hall of Fame reports best *runs*, so there are no 95%/99%
  * podium variants. Fail-open: a non-finite or non-positive `stepGoal` falls
  * back to `DEFAULT_STEP_GOAL`.
  *
@@ -278,35 +285,50 @@ function _computeLifetimeCompliancePrepared(records, target) {
 /**
  * Fresh zero result — never a shared literal, so callers may safely mutate.
  *
- * @returns {{ actual: number, allowance95: number, allowance90: number }}
+ * @returns {{ actual: number, allowance95: number, allowance99: number }}
  */
 function _zeroToleranceStreaks() {
-  return { actual: 0, allowance95: 0, allowance90: 0 };
+  return { actual: 0, allowance95: 0, allowance99: 0 };
 }
 
 /**
- * Three-metric backward tolerance engine — 100% / 95% / 90% (SF-5, SF-6, SF-7).
+ * Three-metric backward tolerance engine — 100% / 95% / 99%.
  *
  * All three streaks are produced in a **single backward pass** over calendar
  * days, because they share one anchor and one step target:
  *
  * - **Anchor (SF-6)**: start at `today` iff a record for `today` exists and
  *   `effective_steps >= stepGoal`; otherwise start at yesterday and exclude
- *   today entirely. Today is never charged as a miss.
+ *   today entirely. Today is never charged as a miss — the bar stays strict
+ *   here even though past days get near-miss leniency (see below).
  * - **Traversal (SF-7)**: steps calendar days via `_addDaysUtc(day, -1)`, so
  *   `d` is calendar depth — not array position. **`d` convention: the anchor
  *   day is `d = 1`**, and `d` increments by one per calendar day walked back.
  *   This is load-bearing: `floor(d / N)` means "one miss allowed per N calendar
  *   days", so the AC arithmetic (a miss at depth 20 is affordable at N = 20 but
  *   not at depth 19) only holds with a 1-based depth.
- * - **Miss rule (SF-5)**: a missing past day reads as 0 steps and is a miss.
- *   The 100% engine terminates on the first miss. Each allowance engine spends
- *   one unit (`m += 1`) and keeps walking while `m <= floor(d / N)`, recording
- *   `last_valid_streak = d` at every qualifying depth; once `m > floor(d / N)`
- *   that engine freezes at its `last_valid_streak`.
- * - The loop ends when `day < earliestRecordDate` and returns the accumulated
- *   values — the lower bound is what stops the allowance engines walking into
- *   pre-history.
+ * - **Strict miss rule (SF-5)**: a missing past day reads as 0 steps and is a
+ *   miss. The 100% engine freezes on the first day with `steps < target`.
+ * - **Near-miss leniency (tolerance tiers only)**: a past day counts as met
+ *   for the 95%/99% engines when `steps >= round(NEAR_MISS_RATIO * target)` —
+ *   e.g. 5800 of a 6k goal is treated as achieved. Days below that bar are
+ *   "true misses" that spend the tier's density budget.
+ * - **Longest-compliant-window**: each allowance engine reports the **maximum**
+ *   depth `d` for which `trueMisses(d) <= floor(d / N)` — not the last depth
+ *   before a violation. The density predicate is non-monotonic (a clean day
+ *   dilutes the miss ratio), so a window that violates mid-history can become
+ *   compliant again once enough clean days accumulate; the engine therefore
+ *   walks to `earliestRecordDate` unconditionally and keeps the deepest depth
+ *   that qualifies. This is what lets a user who missed 2 of their first 100
+ *   days (then stayed clean) report ~200 instead of breaking at the first miss.
+ * - The loop ends when `day < earliestRecordDate` — the lower bound stops the
+ *   engines walking into pre-history, so no value can exceed it.
+ *
+ * The predicate `m <= floor(d / N)` with a shared miss counter is exact for the
+ * nested windows (all share the anchor endpoint): `m` at depth `d` is precisely
+ * the miss count of that window. Ordering invariant: actual <= allowance99 <=
+ * allowance95, since a stricter per-day bar and a tighter budget only shrink
+ * the qualifying set.
  *
  * Guards: non-array/empty `records`, or a non-string/empty `today`, return the
  * zero shape. A non-finite or non-positive `stepGoal` fails open to
@@ -315,7 +337,7 @@ function _zeroToleranceStreaks() {
  * @param {Array<{ date: string, effective_steps: number }>} records
  * @param {number} stepGoal - daily step target (S_target)
  * @param {string} today - YYYY-MM-DD
- * @returns {{ actual: number, allowance95: number, allowance90: number }}
+ * @returns {{ actual: number, allowance95: number, allowance99: number }}
  */
 export function computeToleranceStreaks(records, stepGoal, today) {
   if (!Array.isArray(records) || records.length === 0) return _zeroToleranceStreaks();
@@ -338,44 +360,46 @@ export function computeToleranceStreaks(records, stepGoal, today) {
     ? today
     : _addDaysUtc(today, -1);
 
+  // Integer near-miss bar for the tolerance tiers (rounding keeps exact-goal
+  // boundaries clean: round(0.95 * 6000) = 5700, not 5699.99…).
+  const nearMissThreshold = Math.round(target * NEAR_MISS_RATIO);
+
   let actual = 0;
   let actualAlive = true;
-  let misses = 0;
+  let toleranceMisses = 0;
 
-  // One tracker per allowance tier — each spends `misses` against its own
-  // window and freezes at its `last_valid_streak` (`value`) once it can no
-  // longer afford the miss count. Order matches the returned shape.
+  // One tracker per allowance tier — each records the deepest depth whose
+  // window it still affords. Order matches the returned shape.
   const allowances = [
-    { window: ALLOWANCE_WINDOW_95, value: 0, alive: true },
-    { window: ALLOWANCE_WINDOW_90, value: 0, alive: true },
+    { window: ALLOWANCE_WINDOW_95, value: 0 },
+    { window: ALLOWANCE_WINDOW_99, value: 0 },
   ];
 
   let day = anchor;
   let d = 0; // calendar depth; the anchor day is d = 1
 
-  while (day >= earliestRecordDate && (actualAlive || allowances.some((a) => a.alive))) {
+  while (day >= earliestRecordDate) {
     d += 1;
-    const met = _stepsFor(byDate.get(day)) >= target;
+    const steps = _stepsFor(byDate.get(day));
 
-    if (met) {
+    if (steps >= target) {
       if (actualAlive) actual = d;
-    } else {
-      actualAlive = false;
-      misses += 1;
+    } else if (actualAlive) {
+      actualAlive = false; // first strict miss freezes the 100% streak
     }
 
+    if (steps < nearMissThreshold) toleranceMisses += 1; // true miss for the tiers
+
     for (const allowance of allowances) {
-      if (!allowance.alive) continue;
-      if (misses <= Math.floor(d / allowance.window)) allowance.value = d;
-      else allowance.alive = false;
+      if (toleranceMisses <= Math.floor(d / allowance.window)) allowance.value = d;
     }
 
     day = _addDaysUtc(day, -1);
   }
 
-  const [allowance95, allowance90] = allowances.map((a) => a.value);
+  const [allowance95, allowance99] = allowances.map((a) => a.value);
 
-  return { actual, allowance95, allowance90 };
+  return { actual, allowance95, allowance99 };
 }
 
 // ── createStreak helper ────────────────────────────────────────────────────

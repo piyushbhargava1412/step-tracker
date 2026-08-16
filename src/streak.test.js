@@ -9,7 +9,8 @@ import {
   TIER_STEP_THRESHOLDS,
   HALL_OF_FAME_SIZE,
   ALLOWANCE_WINDOW_95,
-  ALLOWANCE_WINDOW_90,
+  ALLOWANCE_WINDOW_99,
+  NEAR_MISS_RATIO,
   _sortByDate,
   _isValidRecord,
   computeTierStreaks,
@@ -806,7 +807,7 @@ describe('createStreak(db, goal) — data orchestration', () => {
     const goal = makeMockGoal(7500);
     const result = await createStreak(db, goal).compute();
     expect(result.tolerance).toStrictEqual(computeToleranceStreaks(records, 7500, NOW));
-    expect(result.tolerance).toStrictEqual({ actual: 12, allowance95: 12, allowance90: 12 });
+    expect(result.tolerance).toStrictEqual({ actual: 12, allowance95: 12, allowance99: 12 });
   });
 
   it('tiers, hallOfFame and lifetime match direct calls on the same fixture', async () => {
@@ -837,7 +838,7 @@ describe('createStreak(db, goal) — data orchestration', () => {
   it('zero-state DB → zero tolerance, zero tiers, empty hallOfFame, zero lifetime', async () => {
     const db = makeMockDb([]);
     const result = await createStreak(db, makeMockGoal()).compute();
-    expect(result.tolerance).toStrictEqual({ actual: 0, allowance95: 0, allowance90: 0 });
+    expect(result.tolerance).toStrictEqual({ actual: 0, allowance95: 0, allowance99: 0 });
     expect(result.hallOfFame).toEqual([]);
     expect(result.lifetime).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
     expect(result.tiers).toHaveLength(STEP_GOAL_OPTIONS.length);
@@ -947,7 +948,7 @@ describe('streak.js legacy surface removal (SF-4a/SF-4d)', () => {
 
 const TODAY = '2026-08-12';
 const STEP_GOAL = 10000;
-const ZERO_SHAPE = { actual: 0, allowance95: 0, allowance90: 0 };
+const ZERO_SHAPE = { actual: 0, allowance95: 0, allowance99: 0 };
 
 /**
  * Builds `count` consecutive daily_records ending at `today` (inclusive).
@@ -971,16 +972,20 @@ function acScenario2() {
 describe('computeToleranceStreaks — constants', () => {
   it('exposes the allowance windows as UPPER_SNAKE_CASE constants', () => {
     expect(ALLOWANCE_WINDOW_95).toBe(20);
-    expect(ALLOWANCE_WINDOW_90).toBe(10);
+    expect(ALLOWANCE_WINDOW_99).toBe(100);
+  });
+
+  it('exposes the near-miss per-day bar as a ratio of goal', () => {
+    expect(NEAR_MISS_RATIO).toBe(0.95);
   });
 });
 
 describe('computeToleranceStreaks — AC Scenario 2', () => {
-  it('39 dense days with a single shortfall at depth 20 → 19 / 39 / 39', () => {
+  it('39 dense days with a single shortfall at depth 20 → 19 / 39 / 19', () => {
     expect(computeToleranceStreaks(acScenario2(), STEP_GOAL, TODAY)).toStrictEqual({
       actual: 19,
       allowance95: 39,
-      allowance90: 39,
+      allowance99: 19,
     });
   });
 
@@ -989,7 +994,7 @@ describe('computeToleranceStreaks — AC Scenario 2', () => {
     // Without the lower bound the allowance engines would keep walking into
     // pre-history and inflate beyond the 39 days of data that exist.
     expect(result.allowance95).toBeLessThanOrEqual(39);
-    expect(result.allowance90).toBeLessThanOrEqual(39);
+    expect(result.allowance99).toBeLessThanOrEqual(39);
     expect(result.actual).toBeLessThanOrEqual(39);
   });
 });
@@ -1000,7 +1005,7 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 10,
       allowance95: 10,
-      allowance90: 10,
+      allowance99: 10,
     });
   });
 
@@ -1010,7 +1015,7 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 10,
       allowance95: 10,
-      allowance90: 10,
+      allowance99: 10,
     });
   });
 
@@ -1020,19 +1025,19 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 10,
       allowance95: 10,
-      allowance90: 10,
+      allowance99: 10,
     });
   });
 });
 
 describe('computeToleranceStreaks — SF-5 missing / corrupt past days', () => {
-  it('a missing past day terminates actual but is absorbed by both allowance engines', () => {
+  it('a missing past day terminates actual and the 99% engine, but is absorbed by the 95% engine', () => {
     const records = makeRecords(TODAY, 39, 12000);
     records.splice(19, 1); // remove the 20th day back entirely (calendar gap)
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 19,
       allowance95: 39,
-      allowance90: 39,
+      allowance99: 19,
     });
   });
 
@@ -1049,7 +1054,7 @@ describe('computeToleranceStreaks — SF-5 missing / corrupt past days', () => {
     expect(computeToleranceStreaks(withNaN, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 19,
       allowance95: 39,
-      allowance90: 39,
+      allowance99: 19,
     });
   });
 });
@@ -1068,7 +1073,7 @@ describe('computeToleranceStreaks — SF-7 future-dated records', () => {
     expect(computeToleranceStreaks(polluted, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 10,
       allowance95: 10,
-      allowance90: 10,
+      allowance99: 10,
     });
   });
 
@@ -1078,31 +1083,138 @@ describe('computeToleranceStreaks — SF-7 future-dated records', () => {
   });
 });
 
-describe('computeToleranceStreaks — allowance exhaustion', () => {
-  it('freezes allowance95 at the last qualifying depth while allowance90 continues', () => {
+describe('computeToleranceStreaks — density budget (longest-compliant-window)', () => {
+  it('reports the deepest qualifying depth, not a freeze point', () => {
     // Misses at depth 20 and depth 25 across 39 dense days.
     const records = makeRecords(TODAY, 39, 12000);
     records[19] = { date: shiftDate(TODAY, -19), effective_steps: 4000 };
     records[24] = { date: shiftDate(TODAY, -24), effective_steps: 4000 };
 
-    // 95%: d=20 → m=1 <= floor(20/20)=1 (ok, last_valid=20…24);
-    //      d=25 → m=2 > floor(25/20)=1 → frozen at 24.
-    // 90%: d=25 → m=2 <= floor(25/10)=2 → continues to 39.
+    // 95%: m=1 for d in [20..24] → 1 <= floor(d/20)=1 qualifies;
+    //      m=2 for d in [25..39] → 2 > floor(d/20)=1, so no deeper depth
+    //      qualifies in this fixture → deepest is 24.
+    // 99%: m=1 for d >= 20 → 1 > floor(d/100)=0 everywhere here → deepest is 19.
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 19,
       allowance95: 24,
-      allowance90: 39,
+      allowance99: 19,
     });
   });
 
-  it('a miss shallower than the allowance window freezes every allowance engine', () => {
+  it('a miss shallower than the allowance window leaves no qualifying depth beyond it', () => {
     const records = makeRecords(TODAY, 10, 12000);
     records[4] = { date: shiftDate(TODAY, -4), effective_steps: 100 }; // depth 5
-    // floor(5/20) = 0 and floor(5/10) = 0 → no allowance available yet.
+    // floor(5/20) = 0 and floor(5/100) = 0 → no budget available yet.
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 4,
       allowance95: 4,
-      allowance90: 4,
+      allowance99: 4,
+    });
+  });
+
+  it('recovers past a bad stretch once clean days dilute the miss density (99% tier)', () => {
+    // 200 dense days; true misses (40% of goal) at depths 30 and 60.
+    const records = makeRecords(TODAY, 200, 12000);
+    records[29] = { date: shiftDate(TODAY, -29), effective_steps: 4000 };
+    records[59] = { date: shiftDate(TODAY, -59), effective_steps: 4000 };
+
+    // actual freezes at the first miss → 29.
+    // 95%: m=2 for d >= 60 → 2 <= floor(d/20) (>= 3 at d=60) → recovers to 200.
+    // 99%: m=1 > floor(d/100)=0 for d < 100 → gap; m=2 <= floor(d/100)=2 for
+    //      d >= 200 → recovers to the full 200-day window.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 29,
+      allowance95: 200,
+      allowance99: 200,
+    });
+  });
+
+  it('a clustered bad stretch stays excluded from the tighter tier but dilutes out in the looser one', () => {
+    // 200 dense days; true misses at depths 5, 10 and 15.
+    const records = makeRecords(TODAY, 200, 12000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 4000 };
+    records[9] = { date: shiftDate(TODAY, -9), effective_steps: 4000 };
+    records[14] = { date: shiftDate(TODAY, -14), effective_steps: 4000 };
+
+    // actual freezes at the first miss → 4.
+    // 95%: m=3 for d >= 15 → 3 > floor(d/20) until d = 60 (floor(60/20)=3),
+    //      then qualifies all the way to 200.
+    // 99%: m=3 > floor(d/100) (max 2 at d=200) → never recovers; deepest is 4.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 4,
+      allowance95: 200,
+      allowance99: 4,
+    });
+  });
+
+  it('keeps the ordering actual <= allowance99 <= allowance95 on a mixed history', () => {
+    const records = makeRecords(TODAY, 120, 12000);
+    records[3] = { date: shiftDate(TODAY, -3), effective_steps: 9600 }; // near-miss
+    records[25] = { date: shiftDate(TODAY, -25), effective_steps: 4000 }; // true miss
+
+    const { actual, allowance95, allowance99 } = computeToleranceStreaks(records, STEP_GOAL, TODAY);
+    expect(actual).toBeLessThanOrEqual(allowance99);
+    expect(allowance99).toBeLessThanOrEqual(allowance95);
+  });
+});
+
+describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () => {
+  it('a day at 96% of goal is a miss for actual but counts as met for both tolerance tiers', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 9600 }; // depth 5
+
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 4, // 9600 < 10000 → breaks the strict streak
+      allowance95: 10, // 9600 >= round(0.95 * 10000) = 9500 → not a tolerance miss
+      allowance99: 10,
+    });
+  });
+
+  it('a day at exactly round(NEAR_MISS_RATIO * goal) counts as met for the tolerance tiers', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 9500 }; // exactly 95% of goal
+
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 4,
+      allowance95: 10,
+      allowance99: 10,
+    });
+  });
+
+  it('a day just below the near-miss bar is a true miss for all three metrics', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 9499 }; // 94.99% of goal
+
+    // m=1 for d >= 5; floor(5/20) = 0 and floor(5/100) = 0 → no budget yet.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 4,
+      allowance95: 4,
+      allowance99: 4,
+    });
+  });
+
+  it('rounds a near-miss day up to the goal for tolerance tiers (5800 of 6000)', () => {
+    const records = makeRecords(TODAY, 10, 7000);
+    records[4] = { date: shiftDate(TODAY, -4), effective_steps: 5800 }; // 96.7% of a 6k goal
+
+    expect(computeToleranceStreaks(records, 6000, TODAY)).toStrictEqual({
+      actual: 4, // 5800 < 6000 → breaks the strict streak
+      allowance95: 10, // 5800 >= round(0.95 * 6000) = 5700 → met
+      allowance99: 10,
+    });
+  });
+
+  it('keeps the strict anchor rule: a near-miss today does not anchor the walk', () => {
+    // Today at 96% of goal → SF-6 anchors at yesterday (today excluded entirely).
+    const records = [
+      { date: shiftDate(TODAY, -1), effective_steps: 9600 },
+      { date: TODAY, effective_steps: 9600 },
+    ];
+
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 0, // anchor is yesterday… which is itself a near-miss → strict miss
+      allowance95: 1, // yesterday >= 9500 bar → met for tolerance tiers
+      allowance99: 1,
     });
   });
 });
@@ -1133,7 +1245,7 @@ describe('computeToleranceStreaks — guard clauses', () => {
       expect(computeToleranceStreaks(above, badGoal, TODAY)).toStrictEqual({
         actual: 5,
         allowance95: 5,
-        allowance90: 5,
+        allowance99: 5,
       });
       // Proves DEFAULT_STEP_GOAL was applied — a goal of 0 would pass every day.
       expect(computeToleranceStreaks(below, badGoal, TODAY)).toStrictEqual(ZERO_SHAPE);
@@ -1150,7 +1262,7 @@ describe('computeToleranceStreaks — guard clauses', () => {
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 3,
       allowance95: 3,
-      allowance90: 3,
+      allowance99: 3,
     });
   });
 });

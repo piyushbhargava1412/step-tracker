@@ -62,7 +62,7 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `computeProgress` / `getTodayRecord` (`src/progress.js`) | Pure computation: zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard |
 | ✅ DONE  | `createProgressUI` (`src/progress-ui.js`)    | Render with data, render zero-state, idempotent re-render, goal preset click, custom apply click, validation error, DB error path |
 | ✅ DONE  | `createStreak` (`src/streak.js`)             | Unified streak, tier streaks, HoF, lifetime10k, compute orchestration, goal history integration |
-| ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime compliance banner + Active Streaks card (header + goal badge, Actual block + bar, 95%/90% allowances, Best Runs), fail-open zero-state, idempotent re-render, no legacy tier chips |
+| ✅ DONE  | `createStreakUI` (`src/streak-ui.js`)        | Render lifetime compliance banner + Active Streaks card (header + goal badge, Actual block + bar, 95%/99% allowances, Best Runs), fail-open zero-state, idempotent re-render, no legacy tier chips |
 | ✅ DONE  | `_localDate` / `_addDaysUtc` (`src/date-utils.js`) | Timezone-safe date formatting, calendar arithmetic, zero-delta, negative-delta, month-boundary cases |
 | ✅ DONE  | `KM_TO_STEPS` (`src/units.js`)              | Pure constant module: exported value assertion, no side effects |
 | ✅ DONE  | `createCalendar` (`src/calendar.js`)         | `monthBounds`, `buildMonthGrid`, `classifyDay`, `computeMonthlyAggregates`, `computeNavBounds`, `loadMonth`, `buildZeroState` |
