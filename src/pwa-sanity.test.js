@@ -70,6 +70,19 @@ describe('PWA sanity spine', () => {
     expect(swSource).toContain('/drive/');
   });
 
+  it('serves navigation requests network-first with cache fallback (review warning 1)', () => {
+    const navMarker = swSource.indexOf("request.mode === 'navigate'");
+    expect(navMarker).toBeGreaterThan(-1);
+    const cacheFirstServe = swSource.indexOf('if (cached) {', navMarker);
+    expect(cacheFirstServe).toBeGreaterThan(-1);
+    expect(navMarker).toBeLessThan(cacheFirstServe);
+    const navWindow = swSource.slice(navMarker, cacheFirstServe);
+    const navFetch = navWindow.indexOf('fetch(request)');
+    const navCacheMatch = navWindow.indexOf('cache.match');
+    expect(navFetch).toBeGreaterThan(-1);
+    expect(navCacheMatch).toBeGreaterThan(navFetch);
+  });
+
   it('fails open: fetch handler wrapped in try/catch with plain fetch fallback', () => {
     expect(swSource).toMatch(/catch\s*\{\s*return fetch\(request\)/);
     expect(swSource).toContain('respondWith(');

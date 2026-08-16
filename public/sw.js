@@ -87,6 +87,24 @@ async function handleFetch(request) {
       return cached || network;
     }
 
+    if (policy === 'CACHE_FIRST' && request.mode === 'navigate') {
+      // Navigation request (e.g. '/', '/index.html'): network-first with cache fallback.
+      // A manually-bumped SW_VERSION does not force re-install on every deploy, so serving
+      // these from precache would pin returning users to stale HTML + old hashed bundles.
+      const network = fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            cache.put(request, response.clone());
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await cache.match(request);
+          return cached || Response.error();
+        });
+      return network;
+    }
+
     if (policy === 'CACHE_FIRST') {
       const cached = await cache.match(request);
       if (cached) {
