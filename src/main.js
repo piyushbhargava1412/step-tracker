@@ -160,8 +160,12 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // ST-013: Service Worker registration (fail-open; PROD-gated inside the
   // factory — the dev server must never register a SW over Vite HMR assets).
+  // Fire-and-forget: bootstrap does not block on worker install; the factory
+  // never rejects, but a .catch() guards against unexpected async rejection.
   try {
-    await createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } }).register()
+    createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } })
+      .register()
+      .catch((err) => console.error('[main] SW registration failed, continuing', err))
   } catch (err) {
     console.error('[main] SW registration failed, continuing', err)
   }

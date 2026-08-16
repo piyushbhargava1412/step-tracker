@@ -1895,13 +1895,17 @@ describe('main.js — Storage Health wiring', () => {
     )
   })
 
-  it('awaits sw-register register() before bootstrap resolves', async () => {
+  it('invokes sw-register register() but does not wait for it (fire-and-forget)', async () => {
     let registerResolved = false
-    mockSwRegistrar.register.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => { registerResolved = true; resolve() }, 10))
-    )
+    const pendingPromise = new Promise((resolve) => setTimeout(() => { registerResolved = true; resolve() }, 10))
+    mockSwRegistrar.register.mockReturnValue(pendingPromise)
     await bootstrap(isolatedDoc)
-    expect(registerResolved).toBe(true)
+    // register() was invoked exactly once
+    expect(mockSwRegistrar.register).toHaveBeenCalledTimes(1)
+    // bootstrap resolved without waiting for registration to complete
+    expect(registerResolved).toBe(false)
+    // allow the pending promise to settle to avoid unhandled rejection
+    await pendingPromise
   })
 
   it('fails open when sw register() rejects (console.error [main] prefix, bootstrap resolves)', async () => {
