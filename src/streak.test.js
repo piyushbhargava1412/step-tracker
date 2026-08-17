@@ -807,7 +807,13 @@ describe('createStreak(db, goal) — data orchestration', () => {
     const goal = makeMockGoal(7500);
     const result = await createStreak(db, goal).compute();
     expect(result.tolerance).toStrictEqual(computeToleranceStreaks(records, 7500, NOW));
-    expect(result.tolerance).toStrictEqual({ actual: 12, allowance95: 12, allowance99: 12 });
+    expect(result.tolerance).toStrictEqual({
+      actual: 12,
+      allowance95: 12,
+      allowance99: 12,
+      misses95: 0,
+      misses99: 0,
+    });
   });
 
   it('tiers, hallOfFame and lifetime match direct calls on the same fixture', async () => {
@@ -838,7 +844,13 @@ describe('createStreak(db, goal) — data orchestration', () => {
   it('zero-state DB → zero tolerance, zero tiers, empty hallOfFame, zero lifetime', async () => {
     const db = makeMockDb([]);
     const result = await createStreak(db, makeMockGoal()).compute();
-    expect(result.tolerance).toStrictEqual({ actual: 0, allowance95: 0, allowance99: 0 });
+    expect(result.tolerance).toStrictEqual({
+      actual: 0,
+      allowance95: 0,
+      allowance99: 0,
+      misses95: 0,
+      misses99: 0,
+    });
     expect(result.hallOfFame).toEqual([]);
     expect(result.lifetime).toStrictEqual({ metDays: 0, totalDays: 0, pct: 0 });
     expect(result.tiers).toHaveLength(STEP_GOAL_OPTIONS.length);
@@ -948,7 +960,7 @@ describe('streak.js legacy surface removal (SF-4a/SF-4d)', () => {
 
 const TODAY = '2026-08-12';
 const STEP_GOAL = 10000;
-const ZERO_SHAPE = { actual: 0, allowance95: 0, allowance99: 0 };
+const ZERO_SHAPE = { actual: 0, allowance95: 0, allowance99: 0, misses95: 0, misses99: 0 };
 
 /**
  * Builds `count` consecutive daily_records ending at `today` (inclusive).
@@ -986,6 +998,8 @@ describe('computeToleranceStreaks — AC Scenario 2', () => {
       actual: 19,
       allowance95: 39,
       allowance99: 19,
+      misses95: 1,
+      misses99: 0,
     });
   });
 
@@ -1006,6 +1020,8 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
       actual: 10,
       allowance95: 10,
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1016,6 +1032,8 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
       actual: 10,
       allowance95: 10,
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1026,6 +1044,8 @@ describe('computeToleranceStreaks — SF-6 today anchor', () => {
       actual: 10,
       allowance95: 10,
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 });
@@ -1038,6 +1058,8 @@ describe('computeToleranceStreaks — SF-5 missing / corrupt past days', () => {
       actual: 19,
       allowance95: 39,
       allowance99: 19,
+      misses95: 1,
+      misses99: 0,
     });
   });
 
@@ -1055,6 +1077,8 @@ describe('computeToleranceStreaks — SF-5 missing / corrupt past days', () => {
       actual: 19,
       allowance95: 39,
       allowance99: 19,
+      misses95: 1,
+      misses99: 0,
     });
   });
 });
@@ -1074,6 +1098,8 @@ describe('computeToleranceStreaks — SF-7 future-dated records', () => {
       actual: 10,
       allowance95: 10,
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1092,12 +1118,14 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
 
     // 95%: m=1 for d in [20..24] → 1 <= floor(d/20)=1 qualifies;
     //      m=2 for d in [25..39] → 2 > floor(d/20)=1, so no deeper depth
-    //      qualifies in this fixture → deepest is 24.
+    //      qualifies in this fixture → deepest is 24 with 1 miss inside it.
     // 99%: m=1 for d >= 20 → 1 > floor(d/100)=0 everywhere here → deepest is 19.
     expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
       actual: 19,
       allowance95: 24,
       allowance99: 19,
+      misses95: 1,
+      misses99: 0,
     });
   });
 
@@ -1109,6 +1137,8 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
       actual: 4,
       allowance95: 4,
       allowance99: 4,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1126,6 +1156,8 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
       actual: 29,
       allowance95: 200,
       allowance99: 200,
+      misses95: 2,
+      misses99: 2,
     });
   });
 
@@ -1144,6 +1176,8 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
       actual: 4,
       allowance95: 200,
       allowance99: 4,
+      misses95: 3,
+      misses99: 0,
     });
   });
 
@@ -1158,6 +1192,60 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
   });
 });
 
+describe('computeToleranceStreaks — missed-day counts (misses95/misses99)', () => {
+  it('reports the true misses inside each tier\'s deepest qualifying window (AC Scenario 2)', () => {
+    // The 95% window recovers to 39 with the depth-20 shortfall inside it (1 miss);
+    // the 99% window freezes at 19, before any miss occurred (0 misses).
+    expect(computeToleranceStreaks(acScenario2(), STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 39,
+      allowance99: 19,
+      misses95: 1,
+      misses99: 0,
+    });
+  });
+
+  it('a recovered 200-day window carries both of its true misses (misses at depths 30 and 60)', () => {
+    const records = makeRecords(TODAY, 200, 12000);
+    records[29] = { date: shiftDate(TODAY, -29), effective_steps: 4000 };
+    records[59] = { date: shiftDate(TODAY, -59), effective_steps: 4000 };
+
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 29,
+      allowance95: 200,
+      allowance99: 200,
+      misses95: 2,
+      misses99: 2,
+    });
+  });
+
+  it('a 95% window ending mid-history reports the misses accumulated up to its depth', () => {
+    const records = makeRecords(TODAY, 39, 12000);
+    records[19] = { date: shiftDate(TODAY, -19), effective_steps: 4000 };
+    records[24] = { date: shiftDate(TODAY, -24), effective_steps: 4000 };
+
+    // 95% deepest qualifying depth is 24 with m=1; 99% deepest is 19 with m=0.
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 24,
+      allowance99: 19,
+      misses95: 1,
+      misses99: 0,
+    });
+  });
+
+  it('clean histories report 0 missed days for both tiers', () => {
+    const records = makeRecords(TODAY, 10, 12000);
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 10,
+      allowance95: 10,
+      allowance99: 10,
+      misses95: 0,
+      misses99: 0,
+    });
+  });
+});
+
 describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () => {
   it('a day at 96% of goal is a miss for actual but counts as met for both tolerance tiers', () => {
     const records = makeRecords(TODAY, 10, 12000);
@@ -1167,6 +1255,8 @@ describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () 
       actual: 4, // 9600 < 10000 → breaks the strict streak
       allowance95: 10, // 9600 >= round(0.95 * 10000) = 9500 → not a tolerance miss
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1178,6 +1268,8 @@ describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () 
       actual: 4,
       allowance95: 10,
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1190,6 +1282,8 @@ describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () 
       actual: 4,
       allowance95: 4,
       allowance99: 4,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1201,6 +1295,8 @@ describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () 
       actual: 4, // 5800 < 6000 → breaks the strict streak
       allowance95: 10, // 5800 >= round(0.95 * 6000) = 5700 → met
       allowance99: 10,
+      misses95: 0,
+      misses99: 0,
     });
   });
 
@@ -1215,6 +1311,8 @@ describe('computeToleranceStreaks — near-miss leniency (NEAR_MISS_RATIO)', () 
       actual: 0, // anchor is yesterday… which is itself a near-miss → strict miss
       allowance95: 1, // yesterday >= 9500 bar → met for tolerance tiers
       allowance99: 1,
+      misses95: 0,
+      misses99: 0,
     });
   });
 });
@@ -1246,6 +1344,8 @@ describe('computeToleranceStreaks — guard clauses', () => {
         actual: 5,
         allowance95: 5,
         allowance99: 5,
+        misses95: 0,
+        misses99: 0,
       });
       // Proves DEFAULT_STEP_GOAL was applied — a goal of 0 would pass every day.
       expect(computeToleranceStreaks(below, badGoal, TODAY)).toStrictEqual(ZERO_SHAPE);
@@ -1263,6 +1363,8 @@ describe('computeToleranceStreaks — guard clauses', () => {
       actual: 3,
       allowance95: 3,
       allowance99: 3,
+      misses95: 0,
+      misses99: 0,
     });
   });
 });

@@ -51,7 +51,7 @@ function makeStreakReject(err) {
 
 /** Zero-state compute result (mirrors _zeroState()). */
 const ZERO_RESULT = {
-  tolerance: { actual: 0, allowance95: 0, allowance99: 0 },
+  tolerance: { actual: 0, allowance95: 0, allowance99: 0, misses95: 0, misses99: 0 },
   hallOfFame: [],
   lifetime: { metDays: 0, totalDays: 0, pct: 0 },
   activeStepGoal: DEFAULT_STEP_GOAL, // 10000
@@ -59,7 +59,7 @@ const ZERO_RESULT = {
 
 /** AC Scenario: 19 / 39 / 19 (story's worked tolerance example). */
 const TOLERANCE_RESULT = {
-  tolerance: { actual: 19, allowance95: 39, allowance99: 19 },
+  tolerance: { actual: 19, allowance95: 39, allowance99: 19, misses95: 1, misses99: 0 },
   hallOfFame: [],
   lifetime: { metDays: 40, totalDays: 100, pct: 40.0 },
   activeStepGoal: DEFAULT_STEP_GOAL,
@@ -67,7 +67,7 @@ const TOLERANCE_RESULT = {
 
 /** Custom/legacy step goal not matching any preset. */
 const GOAL_NO_MATCH_RESULT = {
-  tolerance: { actual: 2, allowance95: 2, allowance99: 2 },
+  tolerance: { actual: 2, allowance95: 2, allowance99: 2, misses95: 0, misses99: 0 },
   hallOfFame: [],
   lifetime: { metDays: 5, totalDays: 10, pct: 50 },
   activeStepGoal: 6000,
@@ -417,6 +417,66 @@ describe('createStreakUI', () => {
         doc.querySelectorAll('.streak-allowance .streak-allowance-value'),
       ).map((el) => el.textContent);
       expect(values).toEqual(['0', '0']);
+    });
+
+    it('each .streak-allowance renders a smaller "( X oopsie days )" caption from result.tolerance', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const captions = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-missed'),
+      ).map((el) => el.textContent);
+      expect(captions).toEqual(['( 1 oopsie days )', '( 0 oopsie days )']);
+    });
+
+    it('missed-day captions sit next to the allowance values inside the same chip', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(TOLERANCE_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const chips = doc.querySelectorAll('.streak-allowance');
+      const value = chips[0].querySelector('.streak-allowance-value').textContent;
+      const caption = chips[0].querySelector('.streak-allowance-missed').textContent;
+      expect(value).toBe('39');
+      expect(caption).toBe('( 1 oopsie days )');
+    });
+
+    it('zero-state missed-day captions both read "( 0 oopsie days )"', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak(ZERO_RESULT);
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const captions = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-missed'),
+      ).map((el) => el.textContent);
+      expect(captions).toEqual(['( 0 oopsie days )', '( 0 oopsie days )']);
+    });
+
+    it('an absent miss-count field fails open to 0 missed days', async () => {
+      const doc = buildDoc();
+      const streak = makeStreak({
+        ...ZERO_RESULT,
+        tolerance: { actual: 0, allowance95: 0, allowance99: 0 },
+      });
+      const reporter = { db: vi.fn() };
+
+      const ui = createStreakUI(doc, streak, reporter);
+      await ui.render();
+
+      const captions = Array.from(
+        doc.querySelectorAll('.streak-allowance .streak-allowance-missed'),
+      ).map((el) => el.textContent);
+      expect(captions).toEqual(['( 0 oopsie days )', '( 0 oopsie days )']);
     });
   });
 

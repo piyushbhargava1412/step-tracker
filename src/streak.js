@@ -285,10 +285,10 @@ function _computeLifetimeCompliancePrepared(records, target) {
 /**
  * Fresh zero result — never a shared literal, so callers may safely mutate.
  *
- * @returns {{ actual: number, allowance95: number, allowance99: number }}
+ * @returns {{ actual: number, allowance95: number, allowance99: number, misses95: number, misses99: number }}
  */
 function _zeroToleranceStreaks() {
-  return { actual: 0, allowance95: 0, allowance99: 0 };
+  return { actual: 0, allowance95: 0, allowance99: 0, misses95: 0, misses99: 0 };
 }
 
 /**
@@ -323,6 +323,11 @@ function _zeroToleranceStreaks() {
  *   days (then stayed clean) report ~200 instead of breaking at the first miss.
  * - The loop ends when `day < earliestRecordDate` — the lower bound stops the
  *   engines walking into pre-history, so no value can exceed it.
+ * - **Miss reporting**: alongside each tier's day count, the result carries the
+ *   true misses (`misses95` / `misses99`) accumulated *inside* its deepest
+ *   qualifying window — i.e. the miss counter at the depth that produced
+ *   `allowance95` / `allowance99`. This is what the UI renders as the
+ *   "( X oopsie days )" caption beside each tolerance chip.
  *
  * The predicate `m <= floor(d / N)` with a shared miss counter is exact for the
  * nested windows (all share the anchor endpoint): `m` at depth `d` is precisely
@@ -337,7 +342,7 @@ function _zeroToleranceStreaks() {
  * @param {Array<{ date: string, effective_steps: number }>} records
  * @param {number} stepGoal - daily step target (S_target)
  * @param {string} today - YYYY-MM-DD
- * @returns {{ actual: number, allowance95: number, allowance99: number }}
+ * @returns {{ actual: number, allowance95: number, allowance99: number, misses95: number, misses99: number }}
  */
 export function computeToleranceStreaks(records, stepGoal, today) {
   if (!Array.isArray(records) || records.length === 0) return _zeroToleranceStreaks();
@@ -369,10 +374,11 @@ export function computeToleranceStreaks(records, stepGoal, today) {
   let toleranceMisses = 0;
 
   // One tracker per allowance tier — each records the deepest depth whose
-  // window it still affords. Order matches the returned shape.
+  // window it still affords, plus the true misses accumulated up to that depth.
+  // Order matches the returned shape.
   const allowances = [
-    { window: ALLOWANCE_WINDOW_95, value: 0 },
-    { window: ALLOWANCE_WINDOW_99, value: 0 },
+    { window: ALLOWANCE_WINDOW_95, value: 0, misses: 0 },
+    { window: ALLOWANCE_WINDOW_99, value: 0, misses: 0 },
   ];
 
   let day = anchor;
@@ -391,15 +397,19 @@ export function computeToleranceStreaks(records, stepGoal, today) {
     if (steps < nearMissThreshold) toleranceMisses += 1; // true miss for the tiers
 
     for (const allowance of allowances) {
-      if (toleranceMisses <= Math.floor(d / allowance.window)) allowance.value = d;
+      if (toleranceMisses <= Math.floor(d / allowance.window)) {
+        allowance.value = d;
+        allowance.misses = toleranceMisses;
+      }
     }
 
     day = _addDaysUtc(day, -1);
   }
 
   const [allowance95, allowance99] = allowances.map((a) => a.value);
+  const [misses95, misses99] = allowances.map((a) => a.misses);
 
-  return { actual, allowance95, allowance99 };
+  return { actual, allowance95, allowance99, misses95, misses99 };
 }
 
 // ── createStreak helper ────────────────────────────────────────────────────

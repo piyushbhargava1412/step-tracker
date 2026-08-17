@@ -19,11 +19,12 @@ import { DEFAULT_STEP_GOAL } from './goal.js';
 
 /**
  * The tolerance allowances, in render order (SF-7). Each entry pairs the
- * user-facing label with the `result.tolerance` key that supplies its day count.
+ * user-facing label with the `result.tolerance` keys that supply its day count
+ * (`key`) and the true misses inside its window (`missKey`).
  */
 const ALLOWANCE_METRICS = [
-  { key: 'allowance95', label: '95% Tolerance' },
-  { key: 'allowance99', label: '99% Tolerance' },
+  { key: 'allowance95', missKey: 'misses95', label: '95% Tolerance' },
+  { key: 'allowance99', missKey: 'misses99', label: '99% Tolerance' },
 ];
 
 const RUNS_EMPTY_TEXT = 'No qualifying streak periods yet';
@@ -31,7 +32,7 @@ const RUNS_EMPTY_TEXT = 'No qualifying streak periods yet';
 /** Zero-state result used when streak.compute() rejects. */
 function _zeroState() {
   return {
-    tolerance: { actual: 0, allowance95: 0, allowance99: 0 },
+    tolerance: { actual: 0, allowance95: 0, allowance99: 0, misses95: 0, misses99: 0 },
     hallOfFame: [],
     lifetime: { metDays: 0, totalDays: 0, pct: 0 },
     activeStepGoal: DEFAULT_STEP_GOAL,
@@ -152,20 +153,27 @@ function _buildActual(doc, actual) {
 }
 
 /**
- * The two allowance chips (95% / 99%).
+ * The two allowance chips (95% / 99%), each showing its day count and a smaller
+ * "( X oopsie days )" caption with the true misses inside its window.
  *
  * @param {Document} doc
- * @param {{ allowance95: number, allowance99: number }} tolerance
+ * @param {{ allowance95: number, allowance99: number, misses95: number, misses99: number }} tolerance
  * @returns {HTMLElement}
  */
 function _buildAllowances(doc, tolerance) {
   const grid = _el(doc, 'div', 'streak-allowances');
 
-  for (const { key, label } of ALLOWANCE_METRICS) {
+  for (const { key, missKey, label } of ALLOWANCE_METRICS) {
     const chip = _el(doc, 'div', 'streak-allowance');
     chip.append(
       _el(doc, 'span', 'streak-allowance-label', label),
       _el(doc, 'span', 'streak-allowance-value', String(tolerance[key] ?? 0)),
+      _el(
+        doc,
+        'span',
+        'streak-allowance-missed',
+        `( ${tolerance[missKey] ?? 0} oopsie days )`,
+      ),
     );
     grid.append(chip);
   }

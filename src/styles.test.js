@@ -321,6 +321,30 @@ describe('styles.css — Active Streaks card (mockup)', () => {
     expect(/\.streak-allowance-label\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
   });
 
+  it('.streak-allowance-missed should be defined', () => {
+    expect(/\.streak-allowance-missed\s*{/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-allowance-missed should render smaller than the day count (0.7rem)', () => {
+    expect(/\.streak-allowance-missed\s*{[^}]*font-size:\s*0\.7rem/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-allowance-missed should use the neon green var(--accent-green) color', () => {
+    expect(/\.streak-allowance-missed\s*{[^}]*color:\s*var\(--accent-green\)/.test(cssContent)).toBe(true);
+  });
+
+  it('.streak-allowance-missed should carry a neon glow via var(--accent-green-glow)', () => {
+    expect(/\.streak-allowance-missed\s*{[^}]*text-shadow:[^}]*var\(--accent-green-glow\)/.test(cssContent)).toBe(true);
+  });
+
+  it(':root should define the --accent-green token', () => {
+    expect(cssContent).toMatch(/--accent-green:\s*#4ade80/);
+  });
+
+  it(':root should define the --accent-green-glow token', () => {
+    expect(/--accent-green-glow:\s*rgba\(74,\s*222,\s*128,[^)]*\)/.test(cssContent)).toBe(true);
+  });
+
   it('.streak-run-range should align right (mockup trailing year span)', () => {
     expect(/\.streak-run-range\s*{[^}]*text-align:\s*right/.test(cssContent)).toBe(true);
   });
