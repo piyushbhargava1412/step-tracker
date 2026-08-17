@@ -213,4 +213,47 @@ describe('createStatusReporter', () => {
     expect(doc.getElementById('auth-status').textContent).toBe('auth-text');
     expect(doc.getElementById('sync-status').textContent).toBe('sync-text');
   });
+
+  // --- full-history-sync modal routing ---
+
+  it('sync() with the full-history-sync prefix opens the modal instead of writing #sync-status', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.sync('⏳ Full history sync — fetching all Google Fit data since 2013.');
+
+    const modal = doc.getElementById('sync-progress-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.hasAttribute('hidden')).toBe(false);
+    expect(doc.querySelector('[data-role="message"]').textContent).toBe(
+      '⏳ Full history sync — fetching all Google Fit data since 2013.'
+    );
+    expect(doc.getElementById('sync-status').textContent).toBe('');
+  });
+
+  it('a subsequent plain progress message closes the modal and writes #sync-status', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.sync('⏳ Full history sync — fetching all Google Fit data since 2013.');
+    reporter.sync('⚠️ Rate limited by Google Fit — retrying chunk 3/50 in 2s…');
+
+    const modal = doc.getElementById('sync-progress-modal');
+    expect(modal.hasAttribute('hidden')).toBe(true);
+    expect(doc.getElementById('sync-status').textContent).toBe(
+      '⚠️ Rate limited by Google Fit — retrying chunk 3/50 in 2s…'
+    );
+  });
+
+  it('a terminal ✅ success message closes the modal and shows the toast', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.sync('⏳ Full history sync — fetching all Google Fit data since 2013.');
+    reporter.sync('✅ Synced 100 days — up to date.');
+
+    const modal = doc.getElementById('sync-progress-modal');
+    expect(modal.hasAttribute('hidden')).toBe(true);
+    expect(doc.getElementById('sync-status').textContent).toBe('');
+    expect(doc.getElementById('app-toast').textContent).toBe('✅ Synced 100 days — up to date.');
+  });
+
+  it('a non-full-history sync() call when the modal was never opened does not throw', () => {
+    const reporter = createStatusReporter(doc);
+    expect(() => reporter.sync('some progress text')).not.toThrow();
+  });
 });

@@ -7,6 +7,10 @@
  * @returns {Object} Object with db(text), auth(text), and sync(text) methods
  */
 import { showToast } from './toast.js';
+import { showSyncProgressModal, hideSyncProgressModal } from './sync-progress-modal.js';
+
+/** Prefix steps.js uses to announce the start of a multi-minute backfill (see PHASE_FULL_HISTORY). */
+const FULL_HISTORY_SYNC_PREFIX = '⏳ Full history sync';
 
 export function createStatusReporter(doc = document) {
   return {
@@ -46,10 +50,14 @@ export function createStatusReporter(doc = document) {
     /**
      * Surface a sync-channel message.
      *
+     * The multi-minute full-history-sync announcement (the `⏳ Full history
+     * sync` prefix) is rendered as a dismissible modal instead of the
+     * persistent status line — that text is long enough to reflow the header
+     * and shift the sync/settings buttons for the whole backfill duration.
      * Terminal success messages (the `✅` prefix used by the sync engine) are
-     * rendered as a transient fading toast instead of being pasted into the
-     * persistent status line. Every other message — progress, throttling,
-     * warnings and failures — falls through to `#sync-status`.
+     * rendered as a transient fading toast. Every other message — progress,
+     * throttling, warnings and failures — falls through to `#sync-status`,
+     * and closes the modal if it was left open.
      * @param {string} text - The message to surface
      */
     sync(text) {
@@ -58,6 +66,14 @@ export function createStatusReporter(doc = document) {
         console.warn('[createStatusReporter] Missing element: #sync-status');
         return;
       }
+
+      if (text.startsWith(FULL_HISTORY_SYNC_PREFIX)) {
+        showSyncProgressModal(doc, text);
+        element.textContent = '';
+        return;
+      }
+
+      hideSyncProgressModal(doc);
 
       if (text.startsWith('✅')) {
         // Success lives in the toast; the persistent line stays clean.
