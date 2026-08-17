@@ -90,9 +90,13 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] requestPersistentStorage failed, continuing', err)
   }
 
-  // 5. Auth
+  // 5. Auth (fail-open: a missing/late-loading GSI script must not abort bootstrap)
   const auth = createAuth(config, reporter)
-  auth.init()
+  try {
+    auth.init()
+  } catch (err) {
+    console.error('[main] auth.init failed, continuing', err)
+  }
 
   // 6. Step sync engine — created after backup/driveSync (see below) so collaborators can be injected.
 

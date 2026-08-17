@@ -142,3 +142,46 @@ describe('createAuth', () => {
   });
 
 });
+
+describe('createAuth — GSI unavailable at init() time', () => {
+  let config, reporter;
+
+  beforeEach(() => {
+    config = { CLIENT_ID: 'cid_001' };
+    reporter = { auth: vi.fn(), db: vi.fn() };
+  });
+
+  it('createAuth(config, reporter) does not throw even when no third arg is passed', () => {
+    expect(() => createAuth(config, reporter)).not.toThrow();
+  });
+
+  it('init() with no gsi and no window.google logs an error instead of throwing', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const auth = createAuth(config, reporter, undefined);
+
+    expect(() => auth.init()).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[auth] Google Identity Services unavailable — init() aborted'
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('init() with a gsi missing accounts.oauth2 logs an error instead of throwing', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const auth = createAuth(config, reporter, {});
+
+    expect(() => auth.init()).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[auth] Google Identity Services unavailable — init() aborted'
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('requestToken() after a failed init() is still guarded and does not throw', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const auth = createAuth(config, reporter, undefined);
+    auth.init();
+
+    expect(() => auth.requestToken()).not.toThrow();
+  });
+});

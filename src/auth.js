@@ -1,12 +1,25 @@
 const SCOPES = 'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.location.read https://www.googleapis.com/auth/drive.appdata';
 
-export function createAuth(config, reporter, gsi = google) {
+export function createAuth(config, reporter, gsi) {
   let accessToken = null;
   let tokenClient = null;
   let onTokenListener = null;
 
+  /**
+   * Resolved lazily inside init() rather than as a `= google` default
+   * parameter: the GSI `<script>` tag loads asynchronously, so the global
+   * may not exist yet at the moment createAuth() itself is called (e.g. a
+   * cold/incognito load can race bootstrap()). A default parameter would
+   * evaluate that bare reference eagerly and throw synchronously.
+   */
   function init() {
-    tokenClient = gsi.accounts.oauth2.initTokenClient({
+    const client = gsi ?? window.google;
+    if (!client?.accounts?.oauth2) {
+      console.error('[auth] Google Identity Services unavailable — init() aborted');
+      return;
+    }
+
+    tokenClient = client.accounts.oauth2.initTokenClient({
       client_id: config.CLIENT_ID,
       scope: SCOPES,
       callback(resp) {
