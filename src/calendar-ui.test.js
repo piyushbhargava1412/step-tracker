@@ -351,7 +351,7 @@ describe('render() — navigation', async () => {
     const engine = makeMockEngine(payload);
     const reporter = makeMockReporter();
     const { render } = createCalendarUI(doc, null, engine, reporter);
-    await render();
+    await render(2026, 7);
 
     const prevBtn = doc.querySelector('[data-nav="prev"]');
     prevBtn.click();
@@ -366,7 +366,7 @@ describe('render() — navigation', async () => {
     const engine = makeMockEngine(payload);
     const reporter = makeMockReporter();
     const { render } = createCalendarUI(doc, null, engine, reporter);
-    await render();
+    await render(2026, 7);
 
     const nextBtn = doc.querySelector('[data-nav="next"]');
     nextBtn.click();
