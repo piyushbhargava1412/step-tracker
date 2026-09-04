@@ -98,15 +98,14 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
    checkbox so the UI never lies about the persisted state. **The toggle only gates the automatic
    post-sync upload — the manual "Back up to Drive" button always works regardless.**
 
-### Automatic Post-Sync Push (Task 28 — coalescing + dirty-check)
-9. `src/steps.js`'s `sync()` fires a fire-and-forget Drive push after every successful sync, gated in
-   order: (a) `settings.getDriveBackupEnabled()` — disabled skips before any DB read; (b)
-   `backup.hasUnpushedChanges()` — a cheap signature (`daily_records` count + newest row's `synced_at`)
-   compared against the last-successfully-pushed signature; unchanged skips both re-serialisation and
-   upload; (c) an in-flight closure guard (`postSyncPush`) set synchronously before the first `await` so
-   an overlapping sync's hook sees it and skips — concurrent post-sync pushes upload exactly once. On
-   success, `backup.markPushed()` records the new signature (only after the push succeeds, so a failed
-   upload is retried on the next sync). The hook never re-throws and never surfaces a reporter message
+### Automatic Post-Sync Push (Task 28 — every sync + coalescing)
+9. `src/steps.js`'s `sync()` fires a fire-and-forget Drive push after every successful sync, gated by
+   `settings.getDriveBackupEnabled()`; disabled skips before backup serialisation. An in-flight closure
+   guard (`postSyncPush`) set synchronously before the first `await` ensures overlapping syncs upload
+   exactly once. After a real upload, `settings.setLastDriveSync({ at, bytes })` refreshes the
+   "Last cloud sync" metadata and `backup.markPushed()` records the successful state. A skipped
+   no-token push is not marked pushed. Metadata failures are logged but do not turn a successful
+   upload into a retry. The hook never re-throws or surfaces a reporter message
    (`console.error('[drive-sync]', err)` only) — a Drive failure must never block or dirty the ✅ sync
    status line. The guard lives on the `steps.js` closure, never on `driveSync`, so manual pushes are
    always allowed through independently.
@@ -141,7 +140,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/drive-sync.js` — Drive v3 AppData gateway (`createDriveSync({ getAccessToken, reporter, fetchFn, validator })`; exports `DRIVE_APPDATA_FILE_NAME`, `DRIVE_API_BASE_URL`, `DRIVE_PUSH_SKIPPED`)
 - `src/drive-sync-ui.js` — cloud sync panel renderer (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator)`)
 - `src/settings.js` — `drive_backup_enabled` preference (`getDriveBackupEnabled`, `setDriveBackupEnabled`, `DRIVE_BACKUP_ENABLED_KEY`, `DEFAULT_DRIVE_BACKUP_ENABLED`) plus last-export/last-sync metadata (`getLastLocalExport`, `setLastLocalExport`, `getLastDriveSync`, `setLastDriveSync`, `LAST_LOCAL_EXPORT_KEY`, `LAST_DRIVE_SYNC_KEY`)
-- `src/steps.js` — post-sync fire-and-forget push hook (coalescing + dirty-check), injected `driveSync`/`backup`/`settings` collaborators
+- `src/steps.js` — post-sync fire-and-forget push hook (every sync + coalescing), injected `driveSync`/`backup`/`settings` collaborators
 - `src/auth.js` — `drive.appdata` OAuth scope
 - `src/main.js` — composition-root wiring (panel mounts, confirm adapters)
 - `index.html` — `#tab-backup`, `.backup-grid`, `#backup-controls`, `#cloud-controls`
@@ -153,7 +152,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/drive-sync.test.js` — `find`/`push`/`pull` DI isolation (injected `fetchFn`), no-token paths, multipart boundary collision handling, stale-cache 404 retry, silent-mode reporter suppression, validator rejection path.
 - `src/drive-sync-ui.test.js` — render, backup-now/restore-from-cloud handlers, `DRIVE_PUSH_SKIPPED` vs. success reporting, last-sync metadata line + persistence, auto-backup toggle read/write/revert-on-failure, ST-013 toggle-triggered silent persist + badge refresh + `data:storage-health:refresh` dispatch (and the failed-write path where neither fires), manual-backup-success `data:storage-health:refresh` dispatch.
 - `src/settings.test.js` — `getLastLocalExport`/`setLastLocalExport`, `getLastDriveSync`/`setLastDriveSync` round-trip, fail-open reads, guard-clause writes.
-- `src/steps.test.js` — post-sync push gating (opt-out, dirty-check, in-flight coalescing).
+- `src/steps.test.js` — post-sync push gating (opt-out, metadata refresh, in-flight coalescing).
 - `src/main.test.js` — `backupUI`/`driveSyncUI` wiring with the confirm adapter and `settings` collaborator.
 
 ## Notes

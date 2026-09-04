@@ -741,9 +741,10 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
   * @param {object|null} backup     - ST-012 backup engine (createBackup).
   *                             When null, the post-sync silent upload is skipped.
   * @param {object|null} driveBackupPrefs  - Collaborator exposing
- *                             getDriveBackupEnabled(). When null (legacy call
- *                             sites), the post-sync Drive auto-upload is
- *                             treated as enabled (default).
+  *                             getDriveBackupEnabled() and optionally
+  *                             setLastDriveSync(). When null (legacy call
+  *                             sites), the post-sync Drive auto-upload is
+  *                             treated as enabled (default).
  * @returns {{ sync: Function }}
  */
 export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
@@ -870,11 +871,9 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       //    concurrent post-sync pushes upload exactly once. The guard lives on
       //    the steps closure, never on driveSync, so manual pushes and
       //    restores are always allowed through.
-      //    Task 28 (dirty-check): the upload is gated on the backup collaborator's
-      //    cheap change signature — an unchanged DB since the last successful
-      //    push skips both the re-serialisation and the network upload. markPushed
-      //    records the state only after the push succeeds, so a failed upload is
-      //    retried on the next sync.
+      //    Every successful step sync uploads a fresh snapshot when enabled so
+      //    the cloud backup timestamp reflects the latest sync, even when the
+      //    fetched data is unchanged.
       if (driveSync && backup) {
         if (postSyncPush) return;
         postSyncPush = (async () => {
@@ -884,8 +883,23 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
                 ? await driveBackupPrefs.getDriveBackupEnabled()
                 : true;
             if (!enabled) return;
-            if (!(await backup.hasUnpushedChanges())) return;
-            await driveSync.push(await backup.buildBackup(), { silent: true });
+            const envelope = await backup.buildBackup();
+            const result = await driveSync.push(envelope, { silent: true });
+            if (result?.skipped === true) return;
+            if (driveBackupPrefs?.setLastDriveSync) {
+              try {
+                await driveBackupPrefs.setLastDriveSync({
+                  at: new Date().toISOString(),
+                  bytes: JSON.stringify(envelope).length,
+                });
+                const CustomEventCtor = doc?.defaultView?.CustomEvent ?? globalThis.CustomEvent;
+                if (CustomEventCtor) {
+                  doc?.dispatchEvent?.(new CustomEventCtor('data:drive-sync:refresh'));
+                }
+              } catch (err) {
+                console.error('[drive-sync]', err);
+              }
+            }
             await backup.markPushed();
           } catch (err) {
             console.error('[drive-sync]', err);

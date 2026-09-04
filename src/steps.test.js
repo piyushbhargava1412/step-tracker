@@ -2844,7 +2844,6 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     driveSync = { push: vi.fn().mockResolvedValue(undefined) };
     backup = {
       buildBackup: vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] }),
-      hasUnpushedChanges: vi.fn().mockResolvedValue(true),
       markPushed: vi.fn().mockResolvedValue(undefined),
     };
   });
@@ -2854,7 +2853,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     vi.restoreAllMocks();
   });
 
-  /** Flush the fire-and-forget hook chain: dirty-check → buildBackup → push (→ catch). */
+  /** Flush the fire-and-forget hook chain: buildBackup → push (→ catch). */
   async function flush() {
     for (let i = 0; i < 6; i += 1) await Promise.resolve();
   }
@@ -2998,6 +2997,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     prefs = {
       getDriveBackupEnabled: vi.fn().mockResolvedValue(true),
       setDriveBackupEnabled: vi.fn(),
+      setLastDriveSync: vi.fn(),
     };
   });
 
@@ -3037,6 +3037,19 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     );
   });
 
+  it('a skipped Drive push does not refresh metadata or mark the backup pushed', async () => {
+    db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
+    stubFetch();
+    driveSync.push.mockResolvedValue({ skipped: true });
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    await engine.sync();
+    await flush();
+
+    expect(prefs.setLastDriveSync).not.toHaveBeenCalled();
+    expect(backup.markPushed).not.toHaveBeenCalled();
+  });
+
   it('no prefs collaborator injected → defaults to enabled and still pushes (backward compatible)', async () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
@@ -3050,7 +3063,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
   });
 });
 
-// ── Task 28: post-sync dirty-check + concurrent-push coalescing ──────────────
+// ── Task 28: post-sync upload + concurrent-push coalescing ───────────────────
 
 describe('Task 28: post-sync upload dirty-check + coalescing', () => {
   let auth, db, reporter, doc;
@@ -3070,7 +3083,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     }),
   });
 
-  /** Flush the fire-and-forget hook chain: enabled → dirty-check → buildBackup → push → markPushed. */
+  /** Flush the fire-and-forget hook chain: enabled → buildBackup → push → markPushed. */
   async function flush(rounds = 10) {
     for (let i = 0; i < rounds; i += 1) await Promise.resolve();
   }
@@ -3091,6 +3104,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     prefs = {
       getDriveBackupEnabled: vi.fn().mockResolvedValue(true),
       setDriveBackupEnabled: vi.fn(),
+      setLastDriveSync: vi.fn(),
     };
     db = makeStatefulDb({
       seed: [seedRow('2025-06-15')],
@@ -3105,7 +3119,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     vi.restoreAllMocks();
   });
 
-  it('first sync uploads; an unchanged DB is not re-uploaded (buildBackup not re-run)', async () => {
+  it('each enabled sync uploads a fresh backup, even when the DB is unchanged', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
     const buildSpy = vi.spyOn(backup, 'buildBackup');
 
@@ -3115,11 +3129,16 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     expect(driveSync.push).toHaveBeenCalledTimes(1);
     expect(buildSpy).toHaveBeenCalledTimes(1);
 
-    // Second sync — empty bucket, zero new rows, DB byte-identical → skip.
+    // Second sync — empty bucket, zero new rows, but the cloud timestamp refreshes.
     await engine.sync();
     await flush();
-    expect(driveSync.push).toHaveBeenCalledTimes(1);
-    expect(buildSpy).toHaveBeenCalledTimes(1);
+    expect(driveSync.push).toHaveBeenCalledTimes(2);
+    expect(buildSpy).toHaveBeenCalledTimes(2);
+    expect(prefs.setLastDriveSync).toHaveBeenCalledTimes(2);
+    expect(prefs.setLastDriveSync).toHaveBeenLastCalledWith({
+      at: TODAY.toISOString(),
+      bytes: expect.any(Number),
+    });
   });
 
   it('a changed DB triggers a new upload on the next sync', async () => {
@@ -3185,10 +3204,9 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     expect(driveSync.push).toHaveBeenCalledTimes(2);
   });
 
-  it('toggle OFF → the dirty-check never runs (skip before any signature read)', async () => {
+  it('toggle OFF → the automatic backup is skipped', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
     prefs.getDriveBackupEnabled.mockResolvedValue(false);
-    const dirtySpy = vi.spyOn(backup, 'hasUnpushedChanges');
     const buildSpy = vi.spyOn(backup, 'buildBackup');
 
     const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
@@ -3196,12 +3214,11 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     await flush();
 
     expect(prefs.getDriveBackupEnabled).toHaveBeenCalledTimes(1);
-    expect(dirtySpy).not.toHaveBeenCalled();
     expect(buildSpy).not.toHaveBeenCalled();
     expect(driveSync.push).not.toHaveBeenCalled();
   });
 
-  it('no prefs collaborator injected → defaults to enabled, still dirty-checks and pushes', async () => {
+  it('no prefs collaborator injected → defaults to enabled and pushes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
 
     const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);

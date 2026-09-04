@@ -204,6 +204,14 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       console.error('[main] storageHealthUI.render failed after refresh event, continuing', err)
     }
   })
+  doc.addEventListener('data:drive-sync:refresh', async () => {
+    if (!cloudControls) return
+    try {
+      await driveSyncUI?.render?.(cloudControls)
+    } catch (err) {
+      console.error('[main] driveSyncUI.render failed after refresh event, continuing', err)
+    }
+  })
   const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
     try {
       await streakUI.render()
