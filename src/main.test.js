@@ -183,6 +183,53 @@ vi.mock('./confirm.js', () => ({
   createConfirmAdapter: vi.fn(() => mockConfirmAdapter)
 }))
 
+// ST-009 Task 12: analytics, gamification, odyssey engines + UI factories
+const mockAnalyticsEngine = { compute: vi.fn().mockResolvedValue({
+  lifetimeMetrics: { totalSteps: 0, totalDistanceKm: 0, dailyAverage: 0, longestStreak: 0 },
+  topRecords: [],
+  dayOfWeek: { averages: new Array(7).fill(0), powerDay: 0, lazyDay: 0 },
+  hourly: new Array(24).fill(0),
+  yearlyMonthly: new Array(12).fill({ month: 0, total: 0, dayCount: 0 }),
+}) }
+vi.mock('./analytics.js', () => ({
+  createAnalytics: vi.fn(() => mockAnalyticsEngine),
+  computeLifetimeMetrics: vi.fn(),
+  computeTopRecords: vi.fn(),
+  computeDayOfWeekDistribution: vi.fn(),
+  computeHourlyDistribution: vi.fn(),
+  computeYearlyMonthlyComparison: vi.fn(),
+}))
+
+const mockAnalyticsUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./analytics-ui.js', () => ({
+  createAnalyticsUI: vi.fn(() => mockAnalyticsUIInstance),
+}))
+
+const mockGamificationEngine = { compute: vi.fn().mockResolvedValue({ xp: 0, level: 1, levelLabel: 'Couch Potato', achievements: {} }) }
+vi.mock('./gamification.js', () => ({
+  createGamification: vi.fn(() => mockGamificationEngine),
+  computeXP: vi.fn(),
+  computeLevel: vi.fn(),
+  evaluateAchievements: vi.fn(),
+  LEVEL_RANKS: [],
+}))
+
+const mockGamificationUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./gamification-ui.js', () => ({
+  createGamificationUI: vi.fn(() => mockGamificationUIInstance),
+}))
+
+const mockOdysseyUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./odyssey-ui.js', () => ({
+  createOdysseyUI: vi.fn(() => mockOdysseyUIInstance),
+}))
+
+vi.mock('./odyssey.js', () => ({
+  computeOdysseyProgress: vi.fn().mockReturnValue({ unlockedLegs: [], activeLeg: undefined, progressPct: 0, remainingKm: 0 }),
+  HOME_BASE_CITIES: [],
+  MILESTONES: [],
+}))
+
 
 // Import mocked modules so we have references to the spy fns
 import { createGoal } from './goal.js'
@@ -217,6 +264,11 @@ import {
 } from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
 import { createSwRegister } from './sw-register.js'
+import { createAnalytics } from './analytics.js'
+import { createAnalyticsUI } from './analytics-ui.js'
+import { createGamification } from './gamification.js'
+import { createGamificationUI } from './gamification-ui.js'
+import { createOdysseyUI } from './odyssey-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -1914,5 +1966,199 @@ describe('main.js — Storage Health wiring', () => {
     await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[main]'), expect.anything())
     errorSpy.mockRestore()
+  })
+})
+
+// ============================================================================
+// ST-009 Task 12: Analytics, Gamification, and Odyssey UI wiring
+// ============================================================================
+
+describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', () => {
+  let isolatedDoc
+
+  function makeIsolatedDoc() {
+    const target = new EventTarget()
+    return {
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+      dispatchEvent: target.dispatchEvent.bind(target),
+      getElementById: (id) => document.getElementById(id),
+      querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
+      createElement: (tag) => document.createElement(tag),
+      createTextNode: (text) => document.createTextNode(text),
+      defaultView: window,
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockProgressUIInstance.render.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockChallengeUIInstance.render.mockResolvedValue(undefined)
+    mockSearchUIInstance.render.mockResolvedValue(undefined)
+    mockSettingsUIInstance.render.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc = makeIsolatedDoc()
+    document.body.innerHTML = `
+      <button id="auth-btn">Connect</button>
+      <button id="sync-btn">Sync Steps</button>
+      <button id="settings-btn">Settings</button>
+      <nav class="tab-bar"></nav>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <div id="tab-lab" hidden>
+        <div id="lab-analytics"></div>
+        <div id="lab-gamification"></div>
+        <div id="lab-odyssey"></div>
+      </div>
+    `
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+    isolatedDoc = null
+  })
+
+  it('bootstrap() completes without throwing when all three new UI factories are wired', async () => {
+    await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
+  })
+
+  it('createAnalytics is instantiated once with db during bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createAnalytics).toHaveBeenCalledTimes(1)
+    expect(createAnalytics).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createAnalyticsUI is instantiated once during bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createAnalyticsUI).toHaveBeenCalledTimes(1)
+  })
+
+  it('createGamification is instantiated once with db during bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createGamification).toHaveBeenCalledTimes(1)
+    expect(createGamification).toHaveBeenCalledWith(mockDb)
+  })
+
+  it('createGamificationUI is instantiated once during bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createGamificationUI).toHaveBeenCalledTimes(1)
+  })
+
+  it('createOdysseyUI is instantiated once during bootstrap', async () => {
+    await bootstrap(isolatedDoc)
+    expect(createOdysseyUI).toHaveBeenCalledTimes(1)
+  })
+
+  it('runSync calls analyticsUI.render() once after sync', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockAnalyticsUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('runSync calls gamificationUI.render() once after sync', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockGamificationUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('runSync calls odysseyUI.render() once after sync', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockOdysseyUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('when analyticsUI.render() throws in runSync, gamificationUI and odysseyUI still execute (fail-open)', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockRejectedValueOnce(new Error('analytics render fail'))
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockGamificationUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockOdysseyUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(errorSpy).toHaveBeenCalledWith('[main] analyticsUI.render failed, continuing', expect.any(Error))
+    errorSpy.mockRestore()
+  })
+
+  it('data:records:mutated triggers analyticsUI.render()', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockAnalyticsUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated triggers gamificationUI.render()', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockGamificationUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('data:records:mutated triggers odysseyUI.render()', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    mockGamificationUIInstance.render.mockResolvedValue(undefined)
+    mockOdysseyUIInstance.render.mockResolvedValue(undefined)
+    isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated'))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockOdysseyUIInstance.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('pre-existing runSync renders (streakUI, calendarUI) still called and not reordered', async () => {
+    await bootstrap(isolatedDoc)
+    vi.clearAllMocks()
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockStreakUIInstance.render.mockResolvedValue(undefined)
+    mockCalendarUIInstance.render.mockResolvedValue(undefined)
+    mockAnalyticsUIInstance.render.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
+    // Pre-existing renders must come before new Lab renders
+    expect(mockStreakUIInstance.render.mock.invocationCallOrder[0])
+      .toBeLessThan(mockAnalyticsUIInstance.render.mock.invocationCallOrder[0])
+    expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
+      .toBeLessThan(mockAnalyticsUIInstance.render.mock.invocationCallOrder[0])
   })
 })
