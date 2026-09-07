@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import { _localDate } from './date-utils.js';
 
 export const DB_NAME = 'StepTrackerDB';
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 
 const DAILY_RECORDS_STORES = 'date,effective_steps,effective_distance_km,is_overridden,synced_at';
 const SETTINGS_STORES = 'key';
@@ -121,6 +121,24 @@ export function createDb() {
         });
       } catch (err) {
         // Never rethrow — a throwing upgrade blocks db.open()
+        console.error('[db]', err);
+      }
+    });
+
+  // v6: backfill hourly_steps: null on existing daily_records rows
+  // Idempotent: only sets the field when it is absent (=== undefined).
+  // Never rethrows — a throwing upgrade blocks db.open().
+  db.version(6)
+    .stores({
+      daily_records: DAILY_RECORDS_STORES,
+      settings: SETTINGS_STORES,
+    })
+    .upgrade(async (tx) => {
+      try {
+        await tx.table('daily_records').toCollection().modify((row) => {
+          if (row.hourly_steps === undefined) row.hourly_steps = null;
+        });
+      } catch (err) {
         console.error('[db]', err);
       }
     });

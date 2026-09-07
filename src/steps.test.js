@@ -645,8 +645,8 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
 
   // ── Regression ─────────────────────────────────────────────────────────────
 
-  it('db.js exports DB_VERSION = 5 (ST-015 schema bump from 4 to 5)', () => {
-    expect(DB_VERSION).toBe(5);
+  it('db.js exports DB_VERSION = 6 (ST-009 schema bump from 5 to 6)', () => {
+    expect(DB_VERSION).toBe(6);
   });
 
 
