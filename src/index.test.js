@@ -22,19 +22,20 @@ describe('index.html tabbed shell contract', () => {
     expect(document.getElementById('auth-btn')).not.toBeNull();
   });
 
-  it('five [data-tab] buttons exist with correct values', () => {
+  it('six [data-tab] buttons exist with correct values', () => {
     const tabs = document.querySelectorAll('[data-tab]');
-    expect(tabs.length).toBe(5);
+    expect(tabs.length).toBe(6);
     const values = Array.from(tabs).map(t => t.dataset.tab);
     expect(values).toContain('dashboard');
     expect(values).toContain('calendar');
     expect(values).toContain('search');
+    expect(values).toContain('lab');
     expect(values).toContain('spatial');
     expect(values).toContain('backup');
   });
 
-  it('all five tab panels are present', () => {
-    for (const name of ['dashboard', 'calendar', 'search', 'spatial', 'backup']) {
+  it('all six tab panels are present', () => {
+    for (const name of ['dashboard', 'calendar', 'search', 'lab', 'spatial', 'backup']) {
       expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
     }
   });
@@ -202,5 +203,41 @@ describe('index.html — ST-015 settings button & modal (Task 8)', () => {
     expect(modal.querySelector('[data-action="prune"]')).toBeNull();
     expect(modal.querySelector('[data-action="wipe"]')).toBeNull();
     expect(modal.querySelector('[data-action="toggle-clear-all"]')).toBeNull();
+  });
+});
+
+describe('index.html — ST-009 Task 10: Lab tab button and panel skeleton', () => {
+  it('[data-tab="lab"] button exists between Search and Backup buttons in DOM order', () => {
+    const labBtn = document.querySelector('[data-tab="lab"]');
+    expect(labBtn, '[data-tab="lab"] button missing').not.toBeNull();
+    expect(labBtn.previousElementSibling.dataset.tab).toBe('search');
+    expect(labBtn.nextElementSibling.dataset.tab).toBe('backup');
+  });
+
+  it('#tab-lab section has hidden attribute set on load', () => {
+    const panel = document.getElementById('tab-lab');
+    expect(panel, '#tab-lab missing').not.toBeNull();
+    expect(panel.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('#lab-analytics, #lab-gamification, #lab-odyssey are descendants of #tab-lab', () => {
+    const panel = document.getElementById('tab-lab');
+    expect(panel.contains(document.getElementById('lab-analytics'))).toBe(true);
+    expect(panel.contains(document.getElementById('lab-gamification'))).toBe(true);
+    expect(panel.contains(document.getElementById('lab-odyssey'))).toBe(true);
+  });
+
+  it('existing tab buttons (Dashboard, Calendar, Search, Backup) are unaffected', () => {
+    const values = Array.from(document.querySelectorAll('[data-tab]')).map(t => t.dataset.tab);
+    expect(values).toContain('dashboard');
+    expect(values).toContain('calendar');
+    expect(values).toContain('search');
+    expect(values).toContain('backup');
+  });
+
+  it('existing tab panels (tab-dashboard, tab-calendar, tab-search, tab-backup) are unaffected', () => {
+    for (const name of ['dashboard', 'calendar', 'search', 'backup']) {
+      expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
+    }
   });
 });
