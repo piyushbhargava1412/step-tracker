@@ -14,6 +14,7 @@
  */
 
 import { _formatReadableDate } from './date-utils.js';
+import { HOME_BASE_CITIES } from './odyssey.js';
 
 export function createSettingsUI(doc, settings, reporter, confirmFn) {
   let controller = null;
@@ -47,6 +48,17 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     dialog.appendChild(_buildHeader());
     dialog.appendChild(_buildBody());
     modal.appendChild(dialog);
+
+    // Pre-select stored home base city
+    try {
+      const storedCity = await settings.getHomeBaseCity();
+      const citySelect = modal.querySelector('#home-base-city-select');
+      if (citySelect && storedCity) {
+        citySelect.value = storedCity.name;
+      }
+    } catch (err) {
+      console.error('[settings-ui]', err);
+    }
 
     // Attach delegated listeners to modal
     modal.addEventListener('click', _handleClick, { signal });
@@ -157,6 +169,46 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     purgeSection.appendChild(actionBtn);
 
     body.appendChild(purgeSection);
+
+    // ── Home Base City section ──
+    const cityDivider = doc.createElement('div');
+    cityDivider.className = 'settings-divider';
+    cityDivider.setAttribute('role', 'separator');
+    body.appendChild(cityDivider);
+
+    const citySection = doc.createElement('fieldset');
+    citySection.className = 'settings-section home-base-city-section';
+
+    const cityLegend = doc.createElement('legend');
+    cityLegend.className = 'settings-section-title';
+    cityLegend.textContent = '🏙️ HOME BASE CITY';
+    citySection.appendChild(cityLegend);
+
+    const cityLabel = doc.createElement('label');
+    cityLabel.className = 'settings-label';
+    cityLabel.setAttribute('for', 'home-base-city-select');
+
+    const cityLabelText = doc.createElement('span');
+    cityLabelText.className = 'settings-label-text';
+    cityLabelText.textContent = 'Starting City for Odyssey:';
+    cityLabel.appendChild(cityLabelText);
+
+    const citySelect = doc.createElement('select');
+    citySelect.id = 'home-base-city-select';
+    citySelect.className = 'settings-city-select';
+    citySelect.dataset.action = 'change-home-base';
+
+    for (const city of HOME_BASE_CITIES) {
+      const option = doc.createElement('option');
+      option.value = city.name;
+      option.textContent = `${city.name}, ${city.country}`;
+      citySelect.appendChild(option);
+    }
+
+    cityLabel.appendChild(citySelect);
+    citySection.appendChild(cityLabel);
+    body.appendChild(citySection);
+
     return body;
   }
 
@@ -213,6 +265,23 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     const toggleTarget = event.target.closest('[data-action="toggle-clear-all"]');
     if (toggleTarget) {
       await _applyHazardMode(toggleTarget.checked);
+      return;
+    }
+
+    // Handle home base city change
+    const cityTarget = event.target.closest('[data-action="change-home-base"]');
+    if (cityTarget) {
+      const selectedName = cityTarget.value;
+      const matchedCity = HOME_BASE_CITIES.find(c => c.name === selectedName);
+      if (matchedCity) {
+        try {
+          await settings.setHomeBaseCity(matchedCity);
+          doc.dispatchEvent(new CustomEvent('data:records:mutated', { bubbles: true, detail: { source: 'home-base-city' } }));
+        } catch (err) {
+          console.error('[settings-ui]', err);
+          reporter.db('❌ Failed to save home base city');
+        }
+      }
       return;
     }
 

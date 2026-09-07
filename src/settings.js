@@ -1,3 +1,7 @@
+import { HOME_BASE_CITIES } from './odyssey.js';
+
+export const HOME_BASE_CITY_KEY = 'home_base_city';
+
 export const SYNC_ANCHOR_KEY = 'sync_anchor_date';
 export const DEFAULT_SYNC_ANCHOR = '2018-01-01';
 
@@ -198,6 +202,44 @@ export function createSettings(db) {
     }
   }
 
+  /**
+   * Read the stored home base city.
+   * Returns HOME_BASE_CITIES[0] (Hyderabad) when the key is absent, the
+   * stored value is not a recognised city, or a read error occurs.
+   *
+   * @returns {Promise<{name: string, country: string, lat: number, lng: number}>}
+   */
+  async function getHomeBaseCity() {
+    try {
+      const row = await db.settings.get(HOME_BASE_CITY_KEY);
+      if (row == null || row.value == null) return HOME_BASE_CITIES[0];
+      const match = HOME_BASE_CITIES.find(c => c.name === row.value.name);
+      return match ?? HOME_BASE_CITIES[0];
+    } catch (err) {
+      console.error('[settings]', err);
+      return HOME_BASE_CITIES[0];
+    }
+  }
+
+  /**
+   * Persist a valid home base city.
+   * Silently returns (no write) when `city` is not one of the known
+   * HOME_BASE_CITIES entries (matched by name). Free-text input is rejected.
+   *
+   * @param {{ name: string, country: string, lat: number, lng: number }} city
+   * @returns {Promise<void>}
+   */
+  async function setHomeBaseCity(city) {
+    if (city == null || typeof city !== 'object') return;
+    const match = HOME_BASE_CITIES.find(c => c.name === city.name);
+    if (!match) return;
+    await db.settings.put({
+      key: HOME_BASE_CITY_KEY,
+      value: match,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
   return {
     getSyncAnchorDate,
     setSyncAnchorDate,
@@ -211,5 +253,7 @@ export function createSettings(db) {
     setLastLocalExport,
     getLastDriveSync,
     setLastDriveSync,
+    getHomeBaseCity,
+    setHomeBaseCity,
   };
 }
