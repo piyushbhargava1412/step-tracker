@@ -29,6 +29,9 @@ export const CHUNK_DAYS = 30;
 /** Duration in ms for a calendar bucket (passed to Google Fit bucketByTime). */
 export const BUCKET_MS = 86_400_000;
 
+/** Duration in ms for a 1-hour bucket — used for the second hourly-step pass. */
+export const HOURLY_BUCKET_MS = 3_600_000;
+
 /**
  * Re-fetch this many calendar days before the newest stored record so that
  * late-arriving wearable or Health Connect data is always captured.
@@ -368,6 +371,47 @@ export function _normalizeBuckets(buckets) {
   });
 }
 
+/**
+ * Convert an array of hourly Google Fit bucket objects into a 24-element array
+ * of step counts indexed by UTC hour (0–23).
+ *
+ * Each bucket covers exactly one hour. Multiple `intVal` point values in the
+ * same bucket are summed. Hours with no bucket default to 0 (zero-padded — no
+ * sparse holes). Buckets with a non-finite or missing timestamp are skipped.
+ *
+ * @param {Array<object>|null|undefined} buckets  Raw 1-hour buckets from a
+ *   `dataset:aggregate` response with `bucketByTime.durationMillis = HOURLY_BUCKET_MS`.
+ * @returns {Array<number>|null}  24-element array of step counts (one per UTC
+ *   hour), or `null` when `buckets` is null, undefined, or empty.
+ */
+export function _normalizeHourlyBuckets(buckets) {
+  if (!buckets || buckets.length === 0) return null;
+
+  const hourly = new Array(24).fill(0);
+
+  for (const bucket of buckets) {
+    const millis =
+      bucket.startTimeMillis != null
+        ? Number(bucket.startTimeMillis)
+        : Number(bucket.startTimeNanos) / 1_000_000;
+
+    if (!isFinite(millis)) continue;
+
+    const hour = new Date(millis).getUTCHours();
+
+    // Locate the step dataset by dataSourceId substring or fall back to index 0.
+    const stepDataset =
+      bucket.dataset?.find((ds) => ds.dataSourceId?.includes('step_count.delta')) ??
+      bucket.dataset?.[0];
+
+    const points = stepDataset?.point ?? [];
+    const sum = points.reduce((acc, pt) => acc + (pt.value?.[0]?.intVal ?? 0), 0);
+    hourly[hour] += sum;
+  }
+
+  return hourly;
+}
+
 // ── Chunk fetch ───────────────────────────────────────────────────────────────
 
 /**
@@ -603,10 +647,12 @@ export async function _upsertChunk(db, records) {
       if (row.is_overridden === true) {
         // Present and overridden → update original_* only; carry effective_*
         // and the override object through unchanged.
+        // hourly_steps is always refreshed — it is not part of the override contract.
         return {
           ...row,
           original_steps: record.original_steps,
           original_distance_km: record.original_distance_km,
+          hourly_steps: record.hourly_steps ?? null,
           synced_at,
         };
       }
@@ -614,6 +660,7 @@ export async function _upsertChunk(db, records) {
       // Present and not overridden → original_* always reflects the raw cloud
       // truth; effective_* is high-water-marked so a lowered/scrubbed response
       // never takes away steps (or distance) the user has already seen.
+      // hourly_steps is always refreshed from the incoming record.
       return {
         ...row,
         original_steps: record.original_steps,
@@ -623,6 +670,7 @@ export async function _upsertChunk(db, records) {
           row.effective_distance_km,
           record.effective_distance_km
         ),
+        hourly_steps: record.hourly_steps ?? null,
         synced_at,
       };
     });
@@ -828,8 +876,58 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
 
         const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
         const records = _normalizeBuckets(raw.bucket ?? []);
-        await _upsertChunk(db, records);
-        persistedDays += records.length;
+
+        // ── Second sequential fetch: 1-hour step buckets (non-fatal) ──────────
+        // Emit progress before the second call so the user sees it during the wait.
+        reporter.status?.('⏳ Fetching hourly step data…');
+
+        /** Date-keyed map of raw hourly buckets; null when the call failed. */
+        let hourlyByDate = {};
+        try {
+          const hourlyResp = await fetch(STEP_API_URL, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${auth.getAccessToken()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              aggregateBy: [{ dataTypeName: STEP_DATA_TYPE }],
+              bucketByTime: { durationMillis: HOURLY_BUCKET_MS },
+              startTimeMillis: _localMidnight(chunk.startMs).getTime(),
+              endTimeMillis: _localMidnight(chunk.endMs).getTime(),
+            }),
+          });
+          if (!hourlyResp.ok) {
+            throw new Error(`[steps] hourly fetch non-OK: ${hourlyResp.status}`);
+          }
+          const hourlyData = await hourlyResp.json();
+          // Group the hourly buckets by their local YYYY-MM-DD date so each
+          // daily record can be matched to its own 24-element array.
+          for (const bucket of (hourlyData.bucket ?? [])) {
+            const ms =
+              bucket.startTimeMillis != null
+                ? Number(bucket.startTimeMillis)
+                : Number(bucket.startTimeNanos) / 1_000_000;
+            if (!isFinite(ms)) continue;
+            const date = _formatLocalDate(ms);
+            if (!hourlyByDate[date]) hourlyByDate[date] = [];
+            hourlyByDate[date].push(bucket);
+          }
+        } catch (err) {
+          console.error('[steps] hourly fetch failed', err);
+          hourlyByDate = null;
+        }
+
+        // Attach hourly_steps to every record before the transactional upsert.
+        const recordsWithHourly = records.map((record) => ({
+          ...record,
+          hourly_steps: hourlyByDate
+            ? _normalizeHourlyBuckets(hourlyByDate[record.date] ?? [])
+            : null,
+        }));
+
+        await _upsertChunk(db, recordsWithHourly);
+        persistedDays += recordsWithHourly.length;
       }
 
       // 7. Latch the backfill when a full-history window completed it.
