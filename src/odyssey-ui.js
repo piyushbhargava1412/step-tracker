@@ -47,8 +47,29 @@ export function createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter) {
 
       const progress = odysseyEngine.computeOdysseyProgress(totalDistanceKm);
 
-      const bar = _buildProgressBar(progress);
-      container.replaceChildren(bar);
+      const section = doc.createElement('section');
+      section.className = 'odyssey-section';
+
+      const h2 = doc.createElement('h2');
+      h2.textContent = '🗺️ Virtual Expedition';
+      section.appendChild(h2);
+
+      const distEl = doc.createElement('p');
+      distEl.className = 'odyssey-distance';
+      distEl.textContent = `${Math.round(totalDistanceKm).toLocaleString()} km travelled`;
+      section.appendChild(distEl);
+
+      section.appendChild(_buildProgressBar(progress));
+
+      const activeLabel = progress.activeLeg
+        ? `Next stop: ${progress.activeLeg.destination} — ${Math.round(progress.remainingKm).toLocaleString()} km remaining`
+        : 'All destinations unlocked!';
+      const legInfo = doc.createElement('p');
+      legInfo.className = 'odyssey-leg-info';
+      legInfo.textContent = activeLabel;
+      section.appendChild(legInfo);
+
+      container.replaceChildren(section);
     } catch (err) {
       console.error('[odyssey-ui]', err);
       reporter.db('⚠️ Could not render Odyssey');

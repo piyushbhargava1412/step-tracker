@@ -74,11 +74,18 @@ export function createGamificationUI(doc, engine, reporter) {
 
     try {
       const result = await engine.compute();
-      const nodes = [
-        _buildLevelCard(result),
-        _buildTrophyGrid(result.achievements),
-      ];
-      container.replaceChildren(...nodes);
+
+      const section = doc.createElement('section');
+      section.className = 'gamification-section';
+
+      const h2 = doc.createElement('h2');
+      h2.textContent = '⚔️ RPG Progress';
+      section.appendChild(h2);
+
+      section.appendChild(_buildLevelCard(result));
+      section.appendChild(_buildTrophyGrid(result.achievements));
+
+      container.replaceChildren(section);
     } catch (err) {
       console.error('[gamification-ui]', err);
       reporter.db('⚠️ Could not render Gamification');

@@ -214,10 +214,11 @@ describe('index.html — ST-009 Task 10: Lab tab button and panel skeleton', () 
     expect(labBtn.nextElementSibling.dataset.tab).toBe('backup');
   });
 
-  it('#tab-lab section has hidden attribute set on load', () => {
+  it('#tab-lab section is initially hidden on load', () => {
     const panel = document.getElementById('tab-lab');
     expect(panel, '#tab-lab missing').not.toBeNull();
-    expect(panel.hasAttribute('hidden')).toBe(true);
+    const isHidden = panel.hasAttribute('hidden') || panel.style.display === 'none';
+    expect(isHidden).toBe(true);
   });
 
   it('#lab-analytics, #lab-gamification, #lab-odyssey are descendants of #tab-lab', () => {

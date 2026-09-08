@@ -113,24 +113,32 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
     h2.textContent = '🏆 Hall of Fame';
     section.appendChild(h2);
 
-    const dl = doc.createElement('dl');
-    dl.className = 'hof-grid';
+    const grid = doc.createElement('div');
+    grid.className = 'hof-grid';
     const tiles = [
-      { label: 'Total Steps', value: String(metrics.totalSteps) },
-      { label: 'Total Distance (km)', value: Number(metrics.totalDistanceKm).toFixed(2) },
-      { label: 'Daily Average', value: String(Math.round(metrics.dailyAverage)) },
-      { label: 'Longest Streak (days)', value: String(metrics.longestStreak) },
+      { label: 'Total Steps', value: Math.round(metrics.totalSteps).toLocaleString() },
+      { label: 'Distance (km)', value: Math.round(metrics.totalDistanceKm).toLocaleString() },
+      { label: 'Daily Average', value: Math.round(metrics.dailyAverage).toLocaleString() },
+      { label: 'Longest Streak', value: `${metrics.longestStreak} days` },
     ];
 
     for (const tile of tiles) {
-      const dt = doc.createElement('dt');
-      dt.textContent = tile.label;
-      const dd = doc.createElement('dd');
-      dd.textContent = tile.value;
-      dl.append(dt, dd);
+      const tileEl = doc.createElement('div');
+      tileEl.className = 'hof-tile';
+
+      const labelEl = doc.createElement('span');
+      labelEl.className = 'hof-tile__label';
+      labelEl.textContent = tile.label;
+
+      const valueEl = doc.createElement('span');
+      valueEl.className = 'hof-tile__value';
+      valueEl.textContent = tile.value;
+
+      tileEl.append(labelEl, valueEl);
+      grid.appendChild(tileEl);
     }
 
-    section.appendChild(dl);
+    section.appendChild(grid);
     return section;
   }
 
@@ -302,27 +310,29 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
    * @returns {HTMLElement}
    */
   function _buildBarChart(values, labels, unit) {
+    const MAX_BAR_HEIGHT_PX = 90;
     const chart = doc.createElement('div');
     chart.className = BAR_CHART_CLASS;
 
     const maxValue = Math.max(...values, MIN_BAR_SAFE_DENOMINATOR);
 
     for (let i = 0; i < values.length; i++) {
+      const col = doc.createElement('div');
+      col.className = 'bar-chart__col';
+
       const bar = doc.createElement('div');
       bar.className = BAR_CLASS;
-      const pct = ((values[i] / maxValue) * 100).toFixed(1);
-      bar.style.width = `${pct}%`;
+      const heightPx = Math.max(2, Math.round((values[i] / maxValue) * MAX_BAR_HEIGHT_PX));
+      bar.style.height = `${heightPx}px`;
       bar.setAttribute('aria-label', `${labels[i]}: ${values[i]} ${unit}`);
+      col.appendChild(bar);
 
       const labelEl = doc.createElement('span');
+      labelEl.className = 'bar-chart__label';
       labelEl.textContent = labels[i];
+      col.appendChild(labelEl);
 
-      const valueEl = doc.createElement('span');
-      valueEl.textContent = String(Math.round(values[i]));
-
-      bar.appendChild(labelEl);
-      bar.appendChild(valueEl);
-      chart.appendChild(bar);
+      chart.appendChild(col);
     }
 
     return chart;

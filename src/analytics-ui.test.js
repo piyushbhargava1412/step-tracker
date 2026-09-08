@@ -113,7 +113,7 @@ describe('createAnalyticsUI', () => {
 
   // ── Happy path: Hall of Fame ──────────────────────────────────────────────
 
-  it('render() populates Hall of Fame <dl> tiles via textContent with correct lifetime metric values', async () => {
+  it('render() populates Hall of Fame tiles with correct lifetime metric values', async () => {
     const result = makeEngineResult(RECORDS);
     const engine = makeEngine(result);
     const ui = createAnalyticsUI(doc, engine, reporter);
@@ -121,16 +121,12 @@ describe('createAnalyticsUI', () => {
     await ui.render();
 
     const panel = doc.getElementById('tab-lab');
-    const dts = [...panel.querySelectorAll('dt')];
-    const dds = [...panel.querySelectorAll('dd')];
+    const tiles = [...panel.querySelectorAll('.hof-tile')];
+    expect(tiles.length).toBeGreaterThan(0);
 
-    expect(dts.length).toBeGreaterThan(0);
-    expect(dds.length).toBeGreaterThan(0);
-
-    // At least one dd should contain the totalSteps value
-    const allText = dds.map(dd => dd.textContent).join('|');
-    expect(allText).toContain(String(result.lifetimeMetrics.totalSteps));
-    expect(allText).toContain(String(result.lifetimeMetrics.longestStreak));
+    const allValues = tiles.map(t => t.querySelector('.hof-tile__value')?.textContent ?? '').join('|');
+    expect(allValues).toContain(Math.round(result.lifetimeMetrics.totalSteps).toLocaleString());
+    expect(allValues).toContain(`${result.lifetimeMetrics.longestStreak} days`);
   });
 
   // ── Happy path: Top-5 table ───────────────────────────────────────────────
@@ -416,8 +412,9 @@ describe('createAnalyticsUI', () => {
     await ui.render();
 
     const panel = doc.getElementById('lab-analytics');
-    const dl = panel.querySelector('dl.hof-grid');
-    expect(dl).not.toBeNull();
+    const grid = panel.querySelector('.hof-grid');
+    expect(grid).not.toBeNull();
+    expect(grid.querySelectorAll('.hof-tile').length).toBe(4);
   });
 
   // ── Task 14: _buildTop5Table panel param removed — existing table tests still pass ──

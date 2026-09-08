@@ -481,6 +481,23 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   } catch (err) {
     console.error('[main] challengeUI.render failed, continuing', err)
   }
+
+  // 16. Render Lab tab panels on page load (fail-open)
+  try {
+    await analyticsUI.render()
+  } catch (err) {
+    console.error('[main] analyticsUI.render failed, continuing', err)
+  }
+  try {
+    await gamificationUI.render()
+  } catch (err) {
+    console.error('[main] gamificationUI.render failed, continuing', err)
+  }
+  try {
+    await odysseyUI.render()
+  } catch (err) {
+    console.error('[main] odysseyUI.render failed, continuing', err)
+  }
 }
 
 // Register the bootstrap listener when running as the real app entry point.

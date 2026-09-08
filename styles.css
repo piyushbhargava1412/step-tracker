@@ -21,6 +21,9 @@
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --modal-overlay-bg: rgba(0, 0, 0, 0.6);
     --modal-shadow: rgba(0, 0, 0, 0.5);
+    --accent-sky-subtle: rgba(56, 189, 248, 0.06);
+    --accent-sky-faint: rgba(56, 189, 248, 0.07);
+    --shadow-card: rgba(0, 0, 0, 0.3);
 }
 
 body {
@@ -85,7 +88,7 @@ button {
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--bg-card-border);
     border-radius: 20px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 var(--shadow-card);
     padding: 16px 24px;
     display: flex;
     align-items: center;
@@ -413,7 +416,7 @@ button {
     border: 1px solid var(--bg-card-border);
     border-radius: 20px;
     padding: 20px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 var(--shadow-card);
 }
 
 .card-title {
@@ -503,7 +506,7 @@ button {
     border: 1px solid var(--bg-card-border);
     border-radius: 12px;
     padding: 20px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 var(--shadow-card);
 }
 
 .streak-number {
@@ -686,7 +689,7 @@ button {
     border: 1px solid var(--bg-card-border);
     border-radius: 12px;
     padding: 20px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px 0 var(--shadow-card);
     font-family: var(--font-mono);
     color: var(--text-muted);
 }
@@ -2150,45 +2153,201 @@ button {
 }
 
 
-/* ── Lab panel — Search Lab, Hall of Fame, Odyssey, Trophies, RPG ───────────── */
+/* ── Lab panel — Analytics, Gamification, Odyssey ────────────────────────── */
 
-/* Hall of Fame metric tile grid */
+/* Lab panel container */
+#tab-lab {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Analytics sub-containers */
+#lab-analytics,
+#lab-gamification,
+#lab-odyssey {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Card shell shared by all Lab sections */
+.analytics-hall-of-fame,
+.analytics-top5,
+.analytics-weekday,
+.analytics-hourly,
+.analytics-yearly,
+.gamification-section,
+.odyssey-section {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 32px 0 var(--shadow-card);
+}
+
+/* Section headings inside Lab cards */
+.analytics-hall-of-fame h2,
+.analytics-top5 h2,
+.analytics-weekday h2,
+.analytics-hourly h2,
+.analytics-yearly h2,
+.gamification-section h2,
+.odyssey-section h2 {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+/* Hall of Fame tile grid */
 .hof-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: 10px;
 }
 
-/* Pure CSS bar chart */
+.hof-tile {
+    background: var(--accent-sky-subtle);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.hof-tile__label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+}
+
+.hof-tile__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent-sky);
+    line-height: 1;
+}
+
+/* Top days table */
+.analytics-top5 table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.analytics-top5 th {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 0 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--bg-card-border);
+}
+
+.analytics-top5 td {
+    padding: 9px 8px;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--accent-sky-faint);
+}
+
+.analytics-top5 tr:last-child td {
+    border-bottom: none;
+}
+
+/* Weekday / hourly context text */
+.analytics-weekday > p,
+.analytics-hourly > p,
+.analytics-yearly > p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+/* Year selector */
+.analytics-yearly select {
+    background: var(--bg-card-solid);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 4px 10px;
+    font-size: 0.85rem;
+    margin-bottom: 14px;
+    cursor: pointer;
+}
+
+/* Vertical bar chart */
 .bar-chart {
     display: flex;
     align-items: flex-end;
-    gap: 4px;
-    height: 120px;
+    gap: 3px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.bar-chart__col {
+    flex: 1;
+    min-width: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
 }
 
 .bar-chart__bar {
-    flex: 0 0 auto;
+    width: 100%;
     background: var(--accent-sky);
-    transition: none;
+    border-radius: 3px 3px 0 0;
     min-height: 2px;
-    /* width set via inline style by the renderer */
+    /* height set inline in px by renderer */
 }
 
 .bar-chart__label {
-    font-size: 0.7rem;
+    font-size: 0.58rem;
     color: var(--text-muted);
     text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Odyssey section */
+.odyssey-distance {
+    font-size: 0.85rem;
+    color: var(--accent-sky);
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.odyssey-leg-info {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 10px;
 }
 
 /* Odyssey milestone progression bar */
 .odyssey-bar {
     display: flex;
     width: 100%;
-    height: 16px;
-    border-radius: 8px;
+    height: 14px;
+    border-radius: 7px;
     overflow: hidden;
     background: var(--bg-card-solid);
+    gap: 2px;
+}
+
+.odyssey-leg {
+    overflow: hidden;
 }
 
 .odyssey-leg[data-state="unlocked"] {
@@ -2201,6 +2360,51 @@ button {
 
 .odyssey-leg[data-state="locked"] {
     background: var(--bg-card-border);
+    flex: 1;
+}
+
+/* Gamification section */
+.gamification-section h2 {
+    margin-bottom: 14px;
+}
+
+/* RPG level card */
+.rpg-level-card {
+    background: var(--accent-sky-subtle);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+}
+
+.rpg-level-card p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+}
+
+.rpg-level-card h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent-sky);
+    text-transform: none;
+    letter-spacing: 0;
+    margin-bottom: 6px;
+}
+
+.rpg-progress-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-card-border);
+    margin-top: 10px;
+}
+
+.rpg-progress-bar__fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent-sky);
 }
 
 /* Trophy case grid */
@@ -2211,37 +2415,35 @@ button {
 }
 
 .trophy-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--accent-sky-subtle);
     border: 1px solid var(--bg-card-border);
     border-radius: 12px;
     padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.trophy-card span {
+    font-size: 1.6rem;
+    line-height: 1;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.trophy-card h3 {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.trophy-card p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.4;
 }
 
 .trophy-card--locked {
-    opacity: 0.45;
+    opacity: 0.4;
     filter: grayscale(1);
-}
-
-/* RPG level card */
-.rpg-level-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--bg-card-border);
-    border-radius: 12px;
-    padding: 16px;
-}
-
-.rpg-progress-bar {
-    height: 8px;
-    border-radius: 4px;
-    background: var(--bg-card-border);
-}
-
-.rpg-progress-bar__fill {
-    height: 100%;
-    border-radius: 4px;
-    background: var(--accent-sky);
 }
