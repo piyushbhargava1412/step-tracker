@@ -50,8 +50,8 @@ describe('DB constants', () => {
   it('DB_NAME equals StepTrackerDB', () => {
     expect(DB_NAME).toBe('StepTrackerDB');
   });
-  it('DB_VERSION equals 5', () => {
-    expect(DB_VERSION).toBe(5);
+  it('DB_VERSION equals 6', () => {
+    expect(DB_VERSION).toBe(6);
   });
 });
 
@@ -345,9 +345,9 @@ describe('initDB() - edge case', () => {
 // ─── Task 18: Dexie v4 migration ─────────────────────────────────────────────
 
 describe('DB constants — v4', () => {
-  it('DB_VERSION equals 5 (bumped from 4 to accommodate v5 migration)', () => {
-    // DB_VERSION was bumped to 5 in ST-015 Task 1; this block retained for v4 chain coverage
-    expect(DB_VERSION).toBe(5);
+  it('DB_VERSION equals 6 (bumped from 5 to accommodate v6 migration)', () => {
+    // DB_VERSION was bumped to 6 in ST-009 Task 1; this block retained for v4 chain coverage
+    expect(DB_VERSION).toBe(6);
   });
 });
 
@@ -474,8 +474,8 @@ describe('createDb() — v4 upgrade handler (atomic transaction)', () => {
 // ─── Task 1 (ST-015): v5 migration — seed sync_anchor_date ───────────────────
 
 describe('DB constants — v5', () => {
-  it('DB_VERSION equals 5', () => {
-    expect(DB_VERSION).toBe(5);
+  it('DB_VERSION equals 6 (bumped from 5)', () => {
+    expect(DB_VERSION).toBe(6);
   });
 });
 
@@ -582,5 +582,122 @@ describe('createDb() — v5 upgrade handler (sync_anchor_date seeding)', () => {
     const putFn = vi.fn().mockRejectedValue(new Error('put failed'));
     const tx = { table: () => ({ get: getFn, put: putFn }) };
     await expect(handler(tx)).resolves.toBeUndefined();
+  });
+});
+
+// ─── Task 1 (ST-009): v6 migration — backfill hourly_steps: null ─────────────
+
+describe('DB constants — v6', () => {
+  it('DB_VERSION exported constant equals 6', () => {
+    expect(DB_VERSION).toBe(6);
+  });
+});
+
+describe('createDb() — v6 version chain', () => {
+  it('calls version(6) in addition to v2, v3, v4, and v5', async () => {
+    const db = createDb();
+    const calls = db.version.mock.calls.map(([v]) => v);
+    expect(calls).toContain(6);
+  });
+
+  it('v6 registers an upgrade function', async () => {
+    const db = createDb();
+    // version() calls: v2=0, v3=1, v4=2, v5=3, v6=4
+    const v6Upgrade = db.version.mock.results[4].value.upgrade;
+    expect(v6Upgrade).toHaveBeenCalled();
+    expect(typeof v6Upgrade.mock.calls[0][0]).toBe('function');
+  });
+
+  it('v6 DAILY_RECORDS_STORES is byte-identical to v5 (no new indexed field)', async () => {
+    const db = createDb();
+    const v5Arg = db.version.mock.results[3].value.stores.mock.calls[0][0].daily_records;
+    const v6Arg = db.version.mock.results[4].value.stores.mock.calls[0][0].daily_records;
+    expect(v6Arg).toBe(v5Arg);
+  });
+});
+
+describe('createDb() — v6 upgrade handler (hourly_steps backfill)', () => {
+  function getV6Handler(db) {
+    return db.version.mock.results[4].value.upgrade.mock.calls[0][0];
+  }
+
+  function makeModifyTx(rows) {
+    const modifyFn = vi.fn().mockImplementation(async (cb) => {
+      rows.forEach((row) => cb(row));
+    });
+    const tx = { table: () => ({ toCollection: () => ({ modify: modifyFn }) }) };
+    return { tx, modifyFn };
+  }
+
+  it('sets hourly_steps: null on a row that had the field absent (undefined)', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const row = { date: '2024-01-01', effective_steps: 8000, effective_distance_km: 6.1, is_overridden: false };
+    const { tx } = makeModifyTx([row]);
+    await handler(tx);
+    expect(row.hourly_steps).toBeNull();
+  });
+
+  it('does not overwrite a row that already has hourly_steps populated', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const row = { date: '2024-01-02', effective_steps: 5000, hourly_steps: [100, 200, 300] };
+    const { tx } = makeModifyTx([row]);
+    await handler(tx);
+    expect(row.hourly_steps).toEqual([100, 200, 300]);
+  });
+
+  it('does not overwrite a row that already has hourly_steps set to null', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const row = { date: '2024-01-03', effective_steps: 3000, hourly_steps: null };
+    const { tx } = makeModifyTx([row]);
+    await handler(tx);
+    expect(row.hourly_steps).toBeNull();
+    // Verify the field was not re-assigned (still null but unchanged)
+    expect(Object.prototype.hasOwnProperty.call(row, 'hourly_steps')).toBe(true);
+  });
+
+  it('leaves effective_steps, effective_distance_km, and is_overridden untouched after migration', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const row = {
+      date: '2024-01-04',
+      effective_steps: 9500,
+      effective_distance_km: 7.2,
+      is_overridden: true,
+    };
+    const snapshot = { ...row };
+    const { tx } = makeModifyTx([row]);
+    await handler(tx);
+    expect(row.effective_steps).toBe(snapshot.effective_steps);
+    expect(row.effective_distance_km).toBe(snapshot.effective_distance_km);
+    expect(row.is_overridden).toBe(snapshot.is_overridden);
+  });
+
+  it('catches internal Dexie error; emits console.error("[db]", err); does not propagate', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('modify failed');
+    const tx = {
+      table: () => ({
+        toCollection: () => ({
+          modify: vi.fn().mockRejectedValue(error),
+        }),
+      }),
+    };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
+  });
+
+  it('catches table() throwing synchronously; emits console.error("[db]", err); does not propagate', async () => {
+    const db = createDb();
+    const handler = getV6Handler(db);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('table error');
+    const tx = { table: () => { throw error; } };
+    await expect(handler(tx)).resolves.toBeUndefined();
+    expect(spy).toHaveBeenCalledWith('[db]', error);
   });
 });

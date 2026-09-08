@@ -43,9 +43,10 @@
         <div class="tab-links">
             <button class="tab-btn active" data-tab="dashboard">🏠 Dashboard</button>
             <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
-            <button class="tab-btn" data-tab="search">🔍 Lab</button>
-            <button class="tab-btn" data-tab="spatial">🗺️ Map</button>
+            <button class="tab-btn" data-tab="search">🔍 Search</button>
+            <button class="tab-btn" data-tab="lab">🧪 Lab</button>
             <button class="tab-btn" data-tab="backup">💾 Backup</button>
+            <button class="tab-btn" data-tab="spatial">🗺️ Map</button>
         </div>
         <div class="active-lens" id="active-lens">
             <span class="active-lens-label">Active Lens:</span>
@@ -64,7 +65,11 @@
             <aside id="day-drawer" role="dialog" aria-modal="true" aria-labelledby="day-drawer-title" hidden></aside>
         </div>
         <div id="tab-search" style="display:none"></div>
-        <div id="tab-spatial" style="display:none"></div>
+        <section id="tab-lab" class="tab-panel" style="display:none">
+            <div id="lab-analytics"></div>
+            <div id="lab-gamification"></div>
+            <div id="lab-odyssey"></div>
+        </section>
         <div id="tab-backup" style="display:none">
             <h2 class="backup-restore-heading">💾 Backup &amp; Restore</h2>
             <div id="storage-health-controls"></div>
@@ -73,6 +78,7 @@
                 <div id="cloud-controls"></div>
             </div>
         </div>
+        <div id="tab-spatial" style="display:none"></div>
     </main>
 
 

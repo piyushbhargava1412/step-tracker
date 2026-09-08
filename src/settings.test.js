@@ -8,6 +8,7 @@ import {
   LAST_LOCAL_EXPORT_KEY,
   LAST_DRIVE_SYNC_KEY,
 } from './settings.js';
+import { HOME_BASE_CITIES } from './odyssey.js';
 
 describe('constants', () => {
   it('exports SYNC_ANCHOR_KEY = sync_anchor_date', () => {
@@ -512,5 +513,104 @@ describe('wipeDatabase', () => {
   it('re-throws when setSyncAnchorDate fails (db.settings.put throws)', async () => {
     db.settings.put.mockRejectedValue(new Error('put failed'));
     await expect(settings.wipeDatabase()).rejects.toThrow('put failed');
+  });
+});
+
+// ── Task 9: getHomeBaseCity / setHomeBaseCity ─────────────────────────────────
+
+describe('getHomeBaseCity', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = {
+      settings: { get: vi.fn(), put: vi.fn(), delete: vi.fn() },
+      daily_records: { clear: vi.fn().mockResolvedValue(undefined) },
+    };
+    settings = createSettings(db);
+  });
+
+  it('returns HOME_BASE_CITIES[0] (Hyderabad) when home_base_city key is absent', async () => {
+    db.settings.get.mockResolvedValue(undefined);
+    const result = await settings.getHomeBaseCity();
+    expect(result).toEqual(HOME_BASE_CITIES[0]);
+    expect(result.name).toBe('Hyderabad');
+  });
+
+  it('returns the stored city object when the key exists', async () => {
+    const london = HOME_BASE_CITIES.find(c => c.name === 'London');
+    db.settings.get.mockResolvedValue({ key: 'home_base_city', value: london });
+    const result = await settings.getHomeBaseCity();
+    expect(result).toEqual(london);
+  });
+
+  it('returns HOME_BASE_CITIES[0] and logs error when db.get throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.settings.get.mockRejectedValue(new Error('DB error'));
+    const result = await settings.getHomeBaseCity();
+    expect(result).toEqual(HOME_BASE_CITIES[0]);
+    expect(consoleError).toHaveBeenCalledWith('[settings]', expect.any(Error));
+    consoleError.mockRestore();
+  });
+
+  it('returns HOME_BASE_CITIES[0] when stored value is not a valid city object', async () => {
+    db.settings.get.mockResolvedValue({ key: 'home_base_city', value: { name: 'Tokyo' } });
+    const result = await settings.getHomeBaseCity();
+    expect(result).toEqual(HOME_BASE_CITIES[0]);
+  });
+});
+
+describe('setHomeBaseCity', () => {
+  let db;
+  let settings;
+
+  beforeEach(() => {
+    db = {
+      settings: { get: vi.fn(), put: vi.fn().mockResolvedValue(undefined), delete: vi.fn() },
+      daily_records: { clear: vi.fn().mockResolvedValue(undefined) },
+    };
+    settings = createSettings(db);
+  });
+
+  it('writes the correct row when given a valid city (London)', async () => {
+    const london = HOME_BASE_CITIES.find(c => c.name === 'London');
+    await settings.setHomeBaseCity(london);
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'home_base_city',
+        value: london,
+        updated_at: expect.any(String),
+      })
+    );
+  });
+
+  it('does not write to Dexie when city name is unrecognised ("Tokyo")', async () => {
+    await settings.setHomeBaseCity({ name: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503 });
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('does not write when city is null', async () => {
+    await settings.setHomeBaseCity(null);
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('does not write when city is a plain string', async () => {
+    await settings.setHomeBaseCity('London');
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('writes Hyderabad (first city) successfully', async () => {
+    const hyderabad = HOME_BASE_CITIES[0];
+    await settings.setHomeBaseCity(hyderabad);
+    expect(db.settings.put).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'home_base_city', value: hyderabad })
+    );
+  });
+
+  it('existing settings keys are not disturbed after extension (regression)', async () => {
+    db.settings.get.mockResolvedValue({ key: SYNC_ANCHOR_KEY, value: '2022-06-15' });
+    const anchorResult = await settings.getSyncAnchorDate();
+    expect(anchorResult).toBe('2022-06-15');
+    expect(db.settings.put).not.toHaveBeenCalled();
   });
 });

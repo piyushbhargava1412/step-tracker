@@ -30,6 +30,7 @@ import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
 import { switchTab } from './tabs.js'
+import { createProofLightbox } from './override-form.js'
 import {
   refreshStorageProtectionBadge,
   requestSilentPersistAndRefreshBadge,
@@ -37,6 +38,12 @@ import {
 } from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
 import { createSwRegister } from './sw-register.js'
+import { createAnalytics } from './analytics.js'
+import { createAnalyticsUI } from './analytics-ui.js'
+import { createGamification } from './gamification.js'
+import { createGamificationUI } from './gamification-ui.js'
+import { createOdysseyUI } from './odyssey-ui.js'
+import { computeOdysseyProgress } from './odyssey.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -115,6 +122,14 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const challengeUI = createChallengeUI(doc, challenge, db, reporter)
   const settings = createSettings(db)
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
+
+  // ST-009: Lab tab — analytics, gamification, odyssey engines + UI factories
+  const proofLightbox = createProofLightbox(doc)
+  const analyticsEngine = createAnalytics(db)
+  const analyticsUI = createAnalyticsUI(doc, analyticsEngine, reporter, proofLightbox)
+  const gamificationEngine = createGamification(db)
+  const gamificationUI = createGamificationUI(doc, gamificationEngine, reporter)
+  const odysseyUI = createOdysseyUI(doc, { computeOdysseyProgress }, analyticsEngine, reporter)
 
   // Redefine the #db-status badge to account for Drive Cloud Auto-Sync state
   // now that settings is available (fail-open — a read error leaves whatever
@@ -269,6 +284,21 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     } catch (err) {
       console.error('[main] challengeUI.render failed after sync, continuing', err)
     }
+    try {
+      await analyticsUI.render()
+    } catch (err) {
+      console.error('[main] analyticsUI.render failed, continuing', err)
+    }
+    try {
+      await gamificationUI.render()
+    } catch (err) {
+      console.error('[main] gamificationUI.render failed, continuing', err)
+    }
+    try {
+      await odysseyUI.render()
+    } catch (err) {
+      console.error('[main] odysseyUI.render failed, continuing', err)
+    }
   }
 
   // 7b. Auto-sync the moment a token arrives — from the first connect click or
@@ -348,6 +378,21 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       await challengeUI.render()
     } catch (err) {
       console.error('[main] challengeUI.render failed after mutation, continuing', err)
+    }
+    try {
+      await analyticsUI.render()
+    } catch (err) {
+      console.error('[main] analyticsUI.render failed, continuing', err)
+    }
+    try {
+      await gamificationUI.render()
+    } catch (err) {
+      console.error('[main] gamificationUI.render failed, continuing', err)
+    }
+    try {
+      await odysseyUI.render()
+    } catch (err) {
+      console.error('[main] odysseyUI.render failed, continuing', err)
     }
     try {
       await searchUI.render()
@@ -435,6 +480,23 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     await challengeUI.render()
   } catch (err) {
     console.error('[main] challengeUI.render failed, continuing', err)
+  }
+
+  // 16. Render Lab tab panels on page load (fail-open)
+  try {
+    await analyticsUI.render()
+  } catch (err) {
+    console.error('[main] analyticsUI.render failed, continuing', err)
+  }
+  try {
+    await gamificationUI.render()
+  } catch (err) {
+    console.error('[main] gamificationUI.render failed, continuing', err)
+  }
+  try {
+    await odysseyUI.render()
+  } catch (err) {
+    console.error('[main] odysseyUI.render failed, continuing', err)
   }
 }
 

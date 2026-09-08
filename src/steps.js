@@ -29,6 +29,9 @@ export const CHUNK_DAYS = 30;
 /** Duration in ms for a calendar bucket (passed to Google Fit bucketByTime). */
 export const BUCKET_MS = 86_400_000;
 
+/** Duration in ms for a 1-hour bucket — used for the second hourly-step pass. */
+export const HOURLY_BUCKET_MS = 3_600_000;
+
 /**
  * Re-fetch this many calendar days before the newest stored record so that
  * late-arriving wearable or Health Connect data is always captured.
@@ -368,6 +371,47 @@ export function _normalizeBuckets(buckets) {
   });
 }
 
+/**
+ * Convert an array of hourly Google Fit bucket objects into a 24-element array
+ * of step counts indexed by UTC hour (0–23).
+ *
+ * Each bucket covers exactly one hour. Multiple `intVal` point values in the
+ * same bucket are summed. Hours with no bucket default to 0 (zero-padded — no
+ * sparse holes). Buckets with a non-finite or missing timestamp are skipped.
+ *
+ * @param {Array<object>|null|undefined} buckets  Raw 1-hour buckets from a
+ *   `dataset:aggregate` response with `bucketByTime.durationMillis = HOURLY_BUCKET_MS`.
+ * @returns {Array<number>|null}  24-element array of step counts (one per UTC
+ *   hour), or `null` when `buckets` is null, undefined, or empty.
+ */
+export function _normalizeHourlyBuckets(buckets) {
+  if (!buckets || buckets.length === 0) return null;
+
+  const hourly = new Array(24).fill(0);
+
+  for (const bucket of buckets) {
+    const millis =
+      bucket.startTimeMillis != null
+        ? Number(bucket.startTimeMillis)
+        : Number(bucket.startTimeNanos) / 1_000_000;
+
+    if (!isFinite(millis)) continue;
+
+    const hour = new Date(millis).getUTCHours();
+
+    // Locate the step dataset by dataSourceId substring or fall back to index 0.
+    const stepDataset =
+      bucket.dataset?.find((ds) => ds.dataSourceId?.includes('step_count.delta')) ??
+      bucket.dataset?.[0];
+
+    const points = stepDataset?.point ?? [];
+    const sum = points.reduce((acc, pt) => acc + (pt.value?.[0]?.intVal ?? 0), 0);
+    hourly[hour] += sum;
+  }
+
+  return hourly;
+}
+
 // ── Chunk fetch ───────────────────────────────────────────────────────────────
 
 /**
@@ -603,10 +647,12 @@ export async function _upsertChunk(db, records) {
       if (row.is_overridden === true) {
         // Present and overridden → update original_* only; carry effective_*
         // and the override object through unchanged.
+        // hourly_steps is always refreshed — it is not part of the override contract.
         return {
           ...row,
           original_steps: record.original_steps,
           original_distance_km: record.original_distance_km,
+          hourly_steps: record.hourly_steps ?? null,
           synced_at,
         };
       }
@@ -614,6 +660,7 @@ export async function _upsertChunk(db, records) {
       // Present and not overridden → original_* always reflects the raw cloud
       // truth; effective_* is high-water-marked so a lowered/scrubbed response
       // never takes away steps (or distance) the user has already seen.
+      // hourly_steps is always refreshed from the incoming record.
       return {
         ...row,
         original_steps: record.original_steps,
@@ -623,6 +670,7 @@ export async function _upsertChunk(db, records) {
           row.effective_distance_km,
           record.effective_distance_km
         ),
+        hourly_steps: record.hourly_steps ?? null,
         synced_at,
       };
     });
@@ -737,9 +785,11 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
   *                             defaulted collaborator rather than reaching for a
   *                             global directly.
   * @param {object|null} driveSync  - ST-012 Drive sync gateway (createDriveSync).
-  *                             When null, the post-sync silent upload is skipped.
+  *                             When null, the post-sync silent upload AND the
+  *                             pre-sync empty-local-DB restore are both skipped.
   * @param {object|null} backup     - ST-012 backup engine (createBackup).
-  *                             When null, the post-sync silent upload is skipped.
+  *                             When null, the post-sync silent upload AND the
+  *                             pre-sync empty-local-DB restore are both skipped.
   * @param {object|null} driveBackupPrefs  - Collaborator exposing
   *                             getDriveBackupEnabled() and optionally
   *                             setLastDriveSync(). When null (legacy call
@@ -761,10 +811,11 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
    * Synchronise Google Fit step data into the local Dexie database.
    *
    * Orchestration (decision 12a / 13 / 14 / 16): pre-flight token guard, a
-   * silent closure-scoped re-entrancy guard, the button busy state, window
-   * resolution, a strictly sequential per-chunk fetch→normalize→upsert loop,
-   * the backfill latch, a decision-12a success message, and a `finally` that
-   * restores the button and clears the guard without touching `#sync-status`.
+   * silent closure-scoped re-entrancy guard, the button busy state, an
+   * empty-local-DB Drive restore recovery, window resolution, a strictly
+   * sequential per-chunk fetch→normalize→upsert loop, the backfill latch, a
+   * decision-12a success message, and a `finally` that restores the button
+   * and clears the guard without touching `#sync-status`.
    *
    * The `catch` implements the full decision-12a error contract: every
    * terminal failure writes its exact emoji-prefixed message via
@@ -799,6 +850,33 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
     let lastChunk = null;
 
     try {
+      // 3a. First-run-on-this-device recovery: an empty local `daily_records`
+      // table (e.g. a fresh browser profile or localhost signing into an
+      // account that already has cloud history) is otherwise indistinguishable
+      // from a brand-new user and would trigger the multi-minute
+      // PHASE_FULL_HISTORY backfill from 2013 even though a Drive backup
+      // already holds that history. Restore it first so step 4's
+      // `_determineSyncWindows` sees the repopulated `daily_records`/`settings`
+      // rows and resolves a normal incremental window instead. Fail-open: any
+      // failure here (no token, no backup file, a network error, or a
+      // validator rejection on a tampered payload) is logged under the
+      // `[drive-sync]` tag and falls through to the unmodified Fit sync below
+      // — this recovery step must never block or fail the sync.
+      if (driveSync && backup) {
+        try {
+          const localCount = await db.daily_records.count();
+          if (localCount === 0) {
+            const envelope = await driveSync.pull();
+            if (envelope) {
+              await backup.restoreBackup(envelope);
+              reporter.sync('☁️ Restored your existing data from Google Drive — syncing latest steps…');
+            }
+          }
+        } catch (err) {
+          console.error('[drive-sync]', err);
+        }
+      }
+
       // 4. Resolve the windows from persisted state (full/incremental).
       const windows = await _determineSyncWindows(db);
       const backfillRan = windows.some((w) => w.phase === PHASE_FULL_HISTORY);
@@ -826,10 +904,65 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
         const index = i + 1;
         lastChunk = { index, total };
 
-        const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
+        // ── Parallel fetch: daily aggregate + 1-hour step buckets ──────────────
+        // Emit progress before issuing both calls so the status is visible during
+        // the wait. The hourly call is non-fatal: its promise uses .catch() to
+        // return null on any failure, so a transient error never aborts the sync.
+        reporter.status?.('⏳ Fetching hourly step data…');
+
+        const [raw, hourlyData] = await Promise.all([
+          _fetchChunk(auth, reporter, chunk, index, total, chunk.phase),
+          fetch(STEP_API_URL, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${auth.getAccessToken()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              aggregateBy: [{ dataTypeName: STEP_DATA_TYPE }],
+              bucketByTime: { durationMillis: HOURLY_BUCKET_MS },
+              startTimeMillis: _localMidnight(chunk.startMs).getTime(),
+              endTimeMillis: _localMidnight(chunk.endMs).getTime(),
+            }),
+          }).then(async (resp) => {
+            if (!resp.ok) throw new Error(`[steps] hourly fetch non-OK: ${resp.status}`);
+            return resp.json();
+          }).catch((err) => {
+            console.error('[steps] hourly fetch failed', err);
+            return null;
+          }),
+        ]);
+
         const records = _normalizeBuckets(raw.bucket ?? []);
-        await _upsertChunk(db, records);
-        persistedDays += records.length;
+
+        /** Date-keyed map of raw hourly buckets; null when the call failed. */
+        let hourlyByDate = null;
+        if (hourlyData !== null) {
+          hourlyByDate = {};
+          // Group the hourly buckets by their local YYYY-MM-DD date so each
+          // daily record can be matched to its own 24-element array.
+          for (const bucket of (hourlyData.bucket ?? [])) {
+            const ms =
+              bucket.startTimeMillis != null
+                ? Number(bucket.startTimeMillis)
+                : Number(bucket.startTimeNanos) / 1_000_000;
+            if (!isFinite(ms)) continue;
+            const date = _formatLocalDate(ms);
+            if (!hourlyByDate[date]) hourlyByDate[date] = [];
+            hourlyByDate[date].push(bucket);
+          }
+        }
+
+        // Attach hourly_steps to every record before the transactional upsert.
+        const recordsWithHourly = records.map((record) => ({
+          ...record,
+          hourly_steps: hourlyByDate
+            ? _normalizeHourlyBuckets(hourlyByDate[record.date] ?? [])
+            : null,
+        }));
+
+        await _upsertChunk(db, recordsWithHourly);
+        persistedDays += recordsWithHourly.length;
       }
 
       // 7. Latch the backfill when a full-history window completed it.

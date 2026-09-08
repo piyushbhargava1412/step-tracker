@@ -34,6 +34,9 @@ step aggregates from Google Fit, and computes the current streak client-side wit
 | Design & coding patterns | [design-and-coding-patterns.md](.context/design-and-coding-patterns.md) |
 | Commit convention signal | [repo_map.md#commit-convention](.context/repo_map.md#commit-convention) |
 | Search / filter / export flow | [flows/search-lab-export.md](.context/flows/search-lab-export.md) |
+| Analytics Lab dashboard flow | [flows/analytics-lab-dashboard.md](.context/flows/analytics-lab-dashboard.md) |
+| Gamification levels & trophies flow | [flows/gamification-levels-trophies.md](.context/flows/gamification-levels-trophies.md) |
+| Odyssey virtual expedition flow | [flows/odyssey-virtual-expedition.md](.context/flows/odyssey-virtual-expedition.md) |
 | Settings, sync horizon, data prune / wipe flow | [flows/settings-data-management.md](.context/flows/settings-data-management.md) |
 | Local backup & Google Drive cloud sync flow | [flows/backup-and-cloud-sync.md](.context/flows/backup-and-cloud-sync.md) |
 | Storage Health protection matrix, silent persist gestures & panel | [flows/storage-health.md](.context/flows/storage-health.md) |
@@ -51,6 +54,9 @@ relevant to your current task.**
 - [Today's Progress Card & Goal Commitment](.context/flows/today-progress-goal.md)
 - [Calendar Heatmap Grid and Day Detail Drawer](.context/flows/calendar-heatmap.md)
 - [Search Lab — Filter & Export Daily Records](.context/flows/search-lab-export.md)
+- [Analytics Lab — Hall of Fame, Top Days, Distributions & Yearly Breakdown](.context/flows/analytics-lab-dashboard.md)
+- [Gamification — RPG Level & Trophy Case](.context/flows/gamification-levels-trophies.md)
+- [Odyssey — Virtual Expedition Progression Bar](.context/flows/odyssey-virtual-expedition.md)
 - [Settings — Sync Horizon & Data Management](.context/flows/settings-data-management.md)
 - [Local Backup/Restore & Google Drive Cloud Sync](.context/flows/backup-and-cloud-sync.md)
 - [Storage Health — Protection Matrix, Silent Persist Gestures & Panel](.context/flows/storage-health.md)

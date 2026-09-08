@@ -3,8 +3,8 @@
 > Added: ST-015 — 2026-08-13
 
 <!-- context-meta
-verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
-generated-at: 2026-08-14T00:00:00Z
+verification-commit: bd81d7ee90757c3e1b5555e18cf88f7e3282eddd
+generated-at: 2026-09-08T04:03:55Z
 confidence: medium
 -->
 
@@ -56,8 +56,18 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 7. Close button (`data-action="close-settings"`) or any other dismiss path → `settingsUI.close()`
    hides the modal (sets `hidden`).
 
+### Home Base City (ST-009)
+8. The 🏙️ HOME BASE CITY section (below the Data Purge divider) renders a `<select id="home-base-city-select"
+   data-action="change-home-base">` populated from `src/odyssey.js`'s `HOME_BASE_CITIES` (7 cities, default
+   Hyderabad); on `open()`, `settings.getHomeBaseCity()` pre-selects the stored city (or Hyderabad when unset).
+9. `change` on `[data-action="change-home-base"]` → looks up the matching `HOME_BASE_CITIES` entry by name (a
+   free-text/unmatched value is silently ignored — no write), calls `settings.setHomeBaseCity(matchedCity)` to
+   persist `{ key: 'home_base_city', value: city, updated_at }` in Dexie `settings`, then dispatches
+   `data:records:mutated` (`detail: { source: 'home-base-city' }`) so the Odyssey Lab section re-renders with
+   the (currently unchanged) milestone route — see `.context/flows/odyssey-virtual-expedition.md`.
+
 ## Data Touchpoints
-- **Entities**: `settings.sync_anchor_date` row; all `daily_records` rows (prune/wipe); `settings.initial_backfill_complete` row (wipe only)
+- **Entities**: `settings.sync_anchor_date` row; all `daily_records` rows (prune/wipe); `settings.initial_backfill_complete` row (wipe only); `settings.home_base_city` row (`{ name, country, lat, lng }`, ST-009)
 - **Tables**: `settings` (Dexie) for anchor key; `daily_records` (Dexie) for prune/wipe target
 - **UI Surface**: `#settings-modal` (managed exclusively by `src/settings-ui.js`)
 
@@ -70,7 +80,7 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 - All operations fail-open at the bootstrap render step (`console.error('[main] settingsUI.render failed, continuing', err)`).
 
 ## Scope
-- `src/settings.js` — engine factory `createSettings(db)`
+- `src/settings.js` — engine factory `createSettings(db)` (imports `HOME_BASE_CITIES` from `src/odyssey.js` for city validation, ST-009)
 - `src/settings-ui.js` — DOM-writer factory `createSettingsUI(doc, settings, reporter, confirmFn)`
 - `src/confirm.js` — injectable confirm adapter `createConfirmAdapter(windowRef)`
 - `src/main.js` — composition-root wiring (`#settings-btn` click, bootstrap render)
@@ -78,6 +88,6 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 - `styles.css` — settings modal layout and section styles
 
 ## Tests
-- `src/settings.test.js` — engine: read/write anchor, count records (before-date + all), prune records, wipe database, guard clauses
+- `src/settings.test.js` — engine: read/write anchor, count records (before-date + all), prune records, wipe database, guard clauses; (ST-009) `getHomeBaseCity`/`setHomeBaseCity` — default fallback, unrecognised-city rejection
 - `src/settings-ui.test.js` — DOM-writer: render skeleton, open/close, delegated actions, confirm injection, mutation dispatch, fail-open
 - `src/confirm.test.js` — adapter: delegation, fail-open on absent windowRef

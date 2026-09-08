@@ -616,16 +616,12 @@ describe('computeNearMisses', () => {
     expect(result.days).toHaveLength(0);
   });
 
-  // Structural: no computeWeekdaySlump export and no analytics.js
+  // Structural: no computeWeekdaySlump export from search.js
   it('computeWeekdaySlump is NOT exported from search.js', async () => {
     const mod = await import('./search.js');
     expect(mod.computeWeekdaySlump).toBeUndefined();
   });
-
-  it('src/analytics.js does NOT exist', () => {
-    const fs = require('node:fs');
-    expect(fs.existsSync('src/analytics.js')).toBe(false);
-  });
+  // Note: analytics.js now exists (created in Task 3); the old guard was removed.
 
   // NEAR_MISS_BAND_PCT is exported
   it('NEAR_MISS_BAND_PCT is exported and equals 10', async () => {
