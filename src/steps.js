@@ -874,17 +874,15 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
         const index = i + 1;
         lastChunk = { index, total };
 
-        const raw = await _fetchChunk(auth, reporter, chunk, index, total, chunk.phase);
-        const records = _normalizeBuckets(raw.bucket ?? []);
-
-        // ── Second sequential fetch: 1-hour step buckets (non-fatal) ──────────
-        // Emit progress before the second call so the user sees it during the wait.
+        // ── Parallel fetch: daily aggregate + 1-hour step buckets ──────────────
+        // Emit progress before issuing both calls so the status is visible during
+        // the wait. The hourly call is non-fatal: its promise uses .catch() to
+        // return null on any failure, so a transient error never aborts the sync.
         reporter.status?.('⏳ Fetching hourly step data…');
 
-        /** Date-keyed map of raw hourly buckets; null when the call failed. */
-        let hourlyByDate = {};
-        try {
-          const hourlyResp = await fetch(STEP_API_URL, {
+        const [raw, hourlyData] = await Promise.all([
+          _fetchChunk(auth, reporter, chunk, index, total, chunk.phase),
+          fetch(STEP_API_URL, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${auth.getAccessToken()}`,
@@ -896,11 +894,21 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
               startTimeMillis: _localMidnight(chunk.startMs).getTime(),
               endTimeMillis: _localMidnight(chunk.endMs).getTime(),
             }),
-          });
-          if (!hourlyResp.ok) {
-            throw new Error(`[steps] hourly fetch non-OK: ${hourlyResp.status}`);
-          }
-          const hourlyData = await hourlyResp.json();
+          }).then(async (resp) => {
+            if (!resp.ok) throw new Error(`[steps] hourly fetch non-OK: ${resp.status}`);
+            return resp.json();
+          }).catch((err) => {
+            console.error('[steps] hourly fetch failed', err);
+            return null;
+          }),
+        ]);
+
+        const records = _normalizeBuckets(raw.bucket ?? []);
+
+        /** Date-keyed map of raw hourly buckets; null when the call failed. */
+        let hourlyByDate = null;
+        if (hourlyData !== null) {
+          hourlyByDate = {};
           // Group the hourly buckets by their local YYYY-MM-DD date so each
           // daily record can be matched to its own 24-element array.
           for (const bucket of (hourlyData.bucket ?? [])) {
@@ -913,9 +921,6 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
             if (!hourlyByDate[date]) hourlyByDate[date] = [];
             hourlyByDate[date].push(bucket);
           }
-        } catch (err) {
-          console.error('[steps] hourly fetch failed', err);
-          hourlyByDate = null;
         }
 
         // Attach hourly_steps to every record before the transactional upsert.

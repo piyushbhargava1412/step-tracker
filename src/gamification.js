@@ -204,9 +204,8 @@ function _evaluateMarathoner(records) {
  */
 function _evaluateUnstoppable(records, activeStepGoal) {
   if (!Array.isArray(records) || records.length === 0) return false;
-  // Use the latest date in records as the evaluation anchor
-  const sorted = [...records].sort(_BY_DATE_ASC);
-  const today = sorted[sorted.length - 1].date;
+  // records is pre-sorted ascending by evaluateAchievements — last entry is the latest date.
+  const today = records[records.length - 1].date;
   const streaks = computeToleranceStreaks(records, activeStepGoal, today);
   return streaks.actual >= UNSTOPPABLE_STREAK_DAYS;
 }
@@ -222,11 +221,10 @@ function _evaluateUnstoppable(records, activeStepGoal) {
  */
 function _evaluateNightOwl(records) {
   if (!Array.isArray(records) || records.length < 2) return false;
-  const sorted = [...records].sort(_BY_DATE_ASC);
-
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const rN = sorted[i];
-    const rNext = sorted[i + 1];
+  // records is pre-sorted ascending by evaluateAchievements.
+  for (let i = 0; i < records.length - 1; i++) {
+    const rN = records[i];
+    const rNext = records[i + 1];
     const hN = rN.hourly_steps;
     const hNext = rNext.hourly_steps;
     if (!Array.isArray(hN) || hN.length !== 24) continue;
@@ -252,11 +250,14 @@ export function evaluateAchievements(records, activeStepGoal) {
   if (!Array.isArray(records) || records.length === 0) {
     return { centurion: false, marathoner: false, unstoppable: false, nightOwl: false };
   }
+  // Sort once here; pass the sorted array to sub-evaluators that need date order,
+  // so neither _evaluateUnstoppable nor _evaluateNightOwl has to sort again.
+  const sorted = [...records].sort(_BY_DATE_ASC);
   return {
-    centurion: _evaluateCenturion(records),
-    marathoner: _evaluateMarathoner(records),
-    unstoppable: _evaluateUnstoppable(records, activeStepGoal),
-    nightOwl: _evaluateNightOwl(records),
+    centurion: _evaluateCenturion(sorted),
+    marathoner: _evaluateMarathoner(sorted),
+    unstoppable: _evaluateUnstoppable(sorted, activeStepGoal),
+    nightOwl: _evaluateNightOwl(sorted),
   };
 }
 

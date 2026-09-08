@@ -2013,9 +2013,9 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const fetchCalls = fetchMock.mock.calls.length;
     const messageCount = reporter.sync.mock.calls.length;
 
-    // The first run must genuinely be in flight — one fetch issued, hanging,
-    // with no status line written yet.
-    expect(fetchCalls).toBe(1);
+    // The first run must genuinely be in flight — two fetches issued (daily +
+    // hourly, parallel), both hanging on the gate, no status line written yet.
+    expect(fetchCalls).toBe(2);
     expect(messageCount).toBe(0);
 
     await engine.sync();
@@ -2202,7 +2202,10 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const engine = createStepSync(auth, db, reporter, document);
     await engine.sync();
 
-    expect(maxActive).toBe(1);
+    // Daily and hourly fetches for the same chunk run in parallel (maxActive = 2).
+    // Fetches for different chunks never overlap — chunk N+1 starts only after
+    // chunk N's upsert completes, so the max concurrent is bounded to 2 (one chunk).
+    expect(maxActive).toBe(2);
   });
 
   // ── Success message variants (decision 12a) ───────────────────────────────
@@ -2452,11 +2455,13 @@ describe('Task 10: sync() error contract — every terminal path and the finally
             json: { bucket: [makeBucket(new Date(2025, 4, 17).getTime())] },
           })
         )
-        // chunk 1 hourly — succeeds (non-fatal path)
+        // chunk 1 hourly — fires in parallel with daily (non-fatal)
         .mockResolvedValueOnce(makeResponse(200, { json: { bucket: [] } }))
-        // chunk 2 daily attempt 1 → 429
+        // chunk 2 daily attempt 1 → 429 (fires in parallel with chunk 2 hourly)
         .mockResolvedValueOnce(makeResponse(429))
-        // chunk 2 daily attempt 2 (retry) → 429
+        // chunk 2 hourly — fires in parallel with daily attempt 1 (non-fatal; consumed here)
+        .mockResolvedValueOnce(makeResponse(200, { json: { bucket: [] } }))
+        // chunk 2 daily attempt 2 (retry after backoff) → 429 → retry-exhausted
         .mockResolvedValueOnce(makeResponse(429))
     );
 
@@ -2608,9 +2613,9 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(syncBtn().disabled).toBe(false);
 
     await engine.sync();
-    // sync #1: 1 call (daily network error → terminates before hourly).
-    // sync #2: 2 calls (daily success + hourly success) → 3 total.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // sync #1: 2 calls (daily network error + hourly fired in parallel).
+    // sync #2: 2 calls (daily success + hourly success) → 4 total.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(lastSyncMessage()).toMatch(/^✅/);
     expect(syncBtn().disabled).toBe(false);
     expect(syncBtn().textContent).toBe('Sync Steps');
@@ -3573,5 +3578,91 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
     // All daily chunks should have been fetched despite hourly failures.
     expect(dailyFetches).toBeGreaterThan(1);
     expect(lastSyncMessageFor(reporter)).toMatch(/^✅/);
+  });
+});
+
+describe('Task 16: parallel daily + hourly fetches in sync()', () => {
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+  let auth, db, reporter;
+
+  /** Minimal ok fetch response carrying an empty bucket list. */
+  function emptyOk() {
+    return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
+    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    db = makeStatefulDb({
+      seed: [seedRow('2013-01-01'), seedRow('2025-06-12')],
+      flag: { key: BACKFILL_COMPLETE_KEY, value: true },
+    });
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('fires daily and hourly fetches in parallel — hourly is fired while daily is still pending', async () => {
+    const fired = [];
+    let resolveDaily;
+
+    vi.stubGlobal('fetch', vi.fn((_url, init) => {
+      const body = JSON.parse(init.body);
+      const isHourly = body.bucketByTime.durationMillis === HOURLY_BUCKET_MS;
+      if (isHourly) {
+        fired.push('hourly');
+        return Promise.resolve(emptyOk());
+      }
+      fired.push('daily');
+      return new Promise((resolve) => {
+        resolveDaily = () => resolve(emptyOk());
+      });
+    }));
+
+    const engine = createStepSync(auth, db, reporter, document);
+    const syncP = engine.sync();
+
+    // Flush microtasks until both fetches are in flight, or bail after 30 ticks
+    for (let i = 0; i < 30; i++) {
+      await Promise.resolve();
+      if (fired.includes('daily') && fired.includes('hourly')) break;
+    }
+
+    // With parallel execution hourly fires while daily is still pending.
+    // With sequential (current) code, hourly never fires until daily resolves.
+    expect(fired).toContain('daily');
+    expect(fired).toContain('hourly');
+
+    resolveDaily?.();
+    await syncP;
+  });
+
+  it('hourly failure during parallel fetch still sets hourly_steps: null and sync completes with ✅', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      const isHourly = body.bucketByTime.durationMillis === HOURLY_BUCKET_MS;
+      if (isHourly) {
+        return { ok: false, status: 503, headers: { get: vi.fn().mockReturnValue(null) }, json: async () => ({}) };
+      }
+      return emptyOk();
+    }));
+
+    const engine = createStepSync(auth, db, reporter, document);
+    await engine.sync();
+
+    const lastMsg = reporter.sync.mock.calls
+      .map((c) => c[0])
+      .filter(Boolean)
+      .at(-1);
+    expect(lastMsg).toMatch(/^✅/);
+    expect(console.error).toHaveBeenCalledWith('[steps] hourly fetch failed', expect.any(Error));
   });
 });

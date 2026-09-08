@@ -436,3 +436,51 @@ describe('gamification.js — no DOM or Dexie imports', () => {
     expect(src).not.toMatch(/import\s+.*\bwindow\b/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 16: Pre-sort once in evaluateAchievements (ST-009 performance fix)
+//
+// These tests verify that sub-evaluators work correctly when records are
+// delivered in non-chronological order. With the pre-sort refactoring,
+// evaluateAchievements sorts once and passes the sorted array to each
+// sub-evaluator instead of each sub-evaluator sorting independently.
+// ---------------------------------------------------------------------------
+describe('evaluateAchievements — pre-sort once (Task 16)', () => {
+  it('NightOwl unlocks when qualifying consecutive pair is passed in reverse date order', () => {
+    // h1[23]=1000, h2[0+1+2]=600+300+101 = 1001 → sum = 2001 > 2000 → unlock
+    // Records deliberately passed newest-first; pre-sort must reorder them.
+    const h1 = makeHourly({ 23: 1000 });
+    const h2 = makeHourly({ 0: 600, 1: 300, 2: 101 });
+    const records = [
+      makeRecord('2026-01-02', 5000, h2), // later date first (reverse order)
+      makeRecord('2026-01-01', 5000, h1),
+    ];
+    const { nightOwl } = evaluateAchievements(records, 8000);
+    expect(nightOwl).toBe(true);
+  });
+
+  it('NightOwl stays locked when records in reverse order do not qualify', () => {
+    // sum = 500 ≤ 2000 → locked regardless of order
+    const h1 = makeHourly({ 23: 100 });
+    const h2 = makeHourly({ 0: 200, 1: 100, 2: 100 });
+    const records = [
+      makeRecord('2026-01-02', 5000, h2),
+      makeRecord('2026-01-01', 5000, h1),
+    ];
+    const { nightOwl } = evaluateAchievements(records, 8000);
+    expect(nightOwl).toBe(false);
+  });
+
+  it('Unstoppable unlocks when 30-day streak records are passed in reverse date order', () => {
+    const recs = [];
+    const d = new Date('2026-01-01T00:00:00Z');
+    for (let i = 0; i < 30; i++) {
+      recs.push(makeRecord(d.toISOString().slice(0, 10), 8000));
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    // Reverse so earliest date is last
+    recs.reverse();
+    const { unstoppable } = evaluateAchievements(recs, 8000);
+    expect(unstoppable).toBe(true);
+  });
+});
