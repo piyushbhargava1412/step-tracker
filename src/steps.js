@@ -785,9 +785,11 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
   *                             defaulted collaborator rather than reaching for a
   *                             global directly.
   * @param {object|null} driveSync  - ST-012 Drive sync gateway (createDriveSync).
-  *                             When null, the post-sync silent upload is skipped.
+  *                             When null, the post-sync silent upload AND the
+  *                             pre-sync empty-local-DB restore are both skipped.
   * @param {object|null} backup     - ST-012 backup engine (createBackup).
-  *                             When null, the post-sync silent upload is skipped.
+  *                             When null, the post-sync silent upload AND the
+  *                             pre-sync empty-local-DB restore are both skipped.
   * @param {object|null} driveBackupPrefs  - Collaborator exposing
   *                             getDriveBackupEnabled() and optionally
   *                             setLastDriveSync(). When null (legacy call
@@ -809,10 +811,11 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
    * Synchronise Google Fit step data into the local Dexie database.
    *
    * Orchestration (decision 12a / 13 / 14 / 16): pre-flight token guard, a
-   * silent closure-scoped re-entrancy guard, the button busy state, window
-   * resolution, a strictly sequential per-chunk fetch→normalize→upsert loop,
-   * the backfill latch, a decision-12a success message, and a `finally` that
-   * restores the button and clears the guard without touching `#sync-status`.
+   * silent closure-scoped re-entrancy guard, the button busy state, an
+   * empty-local-DB Drive restore recovery, window resolution, a strictly
+   * sequential per-chunk fetch→normalize→upsert loop, the backfill latch, a
+   * decision-12a success message, and a `finally` that restores the button
+   * and clears the guard without touching `#sync-status`.
    *
    * The `catch` implements the full decision-12a error contract: every
    * terminal failure writes its exact emoji-prefixed message via
@@ -847,6 +850,33 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
     let lastChunk = null;
 
     try {
+      // 3a. First-run-on-this-device recovery: an empty local `daily_records`
+      // table (e.g. a fresh browser profile or localhost signing into an
+      // account that already has cloud history) is otherwise indistinguishable
+      // from a brand-new user and would trigger the multi-minute
+      // PHASE_FULL_HISTORY backfill from 2013 even though a Drive backup
+      // already holds that history. Restore it first so step 4's
+      // `_determineSyncWindows` sees the repopulated `daily_records`/`settings`
+      // rows and resolves a normal incremental window instead. Fail-open: any
+      // failure here (no token, no backup file, a network error, or a
+      // validator rejection on a tampered payload) is logged under the
+      // `[drive-sync]` tag and falls through to the unmodified Fit sync below
+      // — this recovery step must never block or fail the sync.
+      if (driveSync && backup) {
+        try {
+          const localCount = await db.daily_records.count();
+          if (localCount === 0) {
+            const envelope = await driveSync.pull();
+            if (envelope) {
+              await backup.restoreBackup(envelope);
+              reporter.sync('☁️ Restored your existing data from Google Drive — syncing latest steps…');
+            }
+          }
+        } catch (err) {
+          console.error('[drive-sync]', err);
+        }
+      }
+
       // 4. Resolve the windows from persisted state (full/incremental).
       const windows = await _determineSyncWindows(db);
       const backfillRan = windows.some((w) => w.phase === PHASE_FULL_HISTORY);

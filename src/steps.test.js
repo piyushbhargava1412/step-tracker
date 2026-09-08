@@ -2970,6 +2970,220 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
   });
 });
 
+// ── Pre-sync Drive restore recovery: empty local DB on this device ───────────
+//
+// Bug: a fresh browser profile / localhost signing into a Google account that
+// already has cloud step history looked identical to a brand-new user and
+// triggered the multi-minute PHASE_FULL_HISTORY backfill from 2013, even
+// though a Drive AppData backup already held that history. `sync()` now
+// checks `db.daily_records.count()` before resolving the sync windows: an
+// empty local table with driveSync/backup collaborators injected triggers a
+// `driveSync.pull()` → `backup.restoreBackup()` recovery step first, so
+// `_determineSyncWindows` (step 4) sees the repopulated rows and a normal
+// incremental sync runs instead.
+
+describe('Pre-sync Drive restore recovery (empty local DB on this device)', () => {
+  let auth, db, reporter, doc;
+  let driveSync, backup;
+
+  const TODAY = new Date(2025, 5, 19); // 2025-06-19
+
+  function stubFetch() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ bucket: [] }),
+      })
+    );
+  }
+
+  /** Minimal Dexie double that actually mutates state, for the one real-restoreBackup integration test. */
+  function makeRestorableDb() {
+    const dailyRows = new Map();
+    const settingsRows = new Map();
+    const sortAsc = () => [...dailyRows.values()].sort((a, b) => a.date.localeCompare(b.date));
+    return {
+      daily_records: {
+        count: vi.fn(async () => dailyRows.size),
+        toArray: vi.fn(async () => sortAsc()),
+        orderBy: vi.fn(() => ({
+          first: vi.fn(async () => sortAsc()[0]),
+          last: vi.fn(async () => sortAsc()[sortAsc().length - 1]),
+        })),
+        bulkGet: vi.fn(async (dates) => dates.map((d) => dailyRows.get(d))),
+        bulkPut: vi.fn(async (records) => {
+          for (const r of records) dailyRows.set(r.date, r);
+        }),
+      },
+      settings: {
+        get: vi.fn(async (key) => settingsRows.get(key)),
+        put: vi.fn(async (row) => settingsRows.set(row.key, row)),
+        bulkPut: vi.fn(async (rows) => {
+          for (const r of rows) settingsRows.set(r.key, r);
+        }),
+        toArray: vi.fn(async () => [...settingsRows.values()]),
+      },
+      // Real Dexie signature is (mode, ...tables, callback) — grab the last
+      // arg regardless of how many tables are listed.
+      transaction: vi.fn(async (...args) => args[args.length - 1]()),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
+    reporter = { sync: vi.fn(), db: vi.fn(), auth: vi.fn() };
+    doc = { getElementById: vi.fn().mockReturnValue(null) };
+    driveSync = { pull: vi.fn().mockResolvedValue(null), push: vi.fn().mockResolvedValue(undefined) };
+    backup = {
+      restoreBackup: vi.fn().mockResolvedValue(undefined),
+      buildBackup: vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] }),
+      markPushed: vi.fn().mockResolvedValue(undefined),
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('empty local DB + a Drive backup exists → restores it before the Fit fetch loop runs', async () => {
+    db = makeStatefulDb({ seed: [], syncAnchor: '2025-06-15' });
+    const envelope = { schema_version: 1, daily_records: [{ date: '2025-06-10' }], settings: [] };
+    const callOrder = [];
+    driveSync.pull = vi.fn(async () => {
+      callOrder.push('pull');
+      return envelope;
+    });
+    backup.restoreBackup = vi.fn(async () => {
+      callOrder.push('restore');
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        callOrder.push('fit-fetch');
+        return { ok: true, json: () => Promise.resolve({ bucket: [] }) };
+      })
+    );
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    expect(driveSync.pull).toHaveBeenCalledTimes(1);
+    expect(backup.restoreBackup).toHaveBeenCalledWith(envelope);
+    expect(callOrder.indexOf('restore')).toBeLessThan(callOrder.indexOf('fit-fetch'));
+    const messages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(messages.some((m) => m.startsWith('☁️ Restored'))).toBe(true);
+  });
+
+  it('empty local DB but no Drive backup exists (pull resolves null) → restoreBackup is skipped and the normal first-time full-history sync proceeds unchanged', async () => {
+    db = makeStatefulDb({ seed: [] });
+    stubFetch();
+    driveSync.pull = vi.fn().mockResolvedValue(null);
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    expect(driveSync.pull).toHaveBeenCalledTimes(1);
+    expect(backup.restoreBackup).not.toHaveBeenCalled();
+    const messages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(messages.some((m) => /full history/i.test(m))).toBe(true);
+    expect(messages.some((m) => m.startsWith('☁️ Restored'))).toBe(false);
+  });
+
+  it('local DB already has data → driveSync.pull() is never consulted', async () => {
+    db = makeStatefulDb({
+      seed: [{ date: '2025-06-15' }],
+      flag: { key: 'initial_backfill_complete', value: true },
+    });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    expect(driveSync.pull).not.toHaveBeenCalled();
+    expect(backup.restoreBackup).not.toHaveBeenCalled();
+  });
+
+  it('driveSync.pull() rejects → the failure is logged under [drive-sync] and the normal sync still succeeds', async () => {
+    db = makeStatefulDb({ seed: [] });
+    stubFetch();
+    driveSync.pull = vi.fn().mockRejectedValue(new Error('Drive pull failed'));
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(Error));
+    expect(backup.restoreBackup).not.toHaveBeenCalled();
+    const messages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(messages.some((m) => m.startsWith('✅'))).toBe(true);
+  });
+
+  it('backup.restoreBackup() rejects (e.g. a tampered/invalid envelope) → the failure is logged under [drive-sync] and the normal sync still succeeds', async () => {
+    db = makeStatefulDb({ seed: [] });
+    stubFetch();
+    driveSync.pull = vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] });
+    backup.restoreBackup = vi.fn().mockRejectedValue(new TypeError('invalid envelope'));
+
+    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    await engine.sync();
+
+    expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(TypeError));
+    const messages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(messages.some((m) => m.startsWith('✅'))).toBe(true);
+    expect(messages.some((m) => m.startsWith('☁️ Restored'))).toBe(false);
+  });
+
+  it('driveSync/backup collaborators are not provided (legacy call site) → the empty-DB check never runs, db.daily_records.count() is never called', async () => {
+    db = makeStatefulDb({ seed: [] });
+    stubFetch();
+
+    const engine = createStepSync(auth, db, reporter, doc);
+    await engine.sync();
+
+    expect(db.daily_records.count).not.toHaveBeenCalled();
+  });
+
+  it('integration (real backup.restoreBackup): restoring an empty local DB from a genuine Drive envelope makes the same sync run incremental instead of re-triggering the full-history backfill', async () => {
+    const realDb = makeRestorableDb();
+    stubFetch();
+    const realBackup = createBackup(realDb);
+    const remoteEnvelope = {
+      schema_version: 1,
+      exported_at: '2025-06-18T00:00:00.000Z',
+      daily_records: [
+        {
+          date: '2025-06-17',
+          original_steps: 5000,
+          original_distance_km: 3.8,
+          effective_steps: 5000,
+          effective_distance_km: 3.8,
+          is_overridden: false,
+          override: null,
+          synced_at: '2025-06-18T00:00:00.000Z',
+        },
+      ],
+      settings: [{ key: 'initial_backfill_complete', value: true }],
+    };
+    driveSync.pull = vi.fn().mockResolvedValue(remoteEnvelope);
+
+    const engine = createStepSync(auth, realDb, reporter, doc, driveSync, realBackup);
+    await engine.sync();
+
+    // The restored row actually landed in Dexie via the real restoreBackup transaction.
+    expect(await realDb.daily_records.count()).toBeGreaterThan(0);
+    // The sync completed as an incremental run — no full-history announcement,
+    // proving _determineSyncWindows saw the restored rows/latch before running.
+    const messages = reporter.sync.mock.calls.map(([m]) => m);
+    expect(messages.some((m) => /full history/i.test(m))).toBe(false);
+    expect(messages.some((m) => m.startsWith('✅'))).toBe(true);
+  });
+});
+
 // ── Task 27: post-sync Drive auto-upload opt-out (drive_backup_enabled) ───────
 
 describe('Task 27: post-sync Drive auto-upload opt-out', () => {

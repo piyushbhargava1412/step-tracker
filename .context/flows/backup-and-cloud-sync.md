@@ -3,8 +3,8 @@
 > Added: ST-012 — 2026-08-14
 
 <!-- context-meta
-verification-commit: 74fa46903f2fe0d51e91869ea7a846be7edfadcf
-generated-at: 2026-08-14T13:00:00Z
+verification-commit: b0b76fe7f832d3e86d65723913fef3c9812bca09
+generated-at: 2026-09-08T09:58:00Z
 confidence: medium
 -->
 
@@ -16,8 +16,12 @@ the Dexie database (`src/backup.js` engine + `src/backup-ui.js` renderer), and s
 "📄 Local JSON Files" on the left, "☁️ Google Drive Cloud Sync" on the right, stacking to one column
 below 1024px — with each column's destructive restore action paired with an amber
 "⚠️ Overwrites local database" guardrail badge. A background hook in the step-sync engine also fires
-an automatic, silent post-sync push to Drive (opt-out via a persisted toggle). Google Drive access
-requires the `drive.appdata` OAuth scope, added to the token request in `src/auth.js`.
+an automatic, silent post-sync push to Drive (opt-out via a persisted toggle), and a second hook in
+that same engine consumes `driveSync.pull()` / `backup.restoreBackup()` on the opposite end: when a
+sync starts against an empty local `daily_records` table, it restores the account's existing Drive
+backup first (see `.context/flows/historical-step-sync.md`, step 2) so a fresh browser profile/device
+never misreads an already-active Google account as brand new. Google Drive access requires the
+`drive.appdata` OAuth scope, added to the token request in `src/auth.js`.
 
 ## Entry Points
 - **Type**: UI Event (browser) — manual local backup
@@ -29,7 +33,9 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
   - `#tab-backup` → `[data-action="toggle-drive-backup"]` change → `settings.setDriveBackupEnabled(checked)`
 - **Type**: App lifecycle (browser) — automatic background push
   - After every `stepSync.sync()` completes successfully, `src/steps.js` fires a fire-and-forget push to Drive (see Core Path below)
-- **File**: `src/backup.js`, `src/backup-ui.js` (local backup), `src/backup-format.js` (metadata-line formatting), `src/drive-sync.js`, `src/drive-sync-ui.js` (cloud sync), `src/steps.js` (post-sync push hook), `src/settings.js` (opt-out preference + last-export/last-sync metadata), `src/auth.js` (Drive OAuth scope), `src/main.js` (wiring), `index.html` (`#tab-backup`, `#backup-controls`, `#cloud-controls`)
+- **Type**: App lifecycle (browser) — automatic empty-local-DB restore
+  - At the start of every `stepSync.sync()` call, `src/steps.js` checks `db.daily_records.count()`; a `0` count pulls and restores the account's Drive backup before the Fit fetch loop runs (see Core Path below and `.context/flows/historical-step-sync.md`, step 2)
+- **File**: `src/backup.js`, `src/backup-ui.js` (local backup), `src/backup-format.js` (metadata-line formatting), `src/drive-sync.js`, `src/drive-sync-ui.js` (cloud sync), `src/steps.js` (post-sync push hook + pre-sync empty-DB restore hook), `src/settings.js` (opt-out preference + last-export/last-sync metadata), `src/auth.js` (Drive OAuth scope), `src/main.js` (wiring), `index.html` (`#tab-backup`, `#backup-controls`, `#cloud-controls`)
 
 ## Core Path
 
@@ -115,9 +121,28 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
     `https://www.googleapis.com/auth/drive.appdata` (in addition to the two Fitness scopes) so the
     single Google sign-in grants both step-data read and Drive AppData read/write access.
 
+### Automatic Pre-Sync Restore (empty local DB recovery)
+11. Before any of the above, `src/steps.js`'s `sync()` calls `db.daily_records.count()` at the very
+    start of the run. A `0` count with `driveSync`/`backup` both injected — a fresh browser profile or
+    the local dev server (`localhost:1981`) signing into a Google account that already has cloud
+    history — calls `driveSync.pull()`, and a truthy envelope is written back via
+    `backup.restoreBackup(envelope)` (the same validated, atomic-transaction path used by the manual
+    "🔄 Restore from Drive" button). Because the envelope's `settings` rows include the
+    `initial_backfill_complete` latch, the very next step (`_determineSyncWindows`) then treats the
+    account as already backfilled and runs a normal incremental sync instead of the multi-minute
+    full-history fetch back to 2013 — see `.context/flows/historical-step-sync.md` (step 2) for the
+    window-resolution detail. Fully fail-open and symmetric with the Task 28 push hook: a non-empty
+    local DB skips the check entirely (no `pull()` call), a `null`/`undefined` `pull()` result (no
+    Drive backup exists yet) skips the restore, and a rejected `pull()` or `restoreBackup()` (e.g. a
+    validator `TypeError` on a corrupted/tampered payload) is logged via
+    `console.error('[drive-sync]', err)` and falls straight through to the normal Fit sync — this step
+    never blocks, never throws out of `sync()`, and only ever writes the informational
+    `☁️ Restored your existing data from Google Drive — syncing latest steps…` line via
+    `reporter.sync()` on an actual restore.
+
 ## Data Touchpoints
 - **Entities**: Full `daily_records` + `settings` Dexie tables, serialised verbatim into the backup envelope (no field reduction); the `settings.drive_backup_enabled`, `settings.last_local_export_at`, and `settings.last_drive_sync` rows.
-- **Tables**: `daily_records`, `settings` (Dexie) — read for `buildBackup`/push, written (via `bulkPut` in one `'rw'` transaction) for `restoreBackup`.
+- **Tables**: `daily_records`, `settings` (Dexie) — read for `buildBackup`/push, written (via `bulkPut` in one `'rw'` transaction) for `restoreBackup` (both the manual restore button and the automatic pre-sync empty-DB recovery share this same write path).
 - **Remote**: One JSON file (`step_tracker_backup.json`) in the authenticated user's Google Drive `appDataFolder` (hidden, app-private storage — not visible in the user's regular Drive UI).
 - **UI Surface**: `#tab-backup` (`.backup-grid` → `#backup-controls`, `#cloud-controls`) — errors/status surfaced via `reporter.sync()` / `reporter.db()` / `reporter.auth()`.
 
@@ -131,6 +156,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `find()` / `pull()`: swallow all errors, resolving `null` (fail-open) rather than rejecting — except a `pull()` payload that fails the injected validator, which rejects as `TypeError` before any restore write.
 - Local `restoreBackup`: `_validateEnvelope` throws `TypeError` fail-fast (no Dexie write) on any structural/type violation, including reserved prototype-pollution keys (`__proto__`, `constructor`, `prototype`) on any row.
 - Background post-sync push: fully silent — logged only, never rethrown, never touches `#sync-status`.
+- Automatic pre-sync empty-DB restore: also fully fail-open — a rejected `pull()`/`restoreBackup()` is logged only (`console.error('[drive-sync]', err)`) and never fail-stops the Fit sync that follows.
 - Toggle write failure: checkbox is reverted to its prior state so the UI never claims a preference that failed to persist.
 
 ## Scope
@@ -140,7 +166,7 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/drive-sync.js` — Drive v3 AppData gateway (`createDriveSync({ getAccessToken, reporter, fetchFn, validator })`; exports `DRIVE_APPDATA_FILE_NAME`, `DRIVE_API_BASE_URL`, `DRIVE_PUSH_SKIPPED`)
 - `src/drive-sync-ui.js` — cloud sync panel renderer (`createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator)`)
 - `src/settings.js` — `drive_backup_enabled` preference (`getDriveBackupEnabled`, `setDriveBackupEnabled`, `DRIVE_BACKUP_ENABLED_KEY`, `DEFAULT_DRIVE_BACKUP_ENABLED`) plus last-export/last-sync metadata (`getLastLocalExport`, `setLastLocalExport`, `getLastDriveSync`, `setLastDriveSync`, `LAST_LOCAL_EXPORT_KEY`, `LAST_DRIVE_SYNC_KEY`)
-- `src/steps.js` — post-sync fire-and-forget push hook (every sync + coalescing), injected `driveSync`/`backup`/`settings` collaborators
+- `src/steps.js` — post-sync fire-and-forget push hook (every sync + coalescing) **and** the pre-sync empty-local-DB restore recovery hook, both driven by the same injected `driveSync`/`backup`/`settings` collaborators
 - `src/auth.js` — `drive.appdata` OAuth scope
 - `src/main.js` — composition-root wiring (panel mounts, confirm adapters)
 - `index.html` — `#tab-backup`, `.backup-grid`, `#backup-controls`, `#cloud-controls`
@@ -152,10 +178,11 @@ requires the `drive.appdata` OAuth scope, added to the token request in `src/aut
 - `src/drive-sync.test.js` — `find`/`push`/`pull` DI isolation (injected `fetchFn`), no-token paths, multipart boundary collision handling, stale-cache 404 retry, silent-mode reporter suppression, validator rejection path.
 - `src/drive-sync-ui.test.js` — render, backup-now/restore-from-cloud handlers, `DRIVE_PUSH_SKIPPED` vs. success reporting, last-sync metadata line + persistence, auto-backup toggle read/write/revert-on-failure, ST-013 toggle-triggered silent persist + badge refresh + `data:storage-health:refresh` dispatch (and the failed-write path where neither fires), manual-backup-success `data:storage-health:refresh` dispatch.
 - `src/settings.test.js` — `getLastLocalExport`/`setLastLocalExport`, `getLastDriveSync`/`setLastDriveSync` round-trip, fail-open reads, guard-clause writes.
-- `src/steps.test.js` — post-sync push gating (opt-out, metadata refresh, in-flight coalescing).
+- `src/steps.test.js` — post-sync push gating (opt-out, metadata refresh, in-flight coalescing) and the pre-sync empty-local-DB restore recovery (pull/restoreBackup call ordering ahead of the Fit fetch loop, all fail-open error paths, the non-empty-DB skip guard, the legacy-call-site no-collaborator skip, and an end-to-end integration test using the real `createBackup` proving a restored account resolves an incremental window rather than a full-history backfill).
 - `src/main.test.js` — `backupUI`/`driveSyncUI` wiring with the confirm adapter and `settings` collaborator.
 
 ## Notes
 - Local backup/restore has **no network dependency**; Drive cloud sync requires an active Google session (reuses the token from `src/auth.js`, no separate consent step beyond the added `drive.appdata` scope).
 - The Drive backup lives in the app-private `appDataFolder`, not the user's visible "My Drive" — invisible outside this app's own UI.
 - Manual "Back Up to Drive" / "Restore from Drive" always work regardless of the auto-upload toggle; the toggle only gates the silent post-sync hook.
+- The pre-sync empty-DB restore recovery reuses the exact same `driveSync.pull()` → `backup.restoreBackup()` path as the manual "🔄 Restore from Drive" button — there is no separate/duplicate restore implementation.
