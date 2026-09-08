@@ -12,10 +12,10 @@
  */
 
 import { computeToleranceStreaks } from './streak.js';
+import { DEFAULT_STEP_GOAL } from './config.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_STEP_GOAL = 10000;
 const HOURS_PER_DAY = 24;
 const MONTHS_PER_YEAR = 12;
 const DEFAULT_TOP_N = 5;

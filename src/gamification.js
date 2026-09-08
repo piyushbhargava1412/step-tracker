@@ -7,6 +7,7 @@
  */
 
 import { computeToleranceStreaks } from './streak.js';
+import { DEFAULT_STEP_GOAL } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -280,7 +281,7 @@ export function createGamification(db) {
         const activeStepGoal =
           goalSetting && Number.isFinite(goalSetting.value) && goalSetting.value > 0
             ? goalSetting.value
-            : 8000;
+            : DEFAULT_STEP_GOAL;
 
         const totalSteps = records.reduce(
           (sum, r) => sum + (Number.isFinite(r.effective_steps) ? r.effective_steps : 0),
@@ -297,7 +298,7 @@ export function createGamification(db) {
 
         return { xp, level, levelLabel, achievements };
       } catch (err) {
-        console.error('createGamification.compute', err);
+        console.error('[gamification]', err);
         throw err;
       }
     },

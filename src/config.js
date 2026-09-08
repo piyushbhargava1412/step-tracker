@@ -7,4 +7,7 @@ if (!CLIENT_ID || (typeof CLIENT_ID === 'string' && CLIENT_ID.trim() === '')) {
   );
 }
 
+/** Default daily step goal used when no user-configured goal is stored. */
+export const DEFAULT_STEP_GOAL = 10_000;
+
 export { CLIENT_ID };
