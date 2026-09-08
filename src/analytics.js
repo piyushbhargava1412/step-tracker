@@ -222,7 +222,7 @@ export function createAnalytics(db) {
       const hourly = computeHourlyDistribution(records);
       const yearlyMonthly = computeYearlyMonthlyComparison(records, currentYear);
 
-      return { lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly };
+      return { records, lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly };
     } catch (err) {
       console.error('[analytics]', err);
       throw err;

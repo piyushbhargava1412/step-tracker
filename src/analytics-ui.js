@@ -57,9 +57,9 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   async function render() {
-    const panel = doc.getElementById('tab-lab');
+    const panel = doc.getElementById('lab-analytics');
     if (!panel) {
-      console.warn('[analytics-ui]', 'Missing #tab-lab — skipping render');
+      console.warn('[analytics-ui]', 'Missing #lab-analytics — skipping render');
       return;
     }
 

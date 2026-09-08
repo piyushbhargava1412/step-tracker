@@ -407,6 +407,17 @@ describe('createAnalytics', () => {
     // yearlyMonthly should be a 12-element array
     expect(result.yearlyMonthly).toHaveLength(12);
   });
+
+  it('compute() returns a records key containing the full array from daily_records', async () => {
+    const records = [
+      makeRecord({ date: MONDAY,   effective_steps: 10000, effective_distance_km: 8 }),
+      makeRecord({ date: TUESDAY,  effective_steps: 8000,  effective_distance_km: 6 }),
+    ];
+    const db = makeDb(records);
+    const result = await createAnalytics(db).compute();
+    expect(result).toHaveProperty('records');
+    expect(result.records).toEqual(records);
+  });
 });
 
 // ── Module boundary — no DOM / window / Dexie imports ─────────────────────────
