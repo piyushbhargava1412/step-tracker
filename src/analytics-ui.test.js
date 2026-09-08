@@ -406,5 +406,32 @@ describe('createAnalyticsUI', () => {
     expect(result.records).toEqual(RECORDS);
   });
 
+  // ── Task 14: CSS class fix — HoF <dl> carries hof-grid ──────────────────
+
+  it('Hall of Fame <dl> carries class hof-grid after render() with non-empty records', async () => {
+    const result = makeEngineResult(RECORDS);
+    const engine = makeEngine(result);
+    const ui = createAnalyticsUI(doc, engine, reporter);
+
+    await ui.render();
+
+    const panel = doc.getElementById('lab-analytics');
+    const dl = panel.querySelector('dl.hof-grid');
+    expect(dl).not.toBeNull();
+  });
+
+  // ── Task 14: _buildTop5Table panel param removed — existing table tests still pass ──
+
+  it('Top-5 table still renders correctly after panel param removal from _buildTop5Table', async () => {
+    const result = makeEngineResult(RECORDS);
+    const engine = makeEngine(result);
+    const ui = createAnalyticsUI(doc, engine, reporter);
+
+    await ui.render();
+
+    const panel = doc.getElementById('lab-analytics');
+    const rows = [...panel.querySelectorAll('table tbody tr')];
+    expect(rows).toHaveLength(5);
+  });
 
 });

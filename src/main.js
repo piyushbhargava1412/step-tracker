@@ -30,6 +30,7 @@ import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
 import { switchTab } from './tabs.js'
+import { createProofLightbox } from './override-form.js'
 import {
   refreshStorageProtectionBadge,
   requestSilentPersistAndRefreshBadge,
@@ -123,8 +124,9 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
 
   // ST-009: Lab tab — analytics, gamification, odyssey engines + UI factories
+  const proofLightbox = createProofLightbox(doc)
   const analyticsEngine = createAnalytics(db)
-  const analyticsUI = createAnalyticsUI(doc, analyticsEngine, reporter, null)
+  const analyticsUI = createAnalyticsUI(doc, analyticsEngine, reporter, proofLightbox)
   const gamificationEngine = createGamification(db)
   const gamificationUI = createGamificationUI(doc, gamificationEngine, reporter)
   const odysseyUI = createOdysseyUI(doc, { computeOdysseyProgress }, analyticsEngine, reporter)

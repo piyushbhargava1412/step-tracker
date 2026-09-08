@@ -79,7 +79,7 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
 
       const sections = [
         _buildHallOfFame(result.lifetimeMetrics),
-        _buildTop5Table(result.topRecords, panel, signal),
+        _buildTop5Table(result.topRecords, signal),
         _buildWeekdayHistogram(result.dayOfWeek),
         _buildHourlyChart(result.hourly),
         _buildYearlySection(cachedRecords, signal),
@@ -114,6 +114,7 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
     section.appendChild(h2);
 
     const dl = doc.createElement('dl');
+    dl.className = 'hof-grid';
     const tiles = [
       { label: 'Total Steps', value: String(metrics.totalSteps) },
       { label: 'Total Distance (km)', value: Number(metrics.totalDistanceKm).toFixed(2) },
@@ -136,7 +137,7 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
   /**
    * Top-5 records table.
    */
-  function _buildTop5Table(topRecords, panel, signal) {
+  function _buildTop5Table(topRecords, signal) {
     const section = doc.createElement(SECTION_TAG);
     section.className = 'analytics-top5';
 

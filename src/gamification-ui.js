@@ -137,6 +137,7 @@ export function createGamificationUI(doc, engine, reporter) {
     track.className = 'rpg-progress-bar';
 
     const inner = doc.createElement('div');
+    inner.className = 'rpg-progress-bar__fill';
     inner.style.width = _computeProgressWidth(xp, level);
 
     track.appendChild(inner);

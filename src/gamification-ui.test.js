@@ -289,4 +289,12 @@ describe('createGamificationUI', () => {
     ui = createGamificationUI(doc, engine, reporter);
     await expect(ui.render()).resolves.not.toThrow();
   });
+
+  // ── Task 14: CSS class fix ────────────────────────────────────────────────
+
+  it('progress bar fill element carries class rpg-progress-bar__fill', async () => {
+    await ui.render();
+    const fill = doc.querySelector('.rpg-progress-bar__fill');
+    expect(fill).not.toBeNull();
+  });
 });
