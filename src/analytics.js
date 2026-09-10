@@ -4,14 +4,17 @@
  * No DOM writes, no Dexie import, no `document` or `window` references.
  * All data arrives as plain arrays; the factory wires in the Dexie db.
  *
- * SF-8: longest-streak delegates to computeToleranceStreaks (no duplicate logic).
+ * SF-8: longest-streak delegates to computeHallOfFame — the Lab's "Longest
+ *       Streak" tile reports the best-ever historical run at the active goal,
+ *       not the in-progress current streak (computeToleranceStreaks.actual is
+ *       a different metric, already surfaced on the dashboard as "Actual").
  * SF-7: computeHourlyDistribution skips rows where hourly_steps is null or
  *       not a 24-element array; returns 24-element zero array if all rows skip.
  * SF-9: computeYearlyMonthlyComparison zero-fills absent months.
  * SF-13: compute() wraps in try/catch, logs [analytics], and rethrows.
  */
 
-import { computeToleranceStreaks } from './streak.js';
+import { computeHallOfFame } from './streak.js';
 import { DEFAULT_STEP_GOAL } from './config.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -34,13 +37,22 @@ function _toIsoWeekday(jsDay) {
 }
 
 /**
- * Returns today as a YYYY-MM-DD string in UTC.
- * Used only by the factory's compute() — keeps pure functions truly pure.
+ * Resolves the ISO weekday (0=Monday … 6=Sunday) for a YYYY-MM-DD string.
  *
- * @returns {string}
+ * Builds the Date from explicit y/m/d components (`new Date(y, m-1, d)`)
+ * instead of parsing the string directly. `new Date("YYYY-MM-DD")` parses as
+ * UTC midnight per the ISO 8601 date-only spec, so reading `.getDay()` back in
+ * a timezone west of UTC (negative offset) rolls the weekday back by one —
+ * the calendar date itself never left the local browser's zone, so the
+ * component-based construction keeps this timezone-safe.
+ *
+ * @param {string} dateStr - YYYY-MM-DD
+ * @returns {number} 0..6, or 0 (Monday) when dateStr cannot be parsed
  */
-function _todayUtc() {
-  return new Date().toISOString().slice(0, 10);
+function _isoWeekdayFor(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return 0;
+  return _toIsoWeekday(new Date(y, m - 1, d).getDay());
 }
 
 // ── Exported pure functions ───────────────────────────────────────────────────
@@ -49,7 +61,7 @@ function _todayUtc() {
  * Computes lifetime aggregate metrics from all daily records.
  *
  * @param {Array<{ date: string, effective_steps: number, effective_distance_km: number }>} records
- * @param {number} activeStepGoal - forwarded to computeToleranceStreaks
+ * @param {number} activeStepGoal - forwarded to computeHallOfFame
  * @returns {{ totalSteps: number, totalDistanceKm: number, dailyAverage: number, longestStreak: number }}
  */
 export function computeLifetimeMetrics(records, activeStepGoal) {
@@ -67,14 +79,15 @@ export function computeLifetimeMetrics(records, activeStepGoal) {
 
   const dailyAverage = totalSteps / records.length;
 
-  // SF-8: delegate to computeToleranceStreaks — no hand-rolled streak loop here.
-  const today = _todayUtc();
+  // SF-8: delegate to computeHallOfFame — the longest-ever historical run at
+  // the goal, not the in-progress current streak (which is a different metric
+  // already shown on the dashboard). No hand-rolled streak loop here.
   const goal = Number.isFinite(activeStepGoal) && activeStepGoal > 0
     ? activeStepGoal
     : DEFAULT_STEP_GOAL;
 
-  const tolerance = computeToleranceStreaks(records, goal, today);
-  const longestStreak = tolerance.actual ?? 0;
+  const hallOfFame = computeHallOfFame(records, goal);
+  const longestStreak = hallOfFame[0]?.days ?? 0;
 
   return { totalSteps, totalDistanceKm, dailyAverage, longestStreak };
 }
@@ -113,7 +126,7 @@ export function computeDayOfWeekDistribution(records) {
   if (Array.isArray(records)) {
     for (const r of records) {
       if (typeof r.date !== 'string') continue;
-      const dow = _toIsoWeekday(new Date(r.date).getDay());
+      const dow = _isoWeekdayFor(r.date);
       const steps = Number.isFinite(r.effective_steps) ? r.effective_steps : 0;
       totals[dow] += steps;
       counts[dow] += 1;

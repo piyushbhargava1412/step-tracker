@@ -63,10 +63,10 @@ describe('computeLifetimeMetrics', () => {
     });
   });
 
-  it('delegates longest-streak computation to computeToleranceStreaks (spy confirms call)', async () => {
+  it('delegates longest-streak computation to computeHallOfFame (spy confirms call), reporting the best-ever run rather than the in-progress streak', async () => {
     // Dynamically import so we can spy on the named export from streak.js
     const streakMod = await import('./streak.js');
-    const spy = vi.spyOn(streakMod, 'computeToleranceStreaks');
+    const spy = vi.spyOn(streakMod, 'computeHallOfFame');
 
     // Re-import analytics to pick up the spy. Since vitest caches modules,
     // we must use the already-imported analytics function which calls streak.js
@@ -78,6 +78,23 @@ describe('computeLifetimeMetrics', () => {
     computeLifetimeMetrics(records, 10000);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('reports the best-ever historical run, not the in-progress current streak', () => {
+    // A long-past 5-day run at goal, then a gap, then today's fresh 1-day
+    // streak. The dashboard's "Actual" streak is 1 (in-progress); the Lab's
+    // "Longest Streak" tile must still surface the historical best of 5.
+    const records = [
+      makeRecord({ date: '2020-01-01', effective_steps: 10000 }),
+      makeRecord({ date: '2020-01-02', effective_steps: 10000 }),
+      makeRecord({ date: '2020-01-03', effective_steps: 10000 }),
+      makeRecord({ date: '2020-01-04', effective_steps: 10000 }),
+      makeRecord({ date: '2020-01-05', effective_steps: 10000 }),
+      // gap with a miss below goal, breaking the historical run
+      makeRecord({ date: '2020-01-06', effective_steps: 0 }),
+    ];
+    const result = computeLifetimeMetrics(records, 10000);
+    expect(result.longestStreak).toBe(5);
   });
 });
 

@@ -373,16 +373,22 @@ export function _normalizeBuckets(buckets) {
 
 /**
  * Convert an array of hourly Google Fit bucket objects into a 24-element array
- * of step counts indexed by UTC hour (0–23).
+ * of step counts indexed by local wall-clock hour (0–23).
  *
  * Each bucket covers exactly one hour. Multiple `intVal` point values in the
  * same bucket are summed. Hours with no bucket default to 0 (zero-padded — no
  * sparse holes). Buckets with a non-finite or missing timestamp are skipped.
  *
+ * Indexed by *local* hour (not UTC): `bucketByTime` requests are anchored to
+ * `_localMidnight` (steps.js), so each bucket's instant must be read back
+ * through the same local-clock lens the user experiences — reading it back in
+ * UTC would shift every hour by the timezone offset (e.g. IST users would see
+ * their morning walk logged as steps taken between 1am–7am).
+ *
  * @param {Array<object>|null|undefined} buckets  Raw 1-hour buckets from a
  *   `dataset:aggregate` response with `bucketByTime.durationMillis = HOURLY_BUCKET_MS`.
- * @returns {Array<number>|null}  24-element array of step counts (one per UTC
- *   hour), or `null` when `buckets` is null, undefined, or empty.
+ * @returns {Array<number>|null}  24-element array of step counts (one per
+ *   local hour), or `null` when `buckets` is null, undefined, or empty.
  */
 export function _normalizeHourlyBuckets(buckets) {
   if (!buckets || buckets.length === 0) return null;
@@ -397,7 +403,7 @@ export function _normalizeHourlyBuckets(buckets) {
 
     if (!isFinite(millis)) continue;
 
-    const hour = new Date(millis).getUTCHours();
+    const hour = new Date(millis).getHours();
 
     // Locate the step dataset by dataSourceId substring or fall back to index 0.
     const stepDataset =

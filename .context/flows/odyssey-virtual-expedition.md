@@ -3,8 +3,8 @@
 > Added: ST-009 — 2026-09-08
 
 <!-- context-meta
-verification-commit: bd81d7ee90757c3e1b5555e18cf88f7e3282eddd
-generated-at: 2026-09-08T04:03:55Z
+verification-commit: c804588e515abd1e2b6ebf32151d813077e71215
+generated-at: 2026-09-10T13:48:00Z
 confidence: medium
 -->
 
@@ -26,7 +26,7 @@ based on the user's lifetime distance in km.
 ## Core Path
 1. `createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter).render()` aborts any prior render, resolves the container (`#lab-odyssey`, else falls back to `#tab-lab` directly; no-ops with a console warning if neither exists), then calls **`analyticsEngine.compute()`** (the Analytics Lab engine from `src/analytics.js` — see `.context/flows/analytics-lab-dashboard.md`) to read `lifetimeMetrics.totalDistanceKm`, reusing that single source of truth rather than re-summing `daily_records` distance.
 2. `odysseyEngine.computeOdysseyProgress(totalDistanceKm)` (the injected `{ computeOdysseyProgress }` from `src/odyssey.js`) guards non-finite/negative input to a zero-state (`unlockedLegs: []`, `activeLeg: MILESTONES[0]` (Goa), `progressPct: 0`, `remainingKm: MILESTONES[0].distanceKm`); otherwise it filters `MILESTONES` (cumulative km from Hyderabad: Goa 650 → Mumbai 710 → New Delhi 1580 → Dubai 2890 → London 7700 → New York 12500) into `unlockedLegs` (`distanceKm <= totalDistanceKm`) and finds the first not-yet-reached leg as `activeLeg`; when every leg is unlocked it returns `progressPct: 100, remainingKm: 0, activeLeg: undefined`. For the active leg, `progressPct` is the traversal ratio within that leg's span (previous milestone's cumulative km → this milestone's cumulative km), clamped `0–100`.
-3. `_buildProgressBar` renders one `.odyssey-leg` `<div>` per milestone with `data-state="unlocked"|"active"|"locked"` (CSS colors each state) and inline `width` (`100%` unlocked, `progressPct%` active, unset/CSS-default locked); the active leg's label appends `" — N km remaining"` (`Math.round(remainingKm)`).
+3. `_buildProgressBar` renders one `.odyssey-leg` `<div>` per milestone with `data-state="unlocked"|"active"|"locked"` (CSS colors/glows each state) and inline `width` (`100%` unlocked, `progressPct%` active, unset/CSS-default locked). Each leg is a column: a glowing `.odyssey-leg-track` pill (gradient + box-shadow glow for unlocked/active, animated pulse for active) carrying an `.odyssey-leg-marker` badge (🏁 unlocked, ✈️ active, empty circle locked) at its trailing edge, and an always-visible `.odyssey-leg-label` below it with the destination name + distance; the active leg's label appends `" — N km remaining"` (`Math.round(remainingKm)`). Previously the label sat *inside* the 14px track with `overflow: hidden`, so it rendered invisible — every stop showed only as an unlabeled flat-colored block ("neon green capsules"); the label now renders in normal document flow beneath the track.
 4. A failure from either `analyticsEngine.compute()` or `odysseyEngine.computeOdysseyProgress` is caught: logged via `console.error('[odyssey-ui]', err)`, `reporter.db('⚠️ Could not render Odyssey')`, and an error `<p>` replaces the container contents — `render()` never throws.
 5. The starting city (`HOME_BASE_CITIES`, default Hyderabad) is user-configurable via the Settings modal's Home Base City picker — see `.context/flows/settings-data-management.md`; `src/odyssey.js` itself does not read the stored selection (it is a pure, DI-free module — the milestone route is currently fixed regardless of the selected city).
 
@@ -47,7 +47,7 @@ based on the user's lifetime distance in km.
 - `src/odyssey.js` — pure exports `HOME_BASE_CITIES` (7 cities), `MILESTONES` (6 legs), `computeOdysseyProgress(totalDistanceKm)`
 - `src/odyssey-ui.js` — `createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter)` → `{ render() }`
 - `src/main.js` — composition-root wiring (bootstrap render, post-sync render, `data:records:mutated` re-render); constructs `createOdysseyUI(doc, { computeOdysseyProgress }, analyticsEngine, reporter)`
-- `styles.css` — `.odyssey-bar`, `.odyssey-leg[data-state=...]`
+- `styles.css` — `.odyssey-bar`, `.odyssey-leg[data-state=...]`, `.odyssey-leg-track`, `.odyssey-leg-marker`, `.odyssey-leg-label`
 
 ## Tests
 - `src/odyssey.test.js` — `HOME_BASE_CITIES`/`MILESTONES` shape and ordering, `computeOdysseyProgress` zero-state guard, partial/full-unlock boundaries, per-leg progress-ratio math.

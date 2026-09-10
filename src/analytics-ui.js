@@ -302,7 +302,9 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
   // ── Generic bar chart builder ──────────────────────────────────────────────
 
   /**
-   * Builds a proportional bar chart.
+   * Builds a proportional bar chart. Each bar carries a visible value label
+   * above it (not just an aria-label) — screen-reader-only text was leaving
+   * the chart numberless for sighted users.
    *
    * @param {number[]} values
    * @param {string[]} labels
@@ -319,6 +321,11 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
     for (let i = 0; i < values.length; i++) {
       const col = doc.createElement('div');
       col.className = 'bar-chart__col';
+
+      const valueEl = doc.createElement('span');
+      valueEl.className = 'bar-chart__value';
+      valueEl.textContent = Math.round(values[i]).toLocaleString();
+      col.appendChild(valueEl);
 
       const bar = doc.createElement('div');
       bar.className = BAR_CLASS;

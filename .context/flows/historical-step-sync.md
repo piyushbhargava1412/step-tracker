@@ -1,8 +1,8 @@
 # Flow: Historical Step Sync (Chunked Google Fit Aggregate Fetch)
 
 <!-- context-meta
-verification-commit: b0b76fe7f832d3e86d65723913fef3c9812bca09
-generated-at: 2026-09-08T09:58:00Z
+verification-commit: c804588e515abd1e2b6ebf32151d813077e71215
+generated-at: 2026-09-10T13:48:00Z
 confidence: high
 -->
 
@@ -23,7 +23,7 @@ confidence: high
    - A full-history backfill `[anchor → oldest stored date + 1 day]` window is appended only while the backfill is not complete.
 4. Each window is flattened into ≤`CHUNK_DAYS` (30)-day chunks via `_chunkWindow` (newest-first, boundaries on local midnight — DST-safe), then processed strictly sequentially with a `fetch → normalize → upsert` loop; one emoji-prefixed status line is written per chunk via `reporter.sync()`.
 5. Each chunk `POST`s to Google Fit `users/me/dataset:aggregate` with `Authorization: Bearer <token>`, `Content-Type: application/json`, and a body of exactly two `aggregateBy` entries — `com.google.step_count.delta` and `com.google.distance.delta` — with no `dataSourceId` (broad multi-device / Health Connect compatibility), `bucketByTime: { durationMillis: 86400000 }`, and `startTimeMillis`/`endTimeMillis` at **local midnight** (00:00:00.000 local time), never UTC zero-hour.
-6. **Parallel hourly fetch (ST-009)**: alongside the daily chunk fetch, `sync()` issues a second, non-fatal `POST` to the same `dataset:aggregate` endpoint with `bucketByTime: { durationMillis: HOURLY_BUCKET_MS }` (1-hour buckets, `HOURLY_BUCKET_MS = 3_600_000`) over the same chunk window, run via `Promise.all` alongside the daily fetch (`reporter.status?.('⏳ Fetching hourly step data…')` is emitted first so the wait is visible). The hourly call's promise chain `.catch()`s any non-OK response or network error and resolves to `null` — a hourly-fetch failure never aborts the daily sync. `_normalizeHourlyBuckets(buckets)` converts the hourly buckets for one day into a 24-element UTC-hour-indexed step-count array (summing multiple point values per hour bucket; `null` when the day has no buckets or the hourly call failed); the results are grouped by local date (`_formatLocalDate`) and attached as `hourly_steps` on each daily record before `_upsertChunk`.
+6. **Parallel hourly fetch (ST-009)**: alongside the daily chunk fetch, `sync()` issues a second, non-fatal `POST` to the same `dataset:aggregate` endpoint with `bucketByTime: { durationMillis: HOURLY_BUCKET_MS }` (1-hour buckets, `HOURLY_BUCKET_MS = 3_600_000`) over the same chunk window, run via `Promise.all` alongside the daily fetch (`reporter.status?.('⏳ Fetching hourly step data…')` is emitted first so the wait is visible). The hourly call's promise chain `.catch()`s any non-OK response or network error and resolves to `null` — a hourly-fetch failure never aborts the daily sync. `_normalizeHourlyBuckets(buckets)` converts the hourly buckets for one day into a 24-element **local-hour**-indexed step-count array (`new Date(millis).getHours()` — not `.getUTCHours()`, which would shift every hour by the timezone offset and, e.g., show an IST user's morning walk as steps taken at 1am–7am) (summing multiple point values per hour bucket; `null` when the day has no buckets or the hourly call failed); the results are grouped by local date (`_formatLocalDate`) and attached as `hourly_steps` on each daily record before `_upsertChunk`.
 7. `_normalizeBuckets` turns each bucket into one `daily_records` row (zero-filled; dual data type: steps from `step_count.delta` intVal, distance from `distance.delta` fpVal metres → km at 3 decimals, falling back to `steps × 0.000762` km when distance data is absent). Buckets whose resolved start time is not finite (missing both `startTimeMillis` and `startTimeNanos`, or a non-numeric value) are skipped rather than persisted under a NaN primary key.
 8. `_upsertChunk` persists each chunk inside a Dexie `rw` transaction, merging against existing rows: `is_overridden: true` rows keep their user-authored `effective_*` and `override` values (only `original_*` is refreshed), and all other rows high-water-mark `effective_*` as `max(stored, incoming)` — a lowered/scrubbed Google Fit response can never reduce a user-visible step or distance count, while `original_*` always follows the raw cloud truth.
 9. When a full-history window completed, `_latchBackfillComplete` writes `{ key: 'initial_backfill_complete', value: true }` to the `settings` store; all future syncs collapse to a single incremental request.
@@ -36,7 +36,7 @@ confidence: high
    Drive failure is isolated and logged only via `console.error('[drive-sync]', err)`.
 
 ## Data Touchpoints
-- **Entities**: One `daily_records` row per calendar day (`date` primary key, `original_*`/`effective_*` step and distance values, `hourly_steps` — a 24-element UTC-hour step-count array or `null` when the hourly fetch is unavailable, ST-009 — `is_overridden`, `override`, `synced_at`)
+- **Entities**: One `daily_records` row per calendar day (`date` primary key, `original_*`/`effective_*` step and distance values, `hourly_steps` — a 24-element local-hour step-count array or `null` when the hourly fetch is unavailable, ST-009 — `is_overridden`, `override`, `synced_at`)
 - **Tables**: `daily_records` (Dexie, `DB_VERSION = 6` — v6 backfills `hourly_steps: null` on pre-existing rows) for step data; `settings` (Dexie) for the `initial_backfill_complete` latch key
 - **UI Surface**: `#sync-status` line via `reporter.sync()` for progress/throttling/warning/failure messages. Terminal `✅`-prefixed success messages are instead rendered as a transient fading toast (`src/toast.js:showToast`, `src/ui-status.js:sync()`) and `#sync-status` is cleared — no persistent success text remains on the status line.
 

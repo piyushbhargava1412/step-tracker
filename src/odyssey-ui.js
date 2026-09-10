@@ -131,7 +131,21 @@ export function createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter) {
 
     leg.setAttribute('data-state', state);
 
-    // Label: destination name + distance
+    // Track: the colored/glowing segment of the path, with a marker badge
+    // (flag for a reached destination, plane for the one in transit) riding
+    // its trailing edge.
+    const track = doc.createElement('div');
+    track.className = 'odyssey-leg-track';
+
+    const marker = doc.createElement('span');
+    marker.className = 'odyssey-leg-marker';
+    marker.textContent = isUnlocked ? '🏁' : isActive ? '✈️' : '';
+    track.appendChild(marker);
+    leg.appendChild(track);
+
+    // Label: destination name + distance, rendered below the track — this
+    // used to sit *inside* the 14px track with overflow:hidden, so it was
+    // always clipped away and invisible. It now renders in normal flow.
     const label = doc.createElement('span');
     label.className = 'odyssey-leg-label';
     let labelText = `${milestone.destination} (${milestone.distanceKm} km)`;

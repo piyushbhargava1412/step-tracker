@@ -3473,14 +3473,15 @@ describe('Task ST-010-2: HOURLY_BUCKET_MS constant', () => {
 
 describe('Task ST-010-2: _normalizeHourlyBuckets', () => {
   /**
-   * UTC midnight 2025-01-01 00:00:00Z = 1735689600000 ms.
-   * Hour N = UTC_JAN1_2025 + N * 3_600_000.
+   * Builds each fixture from local y/m/d/h components (never a fixed UTC
+   * epoch) so the expected local-hour index holds regardless of the
+   * machine/CI timezone running the suite — this mirrors the fix itself
+   * (buckets are read back through `.getHours()`, the local-clock lens).
    */
-  const UTC_JAN1_2025 = 1735689600000;
 
-  /** Build a single 1-hour bucket at the given UTC hour with the given step intVals. */
-  function makeHourlyBucket(utcHour, intVals = []) {
-    const startMs = UTC_JAN1_2025 + utcHour * 3_600_000;
+  /** Build a single 1-hour bucket at the given local hour with the given step intVals. */
+  function makeHourlyBucket(localHour, intVals = []) {
+    const startMs = new Date(2025, 0, 1, localHour).getTime();
     return {
       startTimeMillis: String(startMs),
       dataset: [
@@ -3513,7 +3514,7 @@ describe('Task ST-010-2: _normalizeHourlyBuckets', () => {
     expect(result.length).toBe(24);
   });
 
-  it('places step totals at the correct UTC hour index', () => {
+  it('places step totals at the correct local hour index', () => {
     const buckets = [
       makeHourlyBucket(0, [1000, 200]),
       makeHourlyBucket(3, [500]),
@@ -3544,7 +3545,7 @@ describe('Task ST-010-2: _normalizeHourlyBuckets', () => {
   });
 
   it('returns a full 24-element array with correct per-hour totals for a complete 24-bucket payload', () => {
-    // Build 24 buckets, one per UTC hour, with steps = hour * 100.
+    // Build 24 buckets, one per local hour, with steps = hour * 100.
     const buckets = Array.from({ length: 24 }, (_, h) => makeHourlyBucket(h, [h * 100]));
     const result = _normalizeHourlyBuckets(buckets);
     expect(result.length).toBe(24);
