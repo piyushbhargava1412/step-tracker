@@ -37,6 +37,9 @@ Hall of Fame periods, and lifetime 10k-day totals, then renders the Active Strea
    values fail the day. The allowance tiers report the **longest-compliant-window** — the maximum
    depth whose miss density stays within budget, so a window that violates mid-history can recover
    once clean days dilute the miss ratio (walks to `earliestRecordDate` unconditionally).
+   A qualifying window must start on a met day — its oldest day is never a true miss — so a budget
+   boundary (e.g. d = 1900 for the 99% tier) cannot absorb the lone pre-run miss for one extra day
+   and one extra oopsie; the next miss is only taken on when met days lie beyond it.
 5. `streakUI.render()` replaces `#lifetime-banner` (first) and `#streak-card` (stale nodes are
    removed first) and reports a zero-state on data failure. The render consumes
    `{ tolerance, hallOfFame, lifetime, activeStepGoal }` from the compute result.
