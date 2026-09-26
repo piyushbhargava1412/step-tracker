@@ -321,6 +321,13 @@ function _zeroToleranceStreaks() {
  *   walks to `earliestRecordDate` unconditionally and keeps the deepest depth
  *   that qualifies. This is what lets a user who missed 2 of their first 100
  *   days (then stayed clean) report ~200 instead of breaking at the first miss.
+ * - **Window starts on a met day**: a qualifying depth only counts when its
+ *   own (oldest) day is not a true miss. Trimming a trailing miss always keeps
+ *   a window compliant, so this never shortens a streak by more than the edge
+ *   misses themselves — but it stops a budget boundary (e.g. d reaching 1900
+ *   for the 99% tier) from absorbing the adjacent pre-streak miss and showing
+ *   one extra oopsie for a single extra day. The next miss is taken on only
+ *   when met days lie beyond it, so the streak jumps past it instead.
  * - The loop ends when `day < earliestRecordDate` — the lower bound stops the
  *   engines walking into pre-history, so no value can exceed it.
  * - **Miss reporting**: alongside each tier's day count, the result carries the
@@ -394,12 +401,17 @@ export function computeToleranceStreaks(records, stepGoal, today) {
       actualAlive = false; // first strict miss freezes the 100% streak
     }
 
-    if (steps < nearMissThreshold) toleranceMisses += 1; // true miss for the tiers
+    const isTrueMiss = steps < nearMissThreshold;
+    if (isTrueMiss) toleranceMisses += 1; // true miss for the tiers
 
-    for (const allowance of allowances) {
-      if (toleranceMisses <= Math.floor(d / allowance.window)) {
-        allowance.value = d;
-        allowance.misses = toleranceMisses;
+    // A window may not start (at its oldest end) on a true miss: that miss
+    // would inflate the count by one day while spending a whole budget slot.
+    if (!isTrueMiss) {
+      for (const allowance of allowances) {
+        if (toleranceMisses <= Math.floor(d / allowance.window)) {
+          allowance.value = d;
+          allowance.misses = toleranceMisses;
+        }
       }
     }
 

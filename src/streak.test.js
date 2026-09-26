@@ -1192,6 +1192,66 @@ describe('computeToleranceStreaks — density budget (longest-compliant-window)'
   });
 });
 
+describe('computeToleranceStreaks — window never starts on an oopsie day', () => {
+  /**
+   * Long clean run (depths 1..cleanDepth) with one true miss every 100 days,
+   * followed by a pre-history stretch of `badDays` consecutive true misses.
+   */
+  function longRunThenBadStretch(cleanDepth, badDays) {
+    const records = makeRecords(TODAY, cleanDepth + badDays, 12000);
+    for (let depth = 100; depth < cleanDepth; depth += 100) {
+      records[depth - 1] = { date: shiftDate(TODAY, -(depth - 1)), effective_steps: 0 };
+    }
+    for (let depth = cleanDepth + 1; depth <= cleanDepth + badDays; depth += 1) {
+      records[depth - 1] = { date: shiftDate(TODAY, -(depth - 1)), effective_steps: 0 };
+    }
+    return records;
+  }
+
+  it('crossing a budget boundary does not absorb a lone miss at the window edge (99% tier)', () => {
+    // 1899 days with 18 misses; the day right before the run is a miss.
+    // At depth 1900 the budget grows to 19, but a window whose oldest day is
+    // the 19th miss adds nothing — the streak must stay 1899 with 18 oopsies.
+    const records = longRunThenBadStretch(1899, 30);
+    const { allowance99, misses99 } = computeToleranceStreaks(records, STEP_GOAL, TODAY);
+    expect(allowance99).toBe(1899);
+    expect(misses99).toBe(18);
+  });
+
+  it('extends past the extra miss only when met days lie beyond it (99% tier jump)', () => {
+    // Same 1899-day run, then one miss at depth 1900, then 50 clean days,
+    // then a bad stretch. The 19th miss is affordable from depth 1900 on, so
+    // the window jumps to the far side of the clean stretch.
+    const records = makeRecords(TODAY, 1980, 12000);
+    for (let depth = 100; depth < 1899; depth += 100) {
+      records[depth - 1] = { date: shiftDate(TODAY, -(depth - 1)), effective_steps: 0 };
+    }
+    records[1899] = { date: shiftDate(TODAY, -1899), effective_steps: 0 }; // depth 1900
+    for (let depth = 1951; depth <= 1980; depth += 1) {
+      records[depth - 1] = { date: shiftDate(TODAY, -(depth - 1)), effective_steps: 0 };
+    }
+    const { allowance99, misses99 } = computeToleranceStreaks(records, STEP_GOAL, TODAY);
+    expect(allowance99).toBe(1950);
+    expect(misses99).toBe(19);
+  });
+
+  it('applies the same rule to the 95% tier', () => {
+    // 19 clean days, then misses from depth 20 onward: floor(20/20) = 1 would
+    // afford the depth-20 miss, but a window starting on it is not a streak.
+    const records = makeRecords(TODAY, 30, 12000);
+    for (let depth = 20; depth <= 30; depth += 1) {
+      records[depth - 1] = { date: shiftDate(TODAY, -(depth - 1)), effective_steps: 0 };
+    }
+    expect(computeToleranceStreaks(records, STEP_GOAL, TODAY)).toStrictEqual({
+      actual: 19,
+      allowance95: 19,
+      allowance99: 19,
+      misses95: 0,
+      misses99: 0,
+    });
+  });
+});
+
 describe('computeToleranceStreaks — missed-day counts (misses95/misses99)', () => {
   it('reports the true misses inside each tier\'s deepest qualifying window (AC Scenario 2)', () => {
     // The 95% window recovers to 39 with the depth-20 shortfall inside it (1 miss);
