@@ -17,7 +17,9 @@ arrives with ST-020).
 ## Entry Points
 - **Type**: UI event + automatic at launch
 - **Path**: `#auth-btn` click → `connection.connect()`; bootstrap → `connection.restore()`;
-  `connection.onConnected(runSync)` auto-syncs after either succeeds; `#sync-btn` → `stepSync.sync()`
+  `connection.onConnected(syncTrigger.run)` auto-syncs after either succeeds; `#sync-btn` → `syncTrigger.run()`;
+  app resume (`src/platform/app-lifecycle.js`, Capacitor `resume`) → `syncTrigger.runIfStale()` (ST-021: only when
+  connected and ≥ 10 min since the last sync started — `src/sync-trigger.js`)
 - **Files**: `src/main.js` (wiring), `src/platform/capabilities.js`, `src/platform/step-source.js`,
   `src/platform/native/health-connect-connection.js`, `src/health-connect-step-source.js`,
   `src/steps.js` (engine), `android/app/src/main/AndroidManifest.xml`

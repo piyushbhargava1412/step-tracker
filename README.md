@@ -120,7 +120,7 @@ The service worker versioned caches update on next visit after a deploy (update-
 
 The same code also ships as an Android app (Capacitor). In the app, steps and distance come from
 **Health Connect** instead of Google Fit: tap **Connect Health Connect**, allow Steps and Distance
-(and access to past data), and the app syncs — automatically on every later launch. Exports and
+(and access to past data), and the app syncs — automatically on every later launch, and again whenever you come back to it after 10 minutes or more. Exports and
 backups are saved to `Documents/Step Tracker/` on the phone. For Google Drive backup, open the
 Backup tab → **Connect Google Drive**; it uses the same Drive backup as the web app, so
 **Restore from Drive** brings your history across. Then tap **Make this the primary device**: from
