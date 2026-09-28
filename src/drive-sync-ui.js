@@ -105,7 +105,7 @@ export function createDriveSyncUI(
     panel.className = 'cloud-sync-panel data-panel';
 
     const heading = doc.createElement('h2');
-    heading.textContent = '☁️ Google Drive Cloud Sync';
+    heading.textContent = 'Google Drive';
     panel.appendChild(heading);
 
     if (driveConnection) {
@@ -120,7 +120,7 @@ export function createDriveSyncUI(
     backupSection.className = 'cloud-sync-section data-panel__section';
 
     const backupHeading = doc.createElement('h3');
-    backupHeading.textContent = 'Back Up to Drive';
+    backupHeading.textContent = 'Back up to Drive';
     backupSection.appendChild(backupHeading);
 
     const backupDesc = doc.createElement('p');
@@ -136,7 +136,7 @@ export function createDriveSyncUI(
     const backupBtn = doc.createElement('button');
     backupBtn.className = 'btn btn-primary';
     backupBtn.setAttribute('data-action', 'backup-to-drive');
-    backupBtn.textContent = '☁️ Back Up to Drive';
+    backupBtn.textContent = 'Back up now';
     backupActions.appendChild(backupBtn);
 
     const toggleWrap = doc.createElement('label');
@@ -181,13 +181,13 @@ export function createDriveSyncUI(
 
     const warningBadge = doc.createElement('span');
     warningBadge.className = 'warning-badge';
-    warningBadge.textContent = '⚠️ Overwrites local database';
+    warningBadge.textContent = 'Replaces the data on this device';
     restoreActions.appendChild(warningBadge);
 
     const restoreBtn = doc.createElement('button');
     restoreBtn.className = 'btn btn-secondary';
     restoreBtn.setAttribute('data-action', 'restore-from-drive');
-    restoreBtn.textContent = '🔄 Restore from Drive';
+    restoreBtn.textContent = 'Restore from Drive';
     restoreActions.appendChild(restoreBtn);
 
     restoreSection.appendChild(restoreActions);
@@ -222,7 +222,7 @@ export function createDriveSyncUI(
     section.className = 'cloud-sync-section data-panel__section cloud-sync-account';
     if (driveConnection.isConnected()) {
       const connected = doc.createElement('p');
-      connected.textContent = '✅ Google Drive connected';
+      connected.textContent = 'Google Drive connected';
       section.appendChild(connected);
       return section;
     }
@@ -232,7 +232,7 @@ export function createDriveSyncUI(
     const btn = doc.createElement('button');
     btn.className = 'btn btn-primary';
     btn.setAttribute('data-action', 'connect-drive');
-    btn.textContent = '🔗 Connect Google Drive';
+    btn.textContent = 'Connect Google Drive';
     section.appendChild(btn);
     return section;
   }
@@ -256,7 +256,7 @@ export function createDriveSyncUI(
       const btn = doc.createElement('button');
       btn.className = 'btn btn-secondary';
       btn.setAttribute('data-action', 'make-primary');
-      btn.textContent = '📱 Make this the primary device';
+      btn.textContent = 'Make this the primary device';
       section.appendChild(btn);
     }
     return section;

@@ -7,8 +7,13 @@
  * not used for reads here.
  */
 
-import { computeCommitmentHitRate } from './calendar.js';
+import { computeCommitmentHitRate, CLASSIFICATION_MET, CLASSIFICATION_MISSED } from './calendar.js';
 import { createOverrideForm, createProofLightbox } from './override-form.js';
+import { createIcon } from './icons.js';
+import { _localDate } from './date-utils.js';
+
+/** Hour ticks under the day sheet's hourly chart. */
+const HOUR_TICKS = ['12a', '6a', '12p', '6p', '11p'];
 
 /**
  * @param {{ getElementById: Function, querySelector: Function, querySelectorAll: Function }} doc
@@ -19,7 +24,7 @@ import { createOverrideForm, createProofLightbox } from './override-form.js';
  * @param {Function} [processImage] — injected image processor
  * @param {{ render: Function }} [monthOverview] — reusable month overview renderer
  * @param {Function} [confirmFn] — injected confirmation dialog (defaults to window.confirm)
- * @returns {{ render: Function }}
+ * @returns {{ render: Function, openDay: Function }}
  */
 export function createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview, confirmFn = window.confirm) {
   // Selected month (0-based), defaults to current local month (SF-9)
@@ -54,9 +59,11 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     controller = new AbortController();
     const signal = controller.signal;
 
-    const panel = doc.getElementById('tab-calendar');
+    // The Month view's own mount inside the Calendar screen (Week / Month
+    // switch); older shells without it render straight into #tab-calendar.
+    const panel = doc.getElementById('calendar-month') || doc.getElementById('tab-calendar');
     if (!panel) {
-      console.warn('[calendar]', 'Missing #tab-calendar — skipping render');
+      console.warn('[calendar]', 'Missing #calendar-month / #tab-calendar — skipping render');
       return;
     }
 
@@ -102,6 +109,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         payload,
         cardId: 'calendar-month-overview-card',
         showHistoryHint: false,
+        showTitle: false,
+        showLegend: true,
         onDayClick: (day, tileEl) => _openDrawer(day, tileEl),
       });
     }
@@ -129,19 +138,24 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
 
     const prevBtn = doc.createElement('button');
     prevBtn.type = 'button';
+    prevBtn.className = 'icon-btn';
     prevBtn.dataset.nav = 'prev';
-    prevBtn.textContent = '\u25C0';
+    prevBtn.setAttribute('aria-label', 'Previous month');
+    prevBtn.appendChild(createIcon(doc, 'chevronLeft', { size: 20 }));
     if (!payload.navBounds.canGoPrev) prevBtn.disabled = true;
 
     const nextBtn = doc.createElement('button');
     nextBtn.type = 'button';
+    nextBtn.className = 'icon-btn';
     nextBtn.dataset.nav = 'next';
-    nextBtn.textContent = '\u25B6';
+    nextBtn.setAttribute('aria-label', 'Next month');
+    nextBtn.appendChild(createIcon(doc, 'chevronRight', { size: 20 }));
     if (!payload.navBounds.canGoNext) nextBtn.disabled = true;
 
     // Month select (0-based)
     const monthSelect = doc.createElement('select');
     monthSelect.dataset.monthSelect = 'true';
+    monthSelect.setAttribute('aria-label', 'Month');
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     for (let m = 0; m < 12; m += 1) {
       const opt = doc.createElement('option');
@@ -154,6 +168,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     // Year select
     const yearSelect = doc.createElement('select');
     yearSelect.dataset.yearSelect = 'true';
+    yearSelect.setAttribute('aria-label', 'Year');
     for (let y = payload.navBounds.minYear; y <= payload.navBounds.maxYear; y += 1) {
       const opt = doc.createElement('option');
       opt.value = y;
@@ -215,10 +230,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
   function _buildSummary(payload) {
     const summary = doc.createElement('div');
     summary.id = 'calendar-summary';
-
-    // Caption: "August 2026"
-    const caption = new Date(payload.year, payload.month, 1)
-      .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    summary.className = 'summary-tiles';
 
     const hitRate = computeCommitmentHitRate(
       payload.days,
@@ -226,29 +238,20 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       payload.activeStepGoal,
     );
     const cells = [
-      { label: 'Total Steps', value: payload.aggregates.totalSteps },
-      { label: 'Avg Daily Steps', value: payload.aggregates.averageDailySteps },
-      { label: 'Hit Rate', value: hitRate != null ? hitRate + '%' : null },
+      { label: 'Total', value: payload.aggregates.totalSteps },
+      { label: 'Daily avg', value: payload.aggregates.averageDailySteps },
+      { label: 'Hit rate', value: hitRate != null ? hitRate + '%' : null },
     ];
-
-    // Create caption cell
-    const captionCell = doc.createElement('div');
-    captionCell.className = 'summary-cell';
-    const captionText = doc.createElement('span');
-    captionText.className = 'caption';
-    captionText.textContent = caption;
-    captionCell.appendChild(captionText);
-    summary.appendChild(captionCell);
 
     for (const cell of cells) {
       const div = doc.createElement('div');
-      div.className = 'summary-cell';
+      div.className = 'summary-cell summary-tile';
       const label = doc.createElement('span');
+      label.className = 'summary-tile__label';
       label.textContent = cell.label;
-      const valueText = _formatMetric(cell.value);
       const value = doc.createElement('span');
-      value.className = 'value';
-      value.textContent = valueText;
+      value.className = 'value summary-tile__value';
+      value.textContent = _formatMetric(cell.value);
       div.appendChild(label);
       div.appendChild(value);
       summary.appendChild(div);
@@ -376,6 +379,29 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     h2.textContent = headerDate;
     drawer.appendChild(h2);
 
+    if (day.record) {
+      const headline = doc.createElement('div');
+      headline.className = 'day-headline';
+      const steps = doc.createElement('span');
+      steps.className = 'day-headline__steps';
+      steps.textContent = _formatMetric(day.record.effective_steps);
+      const unit = doc.createElement('span');
+      unit.className = 'day-headline__unit';
+      unit.textContent = 'steps';
+      headline.append(steps, unit);
+      const state = day.classification?.state;
+      if (state >= CLASSIFICATION_MISSED) {
+        const hit = state >= CLASSIFICATION_MET;
+        // Today is not over yet: below the goal it is in progress, not missed.
+        const inProgress = !hit && day.date === _localDate();
+        const chip = doc.createElement('span');
+        chip.className = hit ? 'day-chip day-chip--hit' : inProgress ? 'day-chip day-chip--today' : 'day-chip day-chip--missed';
+        chip.textContent = hit ? 'Goal hit' : inProgress ? 'In progress' : 'Missed goal';
+        headline.appendChild(chip);
+      }
+      drawer.appendChild(headline);
+    }
+
     // Action row — Edit / Override always; Revert to Synced when overridden
     const actionRow = doc.createElement('div');
     actionRow.className = 'drawer-actions';
@@ -383,8 +409,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     if (day.record) {
       // Populated drawer
       const rows = [
-        { label: 'Effective Steps', value: day.record.effective_steps },
-        { label: 'Synced (Google Fit)', value: day.record.original_steps },
+        { label: 'Counted steps', value: day.record.effective_steps },
+        { label: 'Synced steps', value: day.record.original_steps },
       ];
 
       // Override status
@@ -399,11 +425,14 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         labelSpan.textContent = row.label;
         const valueSpan = doc.createElement('span');
         valueSpan.className = 'value';
-        valueSpan.textContent = row.value != null ? String(row.value) : '—';
+        valueSpan.textContent = row.value != null ? _formatMetric(row.value) : '—';
         rowDiv.appendChild(labelSpan);
         rowDiv.appendChild(valueSpan);
         drawer.appendChild(rowDiv);
       }
+
+      const hourly = _buildHourlyChart(day.record.hourly_steps);
+      if (hourly) drawer.insertBefore(hourly, drawer.querySelector('.metric-row'));
 
       // Saved proof thumbnail — clickable to open the full-size lightbox
       if (day.record.override && day.record.override.proof_image_base64) {
@@ -427,9 +456,9 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       if (day.record.is_overridden && records) {
         const revertBtn = doc.createElement('button');
         revertBtn.type = 'button';
-        revertBtn.className = 'revert-btn';
+        revertBtn.className = 'revert-btn btn btn-secondary';
         revertBtn.dataset.action = 'revert-day';
-        revertBtn.textContent = 'Revert to Synced';
+        revertBtn.textContent = 'Revert to synced';
         revertBtn.addEventListener('click', async () => {
           const confirmed = confirmFn('Are you sure you want to revert to the original synced values? This will undo your manual override.');
           if (!confirmed) return;
@@ -450,8 +479,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       drawer.appendChild(noDataText);
 
       const metricLabels = [
-        'Effective Steps',
-        'Synced (Google Fit)',
+        'Counted steps',
+        'Synced steps',
       ];
       for (const label of metricLabels) {
         const rowDiv = doc.createElement('div');
@@ -475,7 +504,8 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
       editBtn.disabled = true;
       editBtn.title = 'Editing arrives in ST-006';
     }
-    editBtn.textContent = 'Edit / Override';
+    editBtn.className = 'btn btn-primary';
+    editBtn.textContent = 'Correct steps';
     if (records) {
       editBtn.addEventListener('click', () => {
         editBtn.remove();
@@ -487,9 +517,10 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
 
     // Close button
     const closeBtn = doc.createElement('button');
-    closeBtn.className = 'close-btn';
+    closeBtn.className = 'close-btn icon-btn';
     closeBtn.type = 'button';
-    closeBtn.textContent = '\u00D7';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.appendChild(createIcon(doc, 'close', { size: 20 }));
     closeBtn.addEventListener('click', () => _closeDrawer(tile || previousFocus), { once: true });
     drawer.insertBefore(closeBtn, drawer.firstChild.nextSibling);
 
@@ -544,5 +575,58 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     drawer.replaceChildren();
   }
 
-  return { render };
+  /**
+   * Hourly bar chart for the day sheet; null when the record has no hourly
+   * breakdown (older syncs) or it is all zero.
+   *
+   * @param {number[]|null|undefined} hourly  24 values
+   * @returns {HTMLElement|null}
+   */
+  function _buildHourlyChart(hourly) {
+    if (!Array.isArray(hourly) || hourly.length !== 24) return null;
+    const peak = Math.max(...hourly.map((v) => (Number.isFinite(v) ? v : 0)));
+    if (peak <= 0) return null;
+
+    const wrap = doc.createElement('div');
+    wrap.className = 'day-hourly';
+    const label = doc.createElement('span');
+    label.className = 'label';
+    label.textContent = 'By hour';
+    const bars = doc.createElement('div');
+    bars.className = 'day-hourly__bars';
+    bars.setAttribute('role', 'img');
+    const busiest = hourly.indexOf(peak);
+    bars.setAttribute('aria-label', `Steps by hour; busiest hour starts at ${busiest}:00`);
+    for (const value of hourly) {
+      const bar = doc.createElement('span');
+      const steps = Number.isFinite(value) ? value : 0;
+      bar.className = steps > 0 ? 'day-hourly__bar' : 'day-hourly__bar day-hourly__bar--empty';
+      bar.style.height = `${Math.max(4, Math.round((steps / peak) * 100))}%`;
+      bars.appendChild(bar);
+    }
+    const ticks = doc.createElement('div');
+    ticks.className = 'day-hourly__ticks';
+    ticks.setAttribute('aria-hidden', 'true');
+    for (const tick of HOUR_TICKS) {
+      const t = doc.createElement('span');
+      t.textContent = tick;
+      ticks.appendChild(t);
+    }
+    wrap.append(label, bars, ticks);
+    return wrap;
+  }
+
+  /**
+   * Open the day sheet for a day from another view (the Week view). `day`
+   * carries `date` and `record` like the month payload's days.
+   *
+   * @param {{ date: string, record: object|null }} day
+   */
+  function openDay(day) {
+    if (!day || !day.date) return;
+    if (!controller) controller = new AbortController();
+    _openDrawer(day, doc.activeElement);
+  }
+
+  return { render, openDay };
 }

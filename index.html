@@ -2,94 +2,180 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Step Tracker Pro - Deep Blue</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Step Tracker</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0ea5e9" />
     <!-- Google Identity Services Library -->
     <script src="https://accounts.google.com/gsi/client" defer></script>
 </head>
-<body>
+<body data-active-screen="today">
 <div id="app-toast" class="toast" role="status" aria-live="polite"></div>
-
-<div class="container">
-    <!-- HEADER -->
-    <header class="app-header">
-        <div class="brand-group">
-            <div class="brand-mark" aria-hidden="true">🚶</div>
-            <div class="brand-text">
-                <h1 class="app-title">step-tracker <span class="app-title-pro">pro</span></h1>
-                <div class="status-group">
-                    <span id="auth-status" class="status-badge">Not connected</span>
-                    <span id="db-status" class="status-badge"></span>
-                    <span id="last-sync" class="sync-info">Sync: —</span>
-                </div>
-            </div>
-        </div>
-        <div class="header-actions">
-            <button id="auth-btn" class="btn btn-secondary">Connect Google Account</button>
-            <button id="sync-btn" class="btn btn-primary">Sync Steps</button>
-            <button id="settings-btn" class="btn btn-secondary" aria-label="Settings">⚙️ Settings</button>
-            <span id="sync-status" class="sync-status" aria-live="polite"></span>
-        </div>
-    </header>
-
-    <!-- MENU BAR: tabs + active lens -->
-    <nav class="tab-bar" aria-label="Primary">
-        <div class="tab-links">
-            <button class="tab-btn active" data-tab="dashboard">🏠 Dashboard</button>
-            <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
-            <button class="tab-btn" data-tab="search">🔍 Search</button>
-            <button class="tab-btn" data-tab="lab">🧪 Lab</button>
-            <button class="tab-btn" data-tab="backup">💾 Backup</button>
-            <button class="tab-btn" data-tab="spatial">🗺️ Map</button>
-        </div>
-        <div class="active-lens" id="active-lens">
-            <span class="active-lens-label">Active Lens:</span>
-        </div>
-    </nav>
-
-    <main>
-        <div id="tab-dashboard" class="dashboard-panel">
-            <div id="dashboard-month"></div>
-        </div>
-        <div id="tab-calendar" style="display:none">
-            <div id="calendar-nav"></div>
-            <div id="calendar-summary"></div>
-            <div id="calendar-grid"></div>
-            <div class="drawer-overlay" hidden></div>
-            <aside id="day-drawer" role="dialog" aria-modal="true" aria-labelledby="day-drawer-title" hidden></aside>
-        </div>
-        <div id="tab-search" style="display:none"></div>
-        <section id="tab-lab" class="tab-panel" style="display:none">
-            <div id="lab-analytics"></div>
-            <div id="lab-gamification"></div>
-            <div id="lab-odyssey"></div>
-        </section>
-        <div id="tab-backup" style="display:none">
-            <h2 class="backup-restore-heading">💾 Backup &amp; Restore</h2>
-            <div id="storage-health-controls"></div>
-            <div class="backup-grid">
-                <div id="backup-controls"></div>
-                <div id="cloud-controls"></div>
-            </div>
-        </div>
-        <div id="tab-spatial" style="display:none"></div>
-    </main>
-
-
-        <!-- SETTINGS MODAL — bare shell; render() in settings-ui.js builds the interior -->
-    <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden></div>
-
-    <!-- FOOTER -->
-    <footer class="app-footer">
-        <p>Optimized for Performance Tracking</p>
-    </footer>
+<div id="ptr-indicator" class="ptr" aria-hidden="true">
+    <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>
 </div>
+
+<!-- APP BAR: title per screen; search + settings on Today; back arrow on pushed screens -->
+<header class="app-bar">
+    <button id="app-back" class="icon-btn" type="button" data-back aria-label="Back" hidden>
+        <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+    </button>
+    <div class="app-bar__titles">
+        <span id="app-subtitle" class="app-bar__subtitle"></span>
+        <h1 id="app-title" class="app-bar__title">Today</h1>
+    </div>
+    <div class="app-bar__actions">
+        <button class="icon-btn" type="button" data-go="search" aria-label="Search days">
+            <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+        <button class="icon-btn" type="button" data-go="settings" aria-label="Settings">
+            <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+    </div>
+</header>
+
+<main class="screens">
+    <!-- TODAY -->
+    <section id="tab-today" class="screen" data-screen aria-labelledby="app-title">
+        <div class="status-line">
+            <button id="auth-status" class="status-pill" type="button" data-go="settings">Not connected</button>
+            <span id="last-sync" class="status-text">Sync: —</span>
+            <button id="db-status" class="status-pill status-pill--db" type="button"></button>
+            <span class="status-spacer"></span>
+            <button id="sync-btn" class="icon-btn icon-btn--small" type="button" aria-label="Sync steps">
+                <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>
+            </button>
+        </div>
+        <p id="sync-status" class="sync-status" aria-live="polite"></p>
+
+        <section class="card today-card" aria-label="Today's progress">
+            <div id="today-progress"></div>
+            <div class="today-tiles">
+                <div id="tile-distance" class="stat-tile"></div>
+                <div id="tile-strict" class="stat-tile stat-tile--hot"></div>
+                <div id="tile-lifetime" class="stat-tile"></div>
+                <div id="tile-tol99" class="stat-tile"></div>
+                <div id="tile-tol95" class="stat-tile"></div>
+                <div id="tile-best" class="stat-tile"></div>
+            </div>
+        </section>
+        <div id="today-challenge"></div>
+    </section>
+
+    <!-- CALENDAR -->
+    <section id="tab-calendar" class="screen" data-screen hidden>
+        <div id="calendar-view-switch" class="segmented" role="tablist" aria-label="Calendar view">
+            <button type="button" role="tab" class="segmented__option" data-calendar-view="week" aria-selected="false">Week</button>
+            <button type="button" role="tab" class="segmented__option" data-calendar-view="month" aria-selected="true">Month</button>
+        </div>
+        <div id="calendar-month" class="calendar-view"></div>
+        <div id="calendar-week" class="calendar-view" hidden></div>
+        <div class="drawer-overlay" hidden></div>
+        <aside id="day-drawer" class="sheet" role="dialog" aria-modal="true" aria-labelledby="day-drawer-title" data-overlay hidden></aside>
+    </section>
+
+    <!-- INSIGHTS -->
+    <section id="tab-insights" class="screen" data-screen hidden>
+        <div id="lab-analytics"></div>
+    </section>
+
+    <!-- JOURNEY -->
+    <section id="tab-journey" class="screen" data-screen hidden>
+        <div id="lab-gamification"></div>
+        <div id="lab-odyssey"></div>
+    </section>
+
+    <!-- SEARCH (pushed from Today) — search-ui.js builds the interior -->
+    <section id="tab-search" class="screen" data-screen hidden></section>
+
+    <!-- GROUP CHALLENGE (pushed from Today) -->
+    <section id="tab-challenge" class="screen" data-screen hidden>
+        <div id="challenge-detail"></div>
+    </section>
+
+    <!-- SETTINGS (pushed from Today) -->
+    <section id="tab-settings" class="screen" data-screen hidden>
+        <h2 class="list-label">Connections</h2>
+        <div class="list-group">
+            <div class="list-row list-row--wrap">
+                <span class="list-row__icon list-row__icon--green" aria-hidden="true">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.8 8.6a5 5 0 0 0-8.8-3.2 5 5 0 0 0-8.8 3.2c0 5.4 8.8 11.4 8.8 11.4s8.8-6 8.8-11.4z"/></svg>
+                </span>
+                <span class="list-row__text">
+                    <span id="step-source-name" class="list-row__title">Step data</span>
+                    <span class="list-row__sub">Where your daily steps come from</span>
+                </span>
+                <button id="auth-btn" class="btn btn-secondary" type="button">Connect</button>
+            </div>
+        </div>
+
+        <h2 class="list-label">Backup</h2>
+        <div class="list-group">
+            <button class="list-row" type="button" data-go="backup">
+                <span class="list-row__icon list-row__icon--cyan" aria-hidden="true">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 18h10a4 4 0 0 0 .6-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/></svg>
+                </span>
+                <span class="list-row__text">
+                    <span class="list-row__title">Backup &amp; restore</span>
+                    <span class="list-row__sub">Google Drive, backup files, storage protection</span>
+                </span>
+                <svg class="icon list-row__chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+        </div>
+
+        <!-- settings-ui.js builds: home city, history start, danger zone -->
+        <div id="settings-panel"></div>
+        <p id="app-version" class="app-version">Step Tracker</p>
+    </section>
+
+    <!-- BACKUP & RESTORE (pushed from Settings) -->
+    <section id="tab-backup" class="screen" data-screen hidden>
+        <!-- each panel renders its own heading: Storage protection, Google Drive, File on this phone -->
+        <div id="storage-health-controls"></div>
+        <div id="cloud-controls"></div>
+        <div id="backup-controls"></div>
+    </section>
+</main>
+
+<!-- BOTTOM NAVIGATION -->
+<nav class="bottom-nav" aria-label="Primary">
+    <button type="button" class="bottom-nav__item" data-tab="today" aria-current="page">
+        <span class="bottom-nav__icon"><svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>
+        <span class="bottom-nav__label">Today</span>
+    </button>
+    <button type="button" class="bottom-nav__item" data-tab="calendar">
+        <span class="bottom-nav__icon"><svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg></span>
+        <span class="bottom-nav__label">Calendar</span>
+    </button>
+    <button type="button" class="bottom-nav__item" data-tab="insights">
+        <span class="bottom-nav__icon"><svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20V10M3 20h18"/></svg></span>
+        <span class="bottom-nav__label">Insights</span>
+    </button>
+    <button type="button" class="bottom-nav__item" data-tab="journey">
+        <span class="bottom-nav__icon"><svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg></span>
+        <span class="bottom-nav__label">Journey</span>
+    </button>
+</nav>
+
+<!-- FIRST LAUNCH — onboarding-ui.js shows it until a connection or restore -->
+<section id="onboarding" class="onboarding" aria-labelledby="onboarding-title" hidden>
+    <div class="onboarding__hero">
+        <svg class="onboarding__rings" width="200" height="200" viewBox="0 0 220 220" aria-hidden="true">
+            <circle cx="110" cy="110" r="92" fill="none" stroke="rgba(56,189,248,.12)" stroke-width="16"/>
+            <circle cx="110" cy="110" r="92" fill="none" stroke="#38bdf8" stroke-width="16" stroke-linecap="round" stroke-dasharray="520 578" transform="rotate(-90 110 110)"/>
+            <circle cx="110" cy="110" r="66" fill="none" stroke="rgba(245,158,11,.14)" stroke-width="10"/>
+            <circle cx="110" cy="110" r="66" fill="none" stroke="#f59e0b" stroke-width="10" stroke-linecap="round" stroke-dasharray="250 415" transform="rotate(-90 110 110)"/>
+        </svg>
+        <h1 id="onboarding-title" class="onboarding__title">Every step.<br />Every streak.</h1>
+        <p id="onboarding-text" class="onboarding__text">Step Tracker reads your daily steps and keeps everything on this device.</p>
+    </div>
+    <div class="onboarding__actions">
+        <button id="onboarding-connect" class="btn btn-primary btn-block" type="button">Connect</button>
+        <button id="onboarding-restore" class="btn btn-secondary btn-block" type="button">Restore from a backup</button>
+        <button id="onboarding-skip" class="btn-link" type="button">Not now</button>
+    </div>
+</section>
 
 <script type="module" src="/src/main.js"></script>
 </body>

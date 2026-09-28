@@ -1,58 +1,78 @@
 /**
- * analytics-ui.js — DOM renderer for the Lab tab analytics sections.
+ * analytics-ui.js — the Insights screen (#lab-analytics).
  *
- * Pairs with analytics.js (pure engine). This module owns all DOM writes for
- * the analytics sections in #tab-lab.
+ * Pairs with analytics.js (pure engine). A range switch (All time, then each
+ * year with data) scopes every section:
+ *   Hall of fame · Top days · By weekday · Time of day · Monthly totals
+ * "All time" uses the engine's own figures; a year is recomputed from the
+ * cached records with computeInsights(), without another database read.
  *
  * Architecture constraints:
  * - No Dexie imports; all data arrives via engine.compute().
- * - No innerHTML for user-supplied strings (XSS guard).
- * - AbortController per render() call — prevents listener accumulation.
+ * - Every node built with createElement / textContent (XSS guard).
+ * - AbortController per draw — prevents listener accumulation.
  * - replaceChildren() for idempotent re-renders.
- * - Fail-open: errors from engine are caught, reporter.db() notified.
+ * - Fail-open: engine errors are caught, reporter.db() notified.
  *
- * SF-6: proofLightbox is optional. Proof buttons rendered only when it is
- *       provided AND the record carries screenshot_proof.
- * SF-7: All-zero hourly array → descriptive message, no bar chart.
- * SF-13: render() catch → console.error + reporter.db + error <p>.
- * SF-14: Default year = new Date().getFullYear(); otherwise most-recent.
+ * proofLightbox is optional: proof buttons render only when it is provided
+ * AND the record carries screenshot_proof.
  */
 
-import { computeYearlyMonthlyComparison } from './analytics.js';
+import { computeInsights, computeYearlyMonthlyComparison, extractYears } from './analytics.js';
+import { _formatSteps } from './month-overview.js';
+import { createIcon } from './icons.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SECTION_TAG = 'section';
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const HOUR_LABELS = Array.from({ length: 24 }, (_, h) => {
-  const ampm = h < 12 ? 'am' : 'pm';
-  const label = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${label}${ampm}`;
-});
-const MONTH_LABELS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const HOUR_TICKS = ['12a', '6a', '12p', '6p', '11p'];
 const HOURLY_EMPTY_MESSAGE = 'Hourly data will appear after your next sync';
 const EMPTY_STATE_MESSAGE = 'No step data found. Sync your steps to see analytics here.';
-const BAR_CHART_CLASS = 'bar-chart';
-const BAR_CLASS = 'bar-chart__bar';
-const MIN_BAR_SAFE_DENOMINATOR = 1; // avoids /0 when all values are 0
+const ALL_TIME = 'all';
+
+const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+
+/** 0 → "12 am", 18 → "6 pm". */
+function _hourName(h) {
+  const suffix = h < 12 ? 'am' : 'pm';
+  return `${h % 12 === 0 ? 12 : h % 12} ${suffix}`;
+}
+
+/** "2025-05-05" → "5 May 2025". */
+function _readableDate(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  return `${d} ${MONTH_LABELS[m - 1]} ${y}`;
+}
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
- * Creates the analytics UI renderer.
- *
- * @param {Document} doc - DOM document (injected for testability)
+ * @param {Document} doc
  * @param {{ compute: Function }} engine - analytics engine (analytics.js factory)
- * @param {{ db: Function }} reporter - status reporter
- * @param {{ open: Function }|null} [proofLightbox=null] - optional proof lightbox
+ * @param {{ db: Function }} reporter
+ * @param {{ open: Function }|null} [proofLightbox=null]
  * @returns {{ render: Function }}
  */
 export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
   let controller = null;
-  let cachedRecords = null; // retained for year-change re-render
+  let range = ALL_TIME;
+  let lastResult = null;
+
+  function _el(tag, className, text) {
+    const node = doc.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function _section(className, title, sub) {
+    const section = _el('section', `card insights-section ${className}`);
+    section.appendChild(_el('h2', 'section-title', title));
+    if (sub) section.appendChild(_el('p', 'section-sub', sub));
+    return section;
+  }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -63,305 +83,221 @@ export function createAnalyticsUI(doc, engine, reporter, proofLightbox = null) {
       return;
     }
 
-    // Abort previous controller before creating a new one
-    if (controller) controller.abort();
-    controller = new AbortController();
-    const { signal } = controller;
-
     try {
-      const result = await engine.compute();
-      cachedRecords = result.records ?? [];
-
-      if (!cachedRecords.length) {
-        panel.replaceChildren(_buildEmptyState());
-        return;
-      }
-
-      const sections = [
-        _buildHallOfFame(result.lifetimeMetrics),
-        _buildTop5Table(result.topRecords, signal),
-        _buildWeekdayHistogram(result.dayOfWeek),
-        _buildHourlyChart(result.hourly),
-        _buildYearlySection(cachedRecords, signal),
-      ];
-      panel.replaceChildren(...sections);
+      lastResult = await engine.compute();
+      _draw(panel);
     } catch (err) {
       console.error('[analytics-ui]', err);
       reporter.db('⚠️ Could not render Analytics');
-      const errP = doc.createElement('p');
-      errP.textContent = 'Analytics could not be loaded. Please try again.';
-      panel.replaceChildren(errP);
+      panel.replaceChildren(_el('p', '', 'Analytics could not be loaded. Please try again.'));
     }
+  }
+
+  /** Build the screen from the cached engine result for the current range. */
+  function _draw(panel) {
+    controller?.abort();
+    controller = new (doc.defaultView?.AbortController ?? AbortController)();
+    const { signal } = controller;
+
+    const records = lastResult.records ?? [];
+    if (!records.length) {
+      panel.replaceChildren(_el('p', '', EMPTY_STATE_MESSAGE));
+      return;
+    }
+
+    const years = lastResult.years ?? extractYears(records);
+    if (range !== ALL_TIME && !years.includes(range)) range = ALL_TIME;
+    const insights = range === ALL_TIME
+      ? lastResult
+      : computeInsights(records, lastResult.activeStepGoal, range);
+
+    panel.replaceChildren(
+      _buildRangeSwitch(years, panel, signal),
+      _buildHallOfFame(insights.lifetimeMetrics),
+      _buildTopDays(insights.topRecords ?? [], signal),
+      _buildWeekday(insights.dayOfWeek),
+      _buildHourly(insights.hourly ?? []),
+      _buildMonthly(records, years, signal),
+    );
   }
 
   // ── Section builders ───────────────────────────────────────────────────────
 
-  function _buildEmptyState() {
-    const p = doc.createElement('p');
-    p.textContent = EMPTY_STATE_MESSAGE;
-    return p;
+  function _buildRangeSwitch(years, panel, signal) {
+    const bar = _el('div', 'segmented segmented--scroll insights-range');
+    bar.setAttribute('role', 'tablist');
+    bar.setAttribute('aria-label', 'Time range');
+    for (const value of [ALL_TIME, ...years]) {
+      const btn = _el('button', 'segmented__option', value === ALL_TIME ? 'All time' : String(value));
+      btn.type = 'button';
+      btn.setAttribute('role', 'tab');
+      btn.dataset.range = String(value);
+      btn.setAttribute('aria-selected', String(value === range));
+      bar.appendChild(btn);
+    }
+    bar.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-range]');
+      if (!btn) return;
+      range = btn.dataset.range === ALL_TIME ? ALL_TIME : Number(btn.dataset.range);
+      _draw(panel);
+    }, { signal });
+    return bar;
   }
 
-  /**
-   * Hall of Fame — four metric tiles in a <dl>.
-   */
   function _buildHallOfFame(metrics) {
-    const section = doc.createElement(SECTION_TAG);
-    section.className = 'analytics-hall-of-fame';
-
-    const h2 = doc.createElement('h2');
-    h2.textContent = '🏆 Hall of Fame';
-    section.appendChild(h2);
-
-    const grid = doc.createElement('div');
-    grid.className = 'hof-grid';
+    const section = _section('analytics-hall-of-fame', 'Hall of fame');
+    const grid = _el('div', 'hof-grid');
     const tiles = [
-      { label: 'Total Steps', value: Math.round(metrics.totalSteps).toLocaleString() },
-      { label: 'Distance (km)', value: Math.round(metrics.totalDistanceKm).toLocaleString() },
-      { label: 'Daily Average', value: Math.round(metrics.dailyAverage).toLocaleString() },
-      { label: 'Longest Streak', value: `${metrics.longestStreak} days` },
+      ['Total steps', fmt(metrics.totalSteps)],
+      ['Distance', `${fmt(metrics.totalDistanceKm)} km`],
+      ['Daily average', fmt(metrics.dailyAverage)],
+      ['Longest streak', `${metrics.longestStreak} ${metrics.longestStreak === 1 ? 'day' : 'days'}`],
     ];
-
-    for (const tile of tiles) {
-      const tileEl = doc.createElement('div');
-      tileEl.className = 'hof-tile';
-
-      const labelEl = doc.createElement('span');
-      labelEl.className = 'hof-tile__label';
-      labelEl.textContent = tile.label;
-
-      const valueEl = doc.createElement('span');
-      valueEl.className = 'hof-tile__value';
-      valueEl.textContent = tile.value;
-
-      tileEl.append(labelEl, valueEl);
-      grid.appendChild(tileEl);
+    for (const [label, value] of tiles) {
+      const tile = _el('div', 'hof-tile');
+      tile.append(_el('span', 'hof-tile__label', label), _el('span', 'hof-tile__value', value));
+      grid.appendChild(tile);
     }
-
     section.appendChild(grid);
     return section;
   }
 
-  /**
-   * Top-5 records table.
-   */
-  function _buildTop5Table(topRecords, signal) {
-    const section = doc.createElement(SECTION_TAG);
-    section.className = 'analytics-top5';
-
-    const h2 = doc.createElement('h2');
-    h2.textContent = '📋 Top Days';
-    section.appendChild(h2);
-
-    const table = doc.createElement('table');
-    const thead = doc.createElement('thead');
-    const headerRow = doc.createElement('tr');
-    for (const col of ['Date', 'Steps', 'Distance (km)', 'Proof']) {
-      const th = doc.createElement('th');
-      th.textContent = col;
-      headerRow.appendChild(th);
-    }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    const tbody = doc.createElement('tbody');
-    for (const record of topRecords) {
-      const tr = doc.createElement('tr');
-
-      const tdDate = doc.createElement('td');
-      tdDate.textContent = record.date;
-
-      const tdSteps = doc.createElement('td');
-      tdSteps.textContent = String(record.effective_steps);
-
-      const tdDist = doc.createElement('td');
-      tdDist.textContent = Number(record.effective_distance_km).toFixed(2);
-
-      const tdProof = doc.createElement('td');
+  function _buildTopDays(topRecords, signal) {
+    const section = _section('analytics-top5', 'Top days');
+    const list = _el('ol', 'rank-list');
+    topRecords.forEach((record, index) => {
+      const item = _el('li', 'rank-list__item');
+      item.appendChild(_el('span', 'rank-list__rank', String(index + 1)));
+      item.appendChild(_el('span', 'rank-list__date', _readableDate(record.date)));
       if (proofLightbox && record.screenshot_proof) {
-        const btn = doc.createElement('button');
-        btn.setAttribute('data-action', 'open-proof');
-        btn.setAttribute('data-date', record.date);
-        btn.textContent = 'View';
-        tdProof.appendChild(btn);
+        const btn = _el('button', 'icon-btn icon-btn--small rank-list__proof');
+        btn.type = 'button';
+        btn.dataset.action = 'open-proof';
+        btn.dataset.date = record.date;
+        btn.setAttribute('aria-label', `View proof for ${_readableDate(record.date)}`);
+        btn.appendChild(createIcon(doc, 'camera', { size: 16 }));
+        item.appendChild(btn);
       }
-
-      tr.append(tdDate, tdSteps, tdDist, tdProof);
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
-
-    // Delegated listener for proof buttons
+      const figures = _el('span', 'rank-list__figures');
+      figures.append(
+        _el('span', 'rank-list__steps', fmt(record.effective_steps)),
+        _el('span', 'rank-list__km', `${Number(record.effective_distance_km || 0).toFixed(1)} km`),
+      );
+      item.appendChild(figures);
+      list.appendChild(item);
+    });
     section.addEventListener('click', (event) => {
       const btn = event.target.closest('[data-action="open-proof"]');
       if (!btn || !proofLightbox) return;
-      const date = btn.dataset.date;
-      const record = topRecords.find(r => r.date === date);
+      const record = topRecords.find((r) => r.date === btn.dataset.date);
       if (record) proofLightbox.open(record);
     }, { signal });
-
-    section.appendChild(table);
+    section.appendChild(list);
     return section;
   }
 
-  /**
-   * Weekday histogram — bar chart for 7 ISO weekdays (Mon–Sun).
-   */
-  function _buildWeekdayHistogram(dayOfWeek) {
-    const section = doc.createElement(SECTION_TAG);
-    section.className = 'analytics-weekday';
-
-    const h2 = doc.createElement('h2');
-    h2.textContent = '📅 Day-of-Week Distribution';
-    section.appendChild(h2);
-
-    const powerLabel = DAY_LABELS[dayOfWeek.powerDay];
-    const lazyLabel = DAY_LABELS[dayOfWeek.lazyDay];
-    const meta = doc.createElement('p');
-    meta.textContent = `Power day: ${powerLabel} · Lazy day: ${lazyLabel}`;
-    section.appendChild(meta);
-
-    section.appendChild(_buildBarChart(dayOfWeek.averages, DAY_LABELS, 'avg steps'));
+  function _buildWeekday(dayOfWeek) {
+    const averages = dayOfWeek?.averages ?? new Array(7).fill(0);
+    const sub = `${DAY_NAMES[dayOfWeek?.powerDay ?? 0]} is your strongest day · ${DAY_NAMES[dayOfWeek?.lazyDay ?? 0]} your quietest`;
+    const section = _section('analytics-weekday', 'By weekday', sub);
+    section.appendChild(_buildBarChart(averages, DAY_LABELS, DAY_NAMES, 'average steps', { showValues: true }));
     return section;
   }
 
-  /**
-   * 24-hour distribution chart. Shows empty message when all values are zero.
-   */
-  function _buildHourlyChart(hourly) {
-    const section = doc.createElement(SECTION_TAG);
-    section.className = 'analytics-hourly';
-
-    const h2 = doc.createElement('h2');
-    h2.textContent = '🕐 24-Hour Step Distribution';
-    section.appendChild(h2);
-
-    const isAllZero = hourly.every(v => v === 0);
-    if (isAllZero) {
-      const msg = doc.createElement('p');
-      msg.textContent = HOURLY_EMPTY_MESSAGE;
-      section.appendChild(msg);
-    } else {
-      section.appendChild(_buildBarChart(hourly, HOUR_LABELS, 'steps'));
+  function _buildHourly(hourly) {
+    const empty = hourly.length !== 24 || hourly.every((v) => !v);
+    if (empty) {
+      const section = _section('analytics-hourly', 'Time of day');
+      section.appendChild(_el('p', 'section-sub', HOURLY_EMPTY_MESSAGE));
+      return section;
     }
-
+    const peakHour = hourly.indexOf(Math.max(...hourly));
+    const section = _section('analytics-hourly', 'Time of day', `Most steps land around ${_hourName(peakHour)}`);
+    const names = hourly.map((_, h) => _hourName(h));
+    section.appendChild(_buildBarChart(hourly, names.map(() => ''), names, 'steps', { showValues: false }));
+    const ticks = _el('div', 'chart-ticks');
+    ticks.setAttribute('aria-hidden', 'true');
+    for (const tick of HOUR_TICKS) ticks.appendChild(_el('span', '', tick));
+    section.appendChild(ticks);
     return section;
   }
 
-  /**
-   * Yearly monthly comparison — includes year <select> and monthly bar chart.
-   */
-  function _buildYearlySection(records, signal) {
-    const section = doc.createElement(SECTION_TAG);
-    section.className = 'analytics-yearly';
-    section.setAttribute('data-role', 'yearly-section');
-
-    const h2 = doc.createElement('h2');
-    h2.textContent = '📆 Monthly Breakdown';
-    section.appendChild(h2);
-
-    const years = _extractYears(records);
+  function _buildMonthly(records, years, signal) {
+    const fixedYear = range === ALL_TIME ? null : range;
     const currentYear = new Date().getFullYear();
-    const defaultYear = years.includes(currentYear) ? currentYear : (years[0] ?? currentYear);
+    const year = fixedYear ?? (years.includes(currentYear) ? currentYear : (years[0] ?? currentYear));
 
-    // Year selector
-    const select = doc.createElement('select');
-    select.setAttribute('data-action', 'change-year');
-    for (const y of years) {
-      const opt = doc.createElement('option');
-      opt.value = String(y);
-      opt.textContent = String(y);
-      if (y === defaultYear) opt.selected = true;
-      select.appendChild(opt);
+    const section = _section('analytics-yearly', 'Monthly totals', fixedYear ? String(fixedYear) : undefined);
+    section.dataset.role = 'yearly-section';
+
+    const holder = _el('div', 'hbar-list');
+    holder.dataset.role = 'monthly-chart';
+    holder.replaceChildren(..._buildMonthlyBars(records, year));
+
+    if (!fixedYear) {
+      const select = _el('select', 'section-select');
+      select.dataset.action = 'change-year';
+      select.setAttribute('aria-label', 'Year');
+      for (const y of years) {
+        const opt = _el('option', '', String(y));
+        opt.value = String(y);
+        if (y === year) opt.selected = true;
+        select.appendChild(opt);
+      }
+      section.querySelector('.section-title').after(select);
+      select.addEventListener('change', () => {
+        holder.replaceChildren(..._buildMonthlyBars(records, parseInt(select.value, 10)));
+      }, { signal });
     }
-    section.appendChild(select);
 
-    // Monthly chart placeholder (replaced on year change)
-    const chartHolder = doc.createElement('div');
-    chartHolder.setAttribute('data-role', 'monthly-chart');
-    chartHolder.appendChild(_buildMonthlyChart(records, defaultYear));
-    section.appendChild(chartHolder);
-
-    // Delegated change listener for year selector
-    section.addEventListener('change', (event) => {
-      const target = event.target.closest('[data-action="change-year"]');
-      if (!target) return;
-      const selectedYear = parseInt(target.value, 10);
-      chartHolder.replaceChildren(_buildMonthlyChart(cachedRecords ?? records, selectedYear));
-    }, { signal });
-
+    section.appendChild(holder);
     return section;
   }
 
-  function _buildMonthlyChart(records, year) {
-    const months = computeYearlyMonthlyComparison(records, year);
-    const totals = months.map(m => m.total);
-    return _buildBarChart(totals, MONTH_LABELS, 'steps');
+  function _buildMonthlyBars(records, year) {
+    const totals = computeYearlyMonthlyComparison(records, year).map((m) => m.total);
+    const peak = Math.max(...totals, 1);
+    return totals.map((total, i) => {
+      const row = _el('div', 'hbar');
+      row.setAttribute('role', 'img');
+      row.setAttribute('aria-label', `${MONTH_LABELS[i]} ${year}: ${fmt(total)} steps`);
+      const track = _el('span', 'hbar__track');
+      const fill = _el('span', total === peak && total > 0 ? 'hbar__fill hbar__fill--peak' : 'hbar__fill');
+      fill.style.width = `${Math.round((total / peak) * 100)}%`;
+      track.appendChild(fill);
+      row.append(_el('span', 'hbar__label', MONTH_LABELS[i]), track, _el('span', 'hbar__value', total ? _formatSteps(total) : '—'));
+      return row;
+    });
   }
 
-  // ── Generic bar chart builder ──────────────────────────────────────────────
+  // ── Vertical bar chart ─────────────────────────────────────────────────────
 
   /**
-   * Builds a proportional bar chart. Each bar carries a visible value label
-   * above it (not just an aria-label) — screen-reader-only text was leaving
-   * the chart numberless for sighted users.
-   *
    * @param {number[]} values
-   * @param {string[]} labels
-   * @param {string} unit - used in aria-label
-   * @returns {HTMLElement}
+   * @param {string[]} labels      short labels under the bars ('' for none)
+   * @param {string[]} names       full names for screen readers
+   * @param {string} unit
+   * @param {{ showValues: boolean }} options
    */
-  function _buildBarChart(values, labels, unit) {
-    const MAX_BAR_HEIGHT_PX = 90;
-    const chart = doc.createElement('div');
-    chart.className = BAR_CHART_CLASS;
-
-    const maxValue = Math.max(...values, MIN_BAR_SAFE_DENOMINATOR);
-
-    for (let i = 0; i < values.length; i++) {
-      const col = doc.createElement('div');
-      col.className = 'bar-chart__col';
-
-      const valueEl = doc.createElement('span');
-      valueEl.className = 'bar-chart__value';
-      valueEl.textContent = Math.round(values[i]).toLocaleString();
-      col.appendChild(valueEl);
-
-      const bar = doc.createElement('div');
-      bar.className = BAR_CLASS;
-      const heightPx = Math.max(2, Math.round((values[i] / maxValue) * MAX_BAR_HEIGHT_PX));
-      bar.style.height = `${heightPx}px`;
-      bar.setAttribute('aria-label', `${labels[i]}: ${values[i]} ${unit}`);
+  function _buildBarChart(values, labels, names, unit, { showValues }) {
+    const chart = _el('div', 'bar-chart');
+    const peak = Math.max(...values, 1);
+    const low = Math.min(...values);
+    values.forEach((value, i) => {
+      const col = _el('div', 'bar-chart__col');
+      if (showValues) col.appendChild(_el('span', 'bar-chart__value', _formatSteps(Math.round(value))));
+      let barClass = 'bar-chart__bar';
+      if (value === peak && value > 0) barClass += ' bar-chart__bar--peak';
+      else if (value === low && showValues) barClass += ' bar-chart__bar--low';
+      const bar = _el('div', barClass);
+      bar.style.height = `${Math.max(3, Math.round((value / peak) * 100))}%`;
+      bar.setAttribute('role', 'img');
+      bar.setAttribute('aria-label', `${names[i]}: ${fmt(value)} ${unit}`);
       col.appendChild(bar);
-
-      const labelEl = doc.createElement('span');
-      labelEl.className = 'bar-chart__label';
-      labelEl.textContent = labels[i];
-      col.appendChild(labelEl);
-
+      if (labels[i]) col.appendChild(_el('span', 'bar-chart__label', labels[i]));
       chart.appendChild(col);
-    }
-
+    });
     return chart;
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  /**
-   * Extracts unique years from records, sorted descending.
-   *
-   * @param {Array<{ date: string }>} records
-   * @returns {number[]}
-   */
-  function _extractYears(records) {
-    const yearSet = new Set();
-    for (const r of records) {
-      if (typeof r.date === 'string' && r.date.length >= 4) {
-        const y = parseInt(r.date.slice(0, 4), 10);
-        if (Number.isFinite(y)) yearSet.add(y);
-      }
-    }
-    return [...yearSet].sort((a, b) => b - a);
   }
 
   return { render };

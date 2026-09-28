@@ -359,6 +359,12 @@ describe('createProofLightbox', () => {
     expect(doc.querySelector('.proof-lightbox')).toBeNull();
   });
 
+  it('is marked as an overlay so the Android back button closes it first', () => {
+    const doc = buildDoc('<div id="root"></div>');
+    createProofLightbox(doc).open('data:image/jpeg;base64,PROOF', doc.body);
+    expect(doc.querySelector('.proof-lightbox').hasAttribute('data-overlay')).toBe(true);
+  });
+
   it('re-open replaces any existing lightbox (single instance)', () => {
     const doc = buildDoc('<div id="root"></div>');
     const lightbox = createProofLightbox(doc);

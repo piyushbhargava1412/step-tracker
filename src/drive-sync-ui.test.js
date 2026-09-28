@@ -88,14 +88,14 @@ describe('createDriveSyncUI', () => {
     expect(btn).not.toBeNull();
   });
 
-  it('renders the "☁️ Google Drive Cloud Sync" column heading', () => {
-    expect(container.querySelector('h2').textContent).toBe('☁️ Google Drive Cloud Sync');
+  it('renders the "Google Drive" heading', () => {
+    expect(container.querySelector('h2').textContent).toBe('Google Drive');
   });
 
-  it('renders a "⚠️ Overwrites local database" warning badge in the restore section', () => {
+  it('renders a "Replaces the data on this device" warning badge in the restore section', () => {
     const badge = container.querySelector('.warning-badge');
     expect(badge).not.toBeNull();
-    expect(badge.textContent).toBe('⚠️ Overwrites local database');
+    expect(badge.textContent).toBe('Replaces the data on this device');
   });
 
   it('renders the auto-backup toggle inside the "Back Up to Drive" section, beside the button', () => {
@@ -651,14 +651,14 @@ describe('ST-020: Drive panel — Google connection and primary device', () => {
 
     click(container, 'connect-drive');
 
-    expect(container.querySelector('[data-action="connect-drive"]').textContent).toBe('🔗 Connect Google Drive');
+    expect(container.querySelector('[data-action="connect-drive"]').textContent).toBe('Connect Google Drive');
     expect(driveConnection.connect).toHaveBeenCalledTimes(1);
   });
 
   it('shows the connected state instead of the button once connected', async () => {
     const { container } = await renderPanel({ driveConnection: makeConnection(true) });
     expect(container.querySelector('[data-action="connect-drive"]')).toBeNull();
-    expect(container.textContent).toContain('✅ Google Drive connected');
+    expect(container.textContent).toContain('Google Drive connected');
   });
 
   it.each([
@@ -678,7 +678,7 @@ describe('ST-020: Drive panel — Google connection and primary device', () => {
     expect(container.querySelector('[data-action="make-primary"]')).toBeNull();
 
     ({ container } = await renderPanel({ primaryDevice: makePrimary(), canMakePrimary: true }));
-    expect(container.querySelector('[data-action="make-primary"]').textContent).toBe('📱 Make this the primary device');
+    expect(container.querySelector('[data-action="make-primary"]').textContent).toBe('Make this the primary device');
   });
 
   it('making this the primary asks first, records it, then uploads a backup that carries it', async () => {

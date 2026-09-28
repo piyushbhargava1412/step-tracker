@@ -1,9 +1,12 @@
 /**
- * Settings UI DOM-writer.
- * Factory: createSettingsUI(doc, settings, reporter, confirmFn) → { render, open, close }
+ * Settings UI DOM-writer — the data part of the Settings screen (#settings-panel).
+ * Factory: createSettingsUI(doc, settings, reporter, confirmFn) → { render, open }
  *
  * Responsibilities:
- *  - Build the settings modal DOM (createElement/textContent only)
+ *  - Build the panel's grouped rows (createElement/textContent only):
+ *      Journey › Home city · History › Track history from ·
+ *      Danger zone › erase-all switch, impact preview, delete / erase button
+ *  - open() runs each time the Settings screen is shown (navigation.js hook)
  *  - Populate date input from settings.getSyncAnchorDate() on open
  *  - On date change, persist the anchor (setSyncAnchorDate) and refresh impact preview
  *  - AbortController-scoped delegated listeners; event delegation via data-* attributes
@@ -16,17 +19,22 @@
 import { _formatReadableDate } from './date-utils.js';
 import { HOME_BASE_CITIES } from './odyssey.js';
 
+const PANEL_ID = 'settings-panel';
+const PRUNE_LABEL = 'Delete days before this date';
+const WIPE_LABEL = 'Erase all data on this device';
+
 export function createSettingsUI(doc, settings, reporter, confirmFn) {
   let controller = null;
+  const _panel = () => doc.getElementById(PANEL_ID);
 
   /**
-   * (Re)build the modal content and attach delegated listeners.
+   * (Re)build the panel content and attach delegated listeners.
    * Idempotent — re-calling aborts previous listeners and rebuilds DOM.
    */
   async function render() {
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     if (!modal) {
-      console.warn('[settings-ui]', 'Missing #settings-modal — skipping render');
+      console.warn('[settings-ui]', 'Missing #settings-panel — skipping render');
       return;
     }
 
@@ -42,12 +50,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
       modal.removeChild(modal.firstChild);
     }
 
-    // Build content
-    const dialog = doc.createElement('div');
-    dialog.className = 'modal-dialog';
-    dialog.appendChild(_buildHeader());
-    dialog.appendChild(_buildBody());
-    modal.appendChild(dialog);
+    modal.appendChild(_buildBody());
 
     // Pre-select stored home base city
     try {
@@ -65,161 +68,123 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     modal.addEventListener('change', _handleChange, { signal });
   }
 
-  function _buildHeader() {
-    const header = doc.createElement('div');
-    header.className = 'modal-header';
+  /** A labelled group heading + its rounded list container. */
+  function _group(title, extraClass = '') {
+    const heading = doc.createElement('h2');
+    heading.className = extraClass ? `list-label ${extraClass}` : 'list-label';
+    heading.textContent = title;
+    const group = doc.createElement('div');
+    group.className = extraClass ? `list-group list-group--${extraClass}` : 'list-group';
+    return { heading, group };
+  }
 
-    const title = doc.createElement('h2');
-    title.className = 'settings-title';
-    title.textContent = '⚙️ Settings & Data Hygiene';
-    header.appendChild(title);
-
-    const closeBtn = doc.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'settings-close-btn';
-    closeBtn.dataset.action = 'close-settings';
-    closeBtn.setAttribute('aria-label', 'Close settings');
-    closeBtn.textContent = '✕';
-    header.appendChild(closeBtn);
-
-    return header;
+  /** A list row: title + optional subtitle on the left, a control on the right. */
+  function _row({ title, sub, control, htmlFor, className = '' }) {
+    const row = doc.createElement(htmlFor ? 'label' : 'div');
+    row.className = className ? `list-row ${className}` : 'list-row';
+    if (htmlFor) row.setAttribute('for', htmlFor);
+    const text = doc.createElement('span');
+    text.className = 'list-row__text';
+    const titleEl = doc.createElement('span');
+    titleEl.className = 'list-row__title settings-label-text';
+    titleEl.textContent = title;
+    text.appendChild(titleEl);
+    if (sub) {
+      const subEl = doc.createElement('span');
+      subEl.className = 'list-row__sub';
+      subEl.textContent = sub;
+      text.appendChild(subEl);
+    }
+    row.appendChild(text);
+    if (control) row.appendChild(control);
+    return row;
   }
 
   function _buildBody() {
     const body = doc.createElement('div');
     body.className = 'settings-body';
 
-    // ── Sync Boundary section ──
-    const syncSection = doc.createElement('section');
-    syncSection.className = 'settings-section sync-section';
-
-    const syncTitle = doc.createElement('h3');
-    syncTitle.className = 'settings-section-title';
-    syncTitle.textContent = '📅 SYNC BOUNDARY';
-    syncSection.appendChild(syncTitle);
-
-    const label = doc.createElement('label');
-    label.className = 'settings-label';
-    label.setAttribute('for', 'settings-anchor-date');
-
-    const labelText = doc.createElement('span');
-    labelText.className = 'settings-label-text';
-    labelText.textContent = 'Track History From:';
-    label.appendChild(labelText);
-
-    const dateInput = doc.createElement('input');
-    dateInput.type = 'date';
-    dateInput.id = 'settings-anchor-date';
-    dateInput.className = 'settings-date-picker';
-    dateInput.dataset.field = 'anchor-date';
-    label.appendChild(dateInput);
-
-    syncSection.appendChild(label);
-    body.appendChild(syncSection);
-
-    // ── Divider ──
-    const divider = doc.createElement('div');
-    divider.className = 'settings-divider';
-    divider.setAttribute('role', 'separator');
-    body.appendChild(divider);
-
-    // ── Data Purge Options section ──
-    const purgeSection = doc.createElement('section');
-    purgeSection.className = 'settings-section purge-section';
-
-    const purgeTitle = doc.createElement('h3');
-    purgeTitle.className = 'settings-section-title';
-    purgeTitle.textContent = '🗑️ DATA PURGE OPTIONS';
-    purgeSection.appendChild(purgeTitle);
-
-    // Clear-All checkbox row
-    const clearAllLabel = doc.createElement('label');
-    clearAllLabel.className = 'settings-clear-all-label';
-
-    const clearAllCheckbox = doc.createElement('input');
-    clearAllCheckbox.type = 'checkbox';
-    clearAllCheckbox.className = 'settings-clear-all-checkbox';
-    clearAllCheckbox.dataset.action = 'toggle-clear-all';
-    clearAllLabel.appendChild(clearAllCheckbox);
-
-    const clearAllText = doc.createElement('span');
-    clearAllText.textContent = 'Clear All Local Data (Wipe entire database)';
-    clearAllLabel.appendChild(clearAllText);
-
-    purgeSection.appendChild(clearAllLabel);
-
-    // Impact preview block
-    const impactLabel = doc.createElement('span');
-    impactLabel.className = 'settings-impact-label';
-    impactLabel.textContent = '📊 Impact Preview:';
-    purgeSection.appendChild(impactLabel);
-
-    const preview = doc.createElement('div');
-    preview.className = 'settings-impact-preview';
-    preview.dataset.preview = 'impact';
-    preview.textContent = 'Select a date to see impact preview.';
-    purgeSection.appendChild(preview);
-
-    // Primary action button (prune mode by default)
-    const actionBtn = doc.createElement('button');
-    actionBtn.type = 'button';
-    actionBtn.className = 'btn btn-danger';
-    actionBtn.dataset.action = 'prune';
-    actionBtn.textContent = '🗑️ Prune Data Before Date';
-    purgeSection.appendChild(actionBtn);
-
-    body.appendChild(purgeSection);
-
-    // ── Home Base City section ──
-    const cityDivider = doc.createElement('div');
-    cityDivider.className = 'settings-divider';
-    cityDivider.setAttribute('role', 'separator');
-    body.appendChild(cityDivider);
-
-    const citySection = doc.createElement('fieldset');
-    citySection.className = 'settings-section home-base-city-section';
-
-    const cityLegend = doc.createElement('legend');
-    cityLegend.className = 'settings-section-title';
-    cityLegend.textContent = '🏙️ HOME BASE CITY';
-    citySection.appendChild(cityLegend);
-
-    const cityLabel = doc.createElement('label');
-    cityLabel.className = 'settings-label';
-    cityLabel.setAttribute('for', 'home-base-city-select');
-
-    const cityLabelText = doc.createElement('span');
-    cityLabelText.className = 'settings-label-text';
-    cityLabelText.textContent = 'Starting City for Odyssey:';
-    cityLabel.appendChild(cityLabelText);
-
+    // ── Journey › Home city ──
     const citySelect = doc.createElement('select');
     citySelect.id = 'home-base-city-select';
-    citySelect.className = 'settings-city-select';
+    citySelect.className = 'settings-city-select row-select';
     citySelect.dataset.action = 'change-home-base';
-
     for (const city of HOME_BASE_CITIES) {
       const option = doc.createElement('option');
       option.value = city.name;
       option.textContent = `${city.name}, ${city.country}`;
       citySelect.appendChild(option);
     }
+    const journey = _group('Journey');
+    journey.group.classList.add('home-base-city-section');
+    journey.group.appendChild(_row({
+      title: 'Home city',
+      sub: 'Where your virtual expedition starts',
+      control: citySelect,
+      htmlFor: 'home-base-city-select',
+    }));
+    body.append(journey.heading, journey.group);
 
-    cityLabel.appendChild(citySelect);
-    citySection.appendChild(cityLabel);
-    body.appendChild(citySection);
+    // ── History › Track history from ──
+    const dateInput = doc.createElement('input');
+    dateInput.type = 'date';
+    dateInput.id = 'settings-anchor-date';
+    dateInput.className = 'settings-date-picker row-input';
+    dateInput.dataset.field = 'anchor-date';
+    const history = _group('History');
+    history.group.classList.add('sync-section');
+    history.group.appendChild(_row({
+      title: 'Track history from',
+      sub: 'The oldest day to sync',
+      control: dateInput,
+      htmlFor: 'settings-anchor-date',
+    }));
+    body.append(history.heading, history.group);
+
+    // ── Danger zone ──
+    const danger = _group('Danger zone', 'danger');
+    danger.group.classList.add('purge-section');
+
+    const clearAll = doc.createElement('input');
+    clearAll.type = 'checkbox';
+    clearAll.id = 'settings-clear-all';
+    clearAll.className = 'settings-clear-all-checkbox switch';
+    clearAll.setAttribute('role', 'switch');
+    clearAll.dataset.action = 'toggle-clear-all';
+    danger.group.appendChild(_row({
+      title: 'Erase everything instead',
+      sub: 'Switch to wiping the whole database',
+      control: clearAll,
+      htmlFor: 'settings-clear-all',
+      className: 'settings-clear-all-label',
+    }));
+
+    const actionRow = doc.createElement('div');
+    actionRow.className = 'list-row list-row--stack';
+    const preview = doc.createElement('p');
+    preview.className = 'settings-impact-preview';
+    preview.dataset.preview = 'impact';
+    preview.setAttribute('aria-live', 'polite');
+    preview.textContent = 'Select a date to see impact preview.';
+    const actionBtn = doc.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'btn btn-danger btn-block';
+    actionBtn.dataset.action = 'prune';
+    actionBtn.textContent = PRUNE_LABEL;
+    actionRow.append(preview, actionBtn);
+    danger.group.appendChild(actionRow);
+    body.append(danger.heading, danger.group);
 
     return body;
   }
 
   /**
-   * Open the modal — make it visible and populate date input.
+   * The Settings screen was shown — load the stored anchor date and refresh
+   * the impact preview.
    */
   async function open() {
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     if (!modal) return;
-
-    modal.removeAttribute('hidden');
 
     // Pre-populate date input from settings
     try {
@@ -235,15 +200,6 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     }
   }
 
-  /**
-   * Close the modal.
-   */
-  function close() {
-    const modal = doc.getElementById('settings-modal');
-    if (!modal) return;
-    modal.setAttribute('hidden', '');
-  }
-
   // ── Event handlers ────────────────────────────────────────────────────────
 
   function _handleClick(event) {
@@ -251,9 +207,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     if (!target) return;
 
     const action = target.dataset.action;
-    if (action === 'close-settings') {
-      close();
-    } else if (action === 'prune') {
+    if (action === 'prune') {
       _handlePrune();
     } else if (action === 'wipe') {
       _handleWipe();
@@ -292,7 +246,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     const date = dateTarget.value;
     if (!date) return;
 
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     const toggle = modal && modal.querySelector('[data-action="toggle-clear-all"]');
     // Skip if hazard/wipe mode is active
     if (toggle && toggle.checked) return;
@@ -310,10 +264,10 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
   /**
    * Refresh the impact preview and prune-button label for a given date.
    * Renders "<n> record(s) found prior to <date>" and the human-readable
-   * button label "🗑️ Prune Data Before Jan 1, 2018".
+   * button label "Delete days before Jan 1, 2018".
    */
   async function _refreshImpact(date) {
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     if (!modal) return;
     const preview = modal.querySelector('[data-preview="impact"]');
     if (!preview) return;
@@ -328,7 +282,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
       preview.textContent = `${count} record${count === 1 ? '' : 's'} found prior to ${date}`;
       const actionBtn = modal.querySelector('[data-action="prune"]');
       if (actionBtn) {
-        actionBtn.textContent = `🗑️ Prune Data Before ${_formatReadableDate(date)}`;
+        actionBtn.textContent = `Delete days before ${_formatReadableDate(date)}`;
       }
     } catch (err) {
       console.error('[settings-ui]', err);
@@ -341,7 +295,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
    * Apply or remove hazard mode based on the Clear-All checkbox state.
    */
   async function _applyHazardMode(enabled) {
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     if (!modal) return;
 
     const dateInput = modal.querySelector('[data-field="anchor-date"]');
@@ -356,8 +310,8 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
       // Switch button to wipe mode
       if (actionBtn) {
         actionBtn.dataset.action = 'wipe';
-        actionBtn.textContent = '🔥 Clear Entire Database';
-        actionBtn.className = 'btn btn-hazard';
+        actionBtn.textContent = WIPE_LABEL;
+        actionBtn.className = 'btn btn-hazard btn-block';
       }
       // Show total-record impact
       if (preview) {
@@ -383,8 +337,8 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
       }
       if (actionBtn) {
         actionBtn.dataset.action = 'prune';
-        actionBtn.className = 'btn btn-danger';
-        actionBtn.textContent = '🗑️ Prune Data Before Date';
+        actionBtn.className = 'btn btn-danger btn-block';
+        actionBtn.textContent = PRUNE_LABEL;
       }
       const input = modal.querySelector('[data-field="anchor-date"]');
       await _refreshImpact(input ? input.value : '');
@@ -395,7 +349,7 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
    * Handle the prune action — confirm then prune and dispatch.
    */
   async function _handlePrune() {
-    const modal = doc.getElementById('settings-modal');
+    const modal = _panel();
     if (!modal) return;
 
     const input = modal.querySelector('[data-field="anchor-date"]');
@@ -436,5 +390,5 @@ export function createSettingsUI(doc, settings, reporter, confirmFn) {
     }
   }
 
-  return { render, open, close };
+  return { render, open };
 }

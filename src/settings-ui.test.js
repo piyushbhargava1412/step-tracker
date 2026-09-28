@@ -22,8 +22,7 @@ function buildDoc(html = '') {
 
 function getBaseHTML() {
   return `
-    <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" hidden>
-    </div>
+    <div id="settings-panel"></div>
   `;
 }
 
@@ -66,13 +65,13 @@ describe('settings-ui.js — file-content assertions', () => {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 describe('createSettingsUI — factory', () => {
-  it('returns an object with open, close, and render methods', () => {
+  it('returns an object with open and render methods', () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
     const ui = createSettingsUI(doc, settings, reporter);
     expect(typeof ui.open).toBe('function');
-    expect(typeof ui.close).toBe('function');
+    expect(ui.close).toBeUndefined();
     expect(typeof ui.render).toBe('function');
   });
 
@@ -94,7 +93,7 @@ describe('createSettingsUI — render()', () => {
     const reporter = makeMockReporter();
     const ui = createSettingsUI(doc, settings, reporter);
     await ui.render();
-    const modal = doc.getElementById('settings-modal');
+    const modal = doc.getElementById('settings-panel');
     expect(modal).not.toBeNull();
     expect(modal.childElementCount).toBeGreaterThan(0);
   });
@@ -105,7 +104,7 @@ describe('createSettingsUI — render()', () => {
     const reporter = makeMockReporter();
     const ui = createSettingsUI(doc, settings, reporter);
     await ui.render();
-    const input = doc.querySelector('#settings-modal input[type="date"]');
+    const input = doc.querySelector('#settings-panel input[type="date"]');
     expect(input).not.toBeNull();
   });
 
@@ -119,26 +118,6 @@ describe('createSettingsUI — render()', () => {
     expect(preview).not.toBeNull();
   });
 
-  it('render() emits modal-dialog wrapper class matching styles.css', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const dialog = doc.querySelector('#settings-modal .modal-dialog');
-    expect(dialog).not.toBeNull();
-  });
-
-  it('render() emits modal-header class matching styles.css', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const header = doc.querySelector('#settings-modal .modal-header');
-    expect(header).not.toBeNull();
-  });
-
   it('date input uses settings-date-picker class matching styles.css', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings();
@@ -150,20 +129,9 @@ describe('createSettingsUI — render()', () => {
   });
 });
 
-// ── open() / close() ─────────────────────────────────────────────────────────
+// ── open() ─────────────────────────────────────────────────────────
 
-describe('createSettingsUI — open() / close()', () => {
-  it('open() makes modal visible', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    await ui.open();
-    const modal = doc.getElementById('settings-modal');
-    expect(modal.hasAttribute('hidden')).toBe(false);
-  });
-
+describe('createSettingsUI — open()', () => {
   it('open() pre-populates date input from getSyncAnchorDate()', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings({ anchorDate: '2024-03-15' });
@@ -174,33 +142,6 @@ describe('createSettingsUI — open() / close()', () => {
     const input = doc.querySelector('[data-field="anchor-date"]');
     expect(input.value).toBe('2024-03-15');
     expect(settings.getSyncAnchorDate).toHaveBeenCalled();
-  });
-
-  it('close() hides the modal', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    await ui.open();
-    ui.close();
-    const modal = doc.getElementById('settings-modal');
-    expect(modal.hasAttribute('hidden')).toBe(true);
-  });
-
-  it('close-button click hides the modal', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    await ui.open();
-
-    const closeBtn = doc.querySelector('[data-action="close-settings"]');
-    expect(closeBtn).not.toBeNull();
-    closeBtn.click();
-    const modal = doc.getElementById('settings-modal');
-    expect(modal.hasAttribute('hidden')).toBe(true);
   });
 
   it('getSyncAnchorDate error → reporter.db called', async () => {
@@ -307,7 +248,7 @@ describe('createSettingsUI — AbortController', () => {
     // Fire event on the modal — but the old input no longer exists
     // and a new input should be there. Old controller is aborted.
     // Verify by firing a change on the doc itself (no field target = no-op)
-    doc.getElementById('settings-modal').dispatchEvent(new Event('change', { bubbles: false }));
+    doc.getElementById('settings-panel').dispatchEvent(new Event('change', { bubbles: false }));
     await new Promise(r => setTimeout(r, 50));
     expect(settings.countRecordsBefore).not.toHaveBeenCalled();
   });
@@ -316,7 +257,7 @@ describe('createSettingsUI — AbortController', () => {
 // ── Guard clauses ─────────────────────────────────────────────────────────────
 
 describe('createSettingsUI — guard clauses', () => {
-  it('render() skips gracefully when #settings-modal is absent', async () => {
+  it('render() skips gracefully when #settings-panel is absent', async () => {
     const doc = buildDoc(''); // no modal
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
@@ -326,7 +267,7 @@ describe('createSettingsUI — guard clauses', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith('[settings-ui]', expect.stringContaining('Missing'));
   });
 
-  it('open() skips gracefully when #settings-modal is absent', async () => {
+  it('open() skips gracefully when #settings-panel is absent', async () => {
     const doc = buildDoc(''); // no modal
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
@@ -334,13 +275,6 @@ describe('createSettingsUI — guard clauses', () => {
     await expect(ui.open()).resolves.toBeUndefined();
   });
 
-  it('close() skips gracefully when #settings-modal is absent', () => {
-    const doc = buildDoc('');
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    expect(() => ui.close()).not.toThrow();
-  });
 });
 
 // ── Task 7: Prune action with confirmFn ──────────────────────────────────────
@@ -418,7 +352,7 @@ describe('createSettingsUI — prune action', () => {
 // ── Task 7: Clear-All hazard mode ────────────────────────────────────────────
 
 describe('createSettingsUI — Clear-All hazard mode', () => {
-  it('checking Clear-All disables date picker and switches button to 🔥 Clear Entire Database', async () => {
+  it('checking Clear-All disables date picker and switches button to erase-all mode', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings();
     const reporter = makeMockReporter();
@@ -437,7 +371,7 @@ describe('createSettingsUI — Clear-All hazard mode', () => {
 
     const wipeBtn = doc.querySelector('[data-action="wipe"]');
     expect(wipeBtn).not.toBeNull();
-    expect(wipeBtn.textContent).toBe('🔥 Clear Entire Database');
+    expect(wipeBtn.textContent).toBe('Erase all data on this device');
   });
 
   it('unchecking Clear-All restores prune mode', async () => {
@@ -462,7 +396,7 @@ describe('createSettingsUI — Clear-All hazard mode', () => {
 
     const actionBtn = doc.querySelector('[data-action="prune"]');
     expect(actionBtn).not.toBeNull();
-    expect(actionBtn.textContent).not.toContain('🔥');
+    expect(actionBtn.textContent).toBe('Delete days before this date');
   });
 
   it('Clear-All checked → impact counter is disabled', async () => {
@@ -649,71 +583,6 @@ describe('createSettingsUI — save anchor on date change', () => {
 // ── New layout: two sections, divider, mockup labels ─────────────────────────
 
 describe('createSettingsUI — mockup layout', () => {
-  it('header title reads "⚙️ Settings & Data Hygiene"', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const title = doc.querySelector('.modal-header h2');
-    expect(title.textContent).toBe('⚙️ Settings & Data Hygiene');
-  });
-
-  it('close button uses .settings-close-btn (not the pill .btn)', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const closeBtn = doc.querySelector('[data-action="close-settings"]');
-    expect(closeBtn.classList.contains('settings-close-btn')).toBe(true);
-    expect(closeBtn.classList.contains('btn')).toBe(false);
-  });
-
-  it('renders three sections separated by dividers (sync, purge, home-base-city)', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const sections = doc.querySelectorAll('.settings-section');
-    expect(sections.length).toBe(3);
-    expect(doc.querySelectorAll('.settings-divider').length).toBe(2);
-  });
-
-  it('sync section is titled "📅 SYNC BOUNDARY" and labels the picker "Track History From:"', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const syncTitle = doc.querySelector('.sync-section .settings-section-title');
-    expect(syncTitle.textContent).toBe('📅 SYNC BOUNDARY');
-    expect(doc.querySelector('.sync-section .settings-label-text').textContent).toBe('Track History From:');
-  });
-
-  it('purge section is titled "🗑️ DATA PURGE OPTIONS" with Clear All label', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    const purgeTitle = doc.querySelector('.purge-section .settings-section-title');
-    expect(purgeTitle.textContent).toBe('🗑️ DATA PURGE OPTIONS');
-    expect(doc.querySelector('.purge-section .settings-clear-all-label span').textContent).toBe(
-      'Clear All Local Data (Wipe entire database)'
-    );
-  });
-
-  it('impact preview block is labelled "📊 Impact Preview:"', async () => {
-    const doc = buildDoc(getBaseHTML());
-    const settings = makeMockSettings();
-    const reporter = makeMockReporter();
-    const ui = createSettingsUI(doc, settings, reporter);
-    await ui.render();
-    expect(doc.querySelector('.settings-impact-label').textContent).toBe('📊 Impact Preview:');
-  });
-
   it('prune button label includes a human-readable date (Jan 1, 2018)', async () => {
     const doc = buildDoc(getBaseHTML());
     const settings = makeMockSettings({ count: 3, anchorDate: '2018-01-01' });
@@ -723,7 +592,7 @@ describe('createSettingsUI — mockup layout', () => {
     await ui.open();
     await vi.waitFor(() => {
       const btn = doc.querySelector('[data-action="prune"]');
-      expect(btn.textContent).toBe('🗑️ Prune Data Before Jan 1, 2018');
+      expect(btn.textContent).toBe('Delete days before Jan 1, 2018');
     });
   });
 
@@ -853,5 +722,44 @@ describe('Home Base City dropdown', () => {
     const select = doc.getElementById('home-base-city-select');
     // value stays on Hyderabad (default); no actual invalid change dispatched
     expect(select).not.toBeNull();
+  });
+});
+
+describe('Settings screen layout', () => {
+  it('groups rows under Journey, History and Danger zone', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const ui = createSettingsUI(doc, makeMockSettings(), makeMockReporter());
+    await ui.render();
+    const headings = [...doc.querySelectorAll('#settings-panel .list-label')].map((h) => h.textContent);
+    expect(headings).toEqual(['Journey', 'History', 'Danger zone']);
+    expect(doc.querySelector('.list-group--danger [data-action="prune"]')).not.toBeNull();
+  });
+
+  it('every control is labelled by its row', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const ui = createSettingsUI(doc, makeMockSettings(), makeMockReporter());
+    await ui.render();
+    for (const id of ['home-base-city-select', 'settings-anchor-date', 'settings-clear-all']) {
+      const label = doc.querySelector(`label[for="${id}"]`);
+      expect(label, id).not.toBeNull();
+      expect(label.contains(doc.getElementById(id)), id).toBe(true);
+    }
+    expect(doc.querySelector('label[for="settings-anchor-date"] .list-row__title').textContent).toBe('Track history from');
+    expect(doc.querySelector('label[for="home-base-city-select"] .list-row__title').textContent).toBe('Home city');
+  });
+
+  it('the erase-all control is a switch', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const ui = createSettingsUI(doc, makeMockSettings(), makeMockReporter());
+    await ui.render();
+    expect(doc.getElementById('settings-clear-all').getAttribute('role')).toBe('switch');
+  });
+
+  it('uses no emoji', async () => {
+    const doc = buildDoc(getBaseHTML());
+    const ui = createSettingsUI(doc, makeMockSettings(), makeMockReporter());
+    await ui.render();
+    await ui.open();
+    expect(doc.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

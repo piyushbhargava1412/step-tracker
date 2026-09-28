@@ -30,7 +30,7 @@ export function getTodayRecord(db) {
  * @param {{ effective_steps: number }|null|undefined} todayRecord
  * @param {number|null|undefined} stepGoal - the active step goal (a plain integer)
  * @returns {{ steps: number, target_steps: number, pct: number,
- *             remaining_steps: number, goalMet: boolean }}
+ *             remaining_steps: number, goalMet: boolean, distance_km: number }}
  */
 export function computeProgress(todayRecord, stepGoal) {
   // Guard: absent / corrupt record → zero steps
@@ -48,11 +48,17 @@ export function computeProgress(todayRecord, stepGoal) {
   const remaining_steps = Math.max(0, target_steps - steps);
   const goalMet = pct >= 100;
 
+  // Today's walked distance (the Today screen's Distance tile); absent,
+  // corrupt or negative values read as 0.
+  const rawDistance = todayRecord?.effective_distance_km;
+  const distance_km = Number.isFinite(rawDistance) && rawDistance > 0 ? rawDistance : 0;
+
   return {
     steps,
     target_steps,
     pct,
     remaining_steps,
     goalMet,
+    distance_km,
   };
 }

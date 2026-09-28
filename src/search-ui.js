@@ -1,10 +1,19 @@
 import { createOverrideForm, createProofLightbox } from './override-form.js';
 
+/** "13.5 km" under 100 km, "7,089 km" above — fits the phone summary strip. */
+function _formatKm(km) {
+  return km < 100 ? `${Math.round(km * 10) / 10} km` : `${Math.round(km).toLocaleString('en-US')} km`;
+}
+
+/** Results render a page at a time — a phone cannot scroll 900 rows comfortably. */
+const RESULTS_PAGE = 50;
+
 export function createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage) {
   let controller = null;
   let currentRecords = null;
   let lastFilters = null;
   let hasExecuted = false;
+  let gridState = { records: [], editable: false, shown: 0 };
 
   // Override capability is optional: without records/processImage the Search Lab
   // renders as a read-only query surface (no Edit Day buttons, no override form).
@@ -32,10 +41,12 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       panel.removeChild(panel.firstChild);
     }
 
+    // Mobile order: filters (collapsible), the summary strip, near misses,
+    // the result list, then export.
     panel.appendChild(_buildFilters());
-    panel.appendChild(_buildResultsGrid());
     panel.appendChild(_buildSummary());
     panel.appendChild(_buildNearMissPanel());
+    panel.appendChild(_buildResultsGrid());
     panel.appendChild(_buildExportControls());
 
     panel.addEventListener('click', async (event) => {
@@ -47,6 +58,7 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       else if (action === 'export-csv') _handleExportCsv();
       else if (action === 'export-json') _handleExportJson();
       else if (action === 'edit-day') _handleEditDay(panel, target);
+      else if (action === 'show-more') _appendRows(panel.querySelector('.search-results-table'));
     }, { signal });
 
     // Retain-and-replay: a re-render (e.g. after a record mutation) restores the
@@ -62,6 +74,9 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     const filters = _readFilters(panel);
     lastFilters = filters;
     hasExecuted = true;
+    // Fold the filters away so the results are in view on a phone.
+    const filtersPanel = panel.querySelector('.search-filters');
+    if (filtersPanel) filtersPanel.open = false;
     await _runQuery(panel, filters);
   }
 
@@ -179,39 +194,61 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     const grid = panel.querySelector('.search-results-table');
     grid.classList.toggle('search-results-table--editable', editable === true);
     while (grid.firstChild) grid.removeChild(grid.firstChild);
-    for (const record of records) {
-      const row = doc.createElement('div');
-      row.dataset.row = record.date;
+    gridState = { records, editable: editable === true, shown: 0 };
+    _appendRows(grid);
+  }
 
-      const dateCell = doc.createElement('span');
-      dateCell.dataset.cell = 'date';
-      dateCell.textContent = record.date;
-      row.appendChild(dateCell);
+  /** Append the next page of rows, then a "Show more" button if rows remain. */
+  function _appendRows(grid) {
+    grid.querySelector('[data-action="show-more"]')?.remove();
+    const { records, editable } = gridState;
+    const next = records.slice(gridState.shown, gridState.shown + RESULTS_PAGE);
+    for (const record of next) grid.appendChild(_buildRow(record, editable));
+    gridState.shown += next.length;
 
-      const stepsCell = doc.createElement('span');
-      stepsCell.dataset.cell = 'effective-steps';
-      stepsCell.textContent = String(record.effective_steps);
-      row.appendChild(stepsCell);
-
-      const distCell = doc.createElement('span');
-      distCell.dataset.cell = 'effective-distance';
-      distCell.textContent = Number.isFinite(record.effective_distance_km)
-        ? String(record.effective_distance_km)
-        : '—';
-      row.appendChild(distCell);
-
-      if (editable === true) {
-        const editBtn = doc.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'row-edit-btn';
-        editBtn.dataset.action = 'edit-day';
-        editBtn.dataset.date = record.date;
-        editBtn.textContent = 'Edit Day';
-        row.appendChild(editBtn);
-      }
-
-      grid.appendChild(row);
+    const remaining = records.length - gridState.shown;
+    if (remaining > 0) {
+      const more = doc.createElement('button');
+      more.type = 'button';
+      more.className = 'btn btn-secondary btn-block show-more-btn';
+      more.dataset.action = 'show-more';
+      more.textContent = `Show ${Math.min(RESULTS_PAGE, remaining)} more of ${remaining}`;
+      grid.appendChild(more);
     }
+  }
+
+  function _buildRow(record, editable) {
+    const row = doc.createElement('div');
+    row.dataset.row = record.date;
+
+    const dateCell = doc.createElement('span');
+    dateCell.dataset.cell = 'date';
+    dateCell.textContent = record.date;
+    row.appendChild(dateCell);
+
+    const stepsCell = doc.createElement('span');
+    stepsCell.dataset.cell = 'effective-steps';
+    stepsCell.textContent = String(record.effective_steps);
+    row.appendChild(stepsCell);
+
+    const distCell = doc.createElement('span');
+    distCell.dataset.cell = 'effective-distance';
+    distCell.textContent = Number.isFinite(record.effective_distance_km)
+      ? String(record.effective_distance_km)
+      : '—';
+    row.appendChild(distCell);
+
+    if (editable) {
+      const editBtn = doc.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'row-edit-btn';
+      editBtn.dataset.action = 'edit-day';
+      editBtn.dataset.date = record.date;
+      editBtn.textContent = 'Edit Day';
+      row.appendChild(editBtn);
+    }
+
+    return row;
   }
 
   function _renderSummary(panel, summary) {
@@ -221,8 +258,8 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     const cells = [
       { label: 'Matches', value: String(summary.count ?? 0) },
       { label: 'Match %', value: summary.matchPct !== null && summary.matchPct !== undefined ? `${summary.matchPct}%` : '—' },
-      { label: 'Cumulative Distance', value: summary.cumulativeDistanceKm !== undefined ? `${summary.cumulativeDistanceKm} km` : '—' },
-      { label: 'Avg Steps', value: summary.avgSteps !== null && summary.avgSteps !== undefined ? String(summary.avgSteps) : '—' },
+      { label: 'Distance', value: Number.isFinite(summary.cumulativeDistanceKm) ? _formatKm(summary.cumulativeDistanceKm) : '—' },
+      { label: 'Avg steps', value: Number.isFinite(summary.avgSteps) ? Math.round(summary.avgSteps).toLocaleString('en-US') : '—' },
     ];
 
     for (const cell of cells) {
@@ -297,15 +334,21 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
   }
 
   function _buildFilters() {
-    const card = doc.createElement('div');
+    const card = doc.createElement('details');
     card.className = 'card search-filters';
+    card.open = true;
+
+    const summary = doc.createElement('summary');
+    summary.className = 'search-filters__summary';
+    summary.textContent = 'Filters';
+    card.appendChild(summary);
 
     const fieldDefs = [
-      { field: 'start-date', label: 'Start Date', type: 'date' },
-      { field: 'end-date', label: 'End Date', type: 'date' },
-      { field: 'min-steps', label: 'Min Steps', type: 'number' },
-      { field: 'max-steps', label: 'Max Steps', type: 'number' },
-      { field: 'step-target', label: 'Step Target', type: 'number' },
+      { field: 'start-date', label: 'From', type: 'date' },
+      { field: 'end-date', label: 'To', type: 'date' },
+      { field: 'min-steps', label: 'Min steps', type: 'number' },
+      { field: 'max-steps', label: 'Max steps', type: 'number' },
+      { field: 'step-target', label: 'Step target', type: 'number' },
     ];
 
     for (const def of fieldDefs) {
@@ -315,6 +358,7 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       const input = doc.createElement('input');
       input.type = def.type;
       input.dataset.field = def.field;
+      if (def.type === 'number') input.inputMode = 'numeric';
       label.appendChild(labelText);
       label.appendChild(input);
       card.appendChild(label);
@@ -322,10 +366,10 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
 
     const overrideLabel = doc.createElement('label');
     const overrideLabelText = doc.createElement('span');
-    overrideLabelText.textContent = 'Override Status';
+    overrideLabelText.textContent = 'Edited days';
     const overrideSelect = doc.createElement('select');
     overrideSelect.dataset.field = 'override-status';
-    for (const [val, text] of [['all', 'All'], ['overridden', 'Overridden'], ['not-overridden', 'Not Overridden']]) {
+    for (const [val, text] of [['all', 'All'], ['overridden', 'Edited only'], ['not-overridden', 'Not edited']]) {
       const opt = doc.createElement('option');
       opt.value = val;
       opt.textContent = text;
@@ -337,10 +381,10 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
 
     const outcomeLabel = doc.createElement('label');
     const outcomeLabelText = doc.createElement('span');
-    outcomeLabelText.textContent = 'Target Outcome';
+    outcomeLabelText.textContent = 'Goal outcome';
     const outcomeSelect = doc.createElement('select');
     outcomeSelect.dataset.field = 'target-outcome';
-    for (const [val, text] of [['all', 'All'], ['met', 'Met'], ['missed', 'Missed']]) {
+    for (const [val, text] of [['all', 'All'], ['met', 'Goal hit'], ['missed', 'Missed']]) {
       const opt = doc.createElement('option');
       opt.value = val;
       opt.textContent = text;
@@ -385,8 +429,8 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
     const cells = [
       { label: 'Matches', value: '—' },
       { label: 'Match %', value: '—' },
-      { label: 'Cumulative Distance', value: '—' },
-      { label: 'Avg Steps', value: '—' },
+      { label: 'Distance', value: '—' },
+      { label: 'Avg steps', value: '—' },
     ];
 
     for (const cell of cells) {

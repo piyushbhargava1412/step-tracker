@@ -57,7 +57,7 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator) 
     panel.className = 'storage-health-panel data-panel';
 
     const heading = doc.createElement('h2');
-    heading.textContent = '💾 Storage & Data Health';
+    heading.textContent = 'Storage protection';
     panel.appendChild(heading);
 
     const driveRow = _buildRow(doc, 'Google Drive Cloud Backup:', 'drive-status');

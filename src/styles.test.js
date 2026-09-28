@@ -1,887 +1,159 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import fs from 'fs';
-import path from 'path';
-
 /**
- * Task 10: styles.css — tab bar & panel layout
- * Test suite to verify CSS structure for header flex, tab bar, and panel show/hide.
+ * styles.css — the mobile design contract.
+ *
+ * Guards the pieces the app depends on (the Deep Blue palette, `hidden`
+ * winning over layout rules, the app bar / bottom nav / sheet shell, touch
+ * target size, reduced motion) and checks that every class the render modules
+ * emit has a rule, so a renamed class cannot silently lose its styling.
  */
-
-describe('styles.css — structural layout (Task 10)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    // Read the styles.css file
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  // Test 1: A rule hiding inactive tab panels is present
-  it('should contain a rule hiding inactive tab panels (display:none)', () => {
-    // Check for either CSS selector pattern targeting hidden panels
-    // Pattern 1: [id^="tab-"] { display: none; }
-    // Pattern 2: .tab-panel { display: none; }
-    // Pattern 3: div[id^="tab-"] { display: none; }
-    const hidePanelPatterns = [
-      /\[id\^="tab-"\]\s*{[^}]*display:\s*none/,
-      /\.tab-panel\s*{[^}]*display:\s*none/,
-      /div\[id\^="tab-"\]\s*{[^}]*display:\s*none/,
-    ];
-    
-    const hasHideRule = hidePanelPatterns.some(pattern => pattern.test(cssContent));
-    expect(hasHideRule).toBe(true);
-  });
-
-  // Test 2: A rule showing the active/visible panel is present (panel-specific)
-  it('should contain a rule showing the active panel (display:block) targeting panels', () => {
-    // The rule must specifically target panel elements, not any arbitrary element.
-    // tabs.js uses inline style: element.style.display = 'block'
-    // CSS should define the default-hide rule; JS overrides via inline style.
-    // We verify the hide rule is present (CSS) and that block appears in a panel context.
-    const panelShowPatterns = [
-      /\[id\^="tab-"\][^{]*{[^}]*display:\s*block/,     // [id^="tab-"] { display: block }
-      /\[id\^="tab-"\][^{]*\[[^\]]*\][^{]*{[^}]*display:\s*block/, // [id^="tab-"][attr] { display: block }
-      /\.tab-panel[^{]*{[^}]*display:\s*block/,          // .tab-panel.active { display: block }
-    ];
-    // Accept if a panel-scoped show rule exists, OR if the CSS relies entirely on JS inline-style
-    // override (which is valid — the test verifies the hide rule is present, JS handles show).
-    const hasPanelHideRule = /\[id\^="tab-"\]\s*{[^}]*display:\s*none/.test(cssContent);
-    const hasPanelShowRule = panelShowPatterns.some(p => p.test(cssContent));
-    // At minimum the hide rule must exist; show via JS inline style is acceptable.
-    expect(hasPanelHideRule || hasPanelShowRule).toBe(true);
-    // The hide rule must definitely be present (JS overrides it for the active panel)
-    expect(hasPanelHideRule).toBe(true);
-  });
-
-  // Test 3: Dark-theme background color variable or selector still present
-  it('should preserve the deep-blue dark-theme background', () => {
-    // Check for the deep-blue dark background declarations
-    // body { background: radial-gradient(...); background-color: var(--bg-body); }
-    const darkThemePatterns = [
-      /body\s*{[^}]*background(-color)?:\s*var\(--bg-body\)/,
-      /body\s*{[^}]*radial-gradient/,
-    ];
-
-    const hasDarkTheme = darkThemePatterns.some(pattern => pattern.test(cssContent));
-    expect(hasDarkTheme).toBe(true);
-  });
-
-  // Test 4: Header flex layout rule present
-  it('should contain a header or .container flex layout rule', () => {
-    // Check for flex layout on header or container
-    const headerFlexPatterns = [
-      /header\s*{[^}]*display:\s*flex/,
-      /\.container\s*{[^}]*display:\s*flex/,
-    ];
-    
-    const hasHeaderFlex = headerFlexPatterns.some(pattern => pattern.test(cssContent));
-    expect(hasHeaderFlex).toBe(true);
-  });
-
-  // Test 5: .tab-bar flex rule present
-  it('should contain a .tab-bar flex layout rule', () => {
-    // Check for .tab-bar with display: flex
-    const tabBarFlexPattern = /\.tab-bar\s*{[^}]*display:\s*flex/;
-    
-    expect(tabBarFlexPattern.test(cssContent)).toBe(true);
-  });
-
-  // Test 6: Verify show/hide mechanism consistency with tabs.js
-  it('should match tabs.js display:none/display:block mechanism for panels', () => {
-    // tabs.js hides panels via: panel.style.display = 'none'
-    // tabs.js shows panels via: panel.style.display = 'block'
-    // CSS MUST define the default hide rule on panel elements so JS override works.
-    const panelHideRule = /\[id\^="tab-"\]\s*{[^}]*display:\s*none/.test(cssContent);
-    expect(panelHideRule).toBe(true);
-  });
-});
-
-// ─── Task 5: ST-003 dark-theme tokens + card/selector anatomy ───────────────
-
-describe('styles.css — ST-003 dark-theme tokens + card/selector anatomy (Task 5)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  // ── :root tokens ──────────────────────────────────────────────────────────
-
-  it('should contain all 10 :root CSS custom properties', () => {
-    const tokens = [
-      '--bg-body',
-      '--bg-card',
-      '--bg-card-border',
-      '--text-primary',
-      '--text-muted',
-      '--accent-sky',
-      '--accent-sky-glow',
-      '--accent-cyan',
-      '--accent-amber',
-      '--font-mono',
-    ];
-    for (const token of tokens) {
-      expect(cssContent).toContain(token);
-    }
-  });
-
-  it('--accent-sky-glow value is rgba(56, 189, 248, 0.25)', () => {
-    expect(cssContent).toContain('rgba(56, 189, 248, 0.25)');
-  });
-
-  it('body rule contains var(--bg-body) for background-color', () => {
-    expect(/body\s*{[^}]*background-color:\s*var\(--bg-body\)/.test(cssContent)).toBe(true);
-  });
-
-  // ── Card anatomy classes ──────────────────────────────────────────────────
-
-  it('should contain all 12 card anatomy class selectors', () => {
-    const cardClasses = [
-      '.card',
-      '.card-title',
-      '.metric-row',
-      '.metric-value',
-      '.metric-sub',
-      '.metric-unit',
-      '.progress-pct',
-      '.progress-track',
-      '.progress-fill',
-      '.progress-fill--full',
-      '.remaining-hint',
-      '.goal-met-badge',
-    ];
-    for (const cls of cardClasses) {
-      expect(cssContent).toContain(cls);
-    }
-  });
-
-  // ── Goal selector classes ─────────────────────────────────────────────────
-
-  it('should contain .goal-selector and .goal-select class selectors (ST-007a)', () => {
-    expect(cssContent).toContain('.goal-selector');
-    expect(cssContent).toContain('.goal-select');
-  });
-
-  it('.goal-preset is absent from styles.css (ST-007a removed)', () => {
-    expect(cssContent).not.toContain('.goal-preset');
-  });
-
-  it('.goal-input is absent from styles.css (ST-007a removed)', () => {
-    expect(cssContent).not.toContain('.goal-input');
-  });
-
-  it('.goal-apply is absent from styles.css (ST-007a removed)', () => {
-    expect(cssContent).not.toContain('.goal-apply');
-  });
-
-  // ── Restyle-boundary locks ────────────────────────────────────────────────
-
-  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
-    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
-  });
-
-  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
-    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-});
-
-// ─── Active Streaks card selectors (mockup) ─────────────────────────────────
-
-describe('styles.css — Active Streaks card (mockup)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  // ── Mockup selectors present ───────────────────────────────────────────────
-
-  it('should contain the Active Streaks card mockup selectors', () => {
-    const mockupSelectors = [
-      '.streak-card',
-      '.streak-number',
-      '.streak-header',
-      '.streak-title',
-      '.goal-badge',
-      '.streak-actual',
-      '.streak-actual-head',
-      '.streak-actual-label',
-      '.streak-bar',
-      '.streak-bar-fill',
-      '.streak-allowances',
-      '.streak-allowance',
-      '.streak-allowance-label',
-      '.streak-allowance-value',
-      '.streak-runs',
-      '.streak-runs-title',
-      '.streak-run',
-      '.streak-run-rank',
-      '.streak-run-days',
-      '.streak-run-range',
-      '.streak-runs-empty',
-    ];
-    for (const selector of mockupSelectors) {
-      expect(cssContent).toContain(selector);
-    }
-  });
-
-  // ── Removed legacy selectors absent ────────────────────────────────────────
-
-  it('legacy tier/goal/fame/tolerance selectors are absent from styles.css', () => {
-    for (const selector of [
-      '.tier-badges',
-      '.tier-chip',
-      '.tier-chip--active',
-      '.streak-goal',
-      '.streak-unit',
-      '.tolerance-metrics',
-      '.tolerance-metric',
-      '.tolerance-value',
-      '.hall-of-fame',
-      '.hof-title',
-      '.hof-entry',
-      '.hof-rank',
-      '.hof-days',
-      '.hof-range',
-      '.hof-empty',
-    ]) {
-      expect(cssContent).not.toContain(selector);
-    }
-  });
-
-  // ── .streak-card anatomy ──────────────────────────────────────────────────
-
-  it('.streak-card should use --bg-card background', () => {
-    expect(/\.streak-card\s*{[^}]*background:\s*var\(--bg-card\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-card should use --bg-card-border', () => {
-    expect(/\.streak-card\s*{[^}]*border:[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-card should have 12px border-radius', () => {
-    expect(/\.streak-card\s*{[^}]*border-radius:\s*12px/.test(cssContent)).toBe(true);
-  });
-
-  // ── .streak-number mockup values ──────────────────────────────────────────
-
-  it('.streak-number should have color: var(--accent-sky)', () => {
-    expect(/\.streak-number\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-number should have 2.8rem font size', () => {
-    expect(/\.streak-number\s*{[^}]*font-size:\s*2\.8rem/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-number should have font-weight: 900', () => {
-    expect(/\.streak-number\s*{[^}]*font-weight:\s*900/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-number should have line-height: 1', () => {
-    expect(/\.streak-number\s*{[^}]*line-height:\s*1/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-number should have font-variant-numeric: tabular-nums', () => {
-    expect(/\.streak-number\s*{[^}]*font-variant-numeric:\s*tabular-nums/.test(cssContent)).toBe(true);
-  });
-
-  // ── Mockup card anatomy ───────────────────────────────────────────────────
-
-  it('.streak-header should have display: flex', () => {
-    expect(/\.streak-header\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-header should justify the title and goal badge with space-between', () => {
-    expect(/\.streak-header\s*{[^}]*justify-content:\s*space-between/.test(cssContent)).toBe(true);
-  });
-
-  it('.goal-badge should use var(--accent-sky) color', () => {
-    expect(/\.goal-badge\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-actual should render as a sky-tinted block', () => {
-    expect(/\.streak-actual\s*{[^}]*background:\s*rgba\(56,\s*189,\s*248,\s*0\.08\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-actual-head should use display: flex', () => {
-    expect(/\.streak-actual-head\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-bar-fill should use the sky gradient', () => {
-    expect(/\.streak-bar-fill\s*{[^}]*linear-gradient\(90deg,\s*#38bdf8,\s*#06b6d4\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowances should use a two-column grid', () => {
-    expect(/\.streak-allowances\s*{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowance-label should use var(--text-muted) color', () => {
-    expect(/\.streak-allowance-label\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowance-missed should be defined', () => {
-    expect(/\.streak-allowance-missed\s*{/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowance-missed should render smaller than the day count (0.7rem)', () => {
-    expect(/\.streak-allowance-missed\s*{[^}]*font-size:\s*0\.7rem/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowance-missed should use the neon green var(--accent-green) color', () => {
-    expect(/\.streak-allowance-missed\s*{[^}]*color:\s*var\(--accent-green\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-allowance-missed should carry a neon glow via var(--accent-green-glow)', () => {
-    expect(/\.streak-allowance-missed\s*{[^}]*text-shadow:[^}]*var\(--accent-green-glow\)/.test(cssContent)).toBe(true);
-  });
-
-  it(':root should define the --accent-green token', () => {
-    expect(cssContent).toMatch(/--accent-green:\s*#4ade80/);
-  });
-
-  it(':root should define the --accent-green-glow token', () => {
-    expect(/--accent-green-glow:\s*rgba\(74,\s*222,\s*128,[^)]*\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-run-range should align right (mockup trailing year span)', () => {
-    expect(/\.streak-run-range\s*{[^}]*text-align:\s*right/.test(cssContent)).toBe(true);
-  });
-
-  it('.streak-run:not(:first-of-type) .streak-run-rank should fade the non-podium ranks', () => {
-    expect(/\.streak-run:not\(:first-of-type\)\s+\.streak-run-rank\s*{[^}]*opacity:\s*0\.8/.test(cssContent)).toBe(true);
-  });
-
-  // ── Mockup best-runs empty state ──────────────────────────────────────────
-
-  it('.streak-runs-empty should use var(--text-muted) with italic style', () => {
-    expect(/\.streak-runs-empty\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
-    expect(/\.streak-runs-empty\s*{[^}]*font-style:\s*italic/.test(cssContent)).toBe(true);
-  });
-
-  // ── Lifetime compliance banner ────────────────────────────────────────────
-
-  it('should contain the #lifetime-banner and .lifetime-count selectors', () => {
-    expect(cssContent).toContain('#lifetime-banner');
-    expect(cssContent).toContain('.lifetime-count');
-  });
-
-  it('#lifetime-banner should use var(--bg-card) background', () => {
-    expect(/#lifetime-banner\s*{[^}]*background:\s*var\(--bg-card\)/.test(cssContent)).toBe(true);
-  });
-
-  it('#lifetime-banner should have var(--bg-card-border) border', () => {
-    expect(/#lifetime-banner\s*{[^}]*border:[^}]*var\(--bg-card-border\)/.test(cssContent)).toBe(true);
-  });
-
-  it('#lifetime-banner should have 12px border-radius', () => {
-    expect(/#lifetime-banner\s*{[^}]*border-radius:\s*12px/.test(cssContent)).toBe(true);
-  });
-
-  it('#lifetime-banner should use var(--font-mono)', () => {
-    expect(/#lifetime-banner\s*{[^}]*font-family:\s*var\(--font-mono\)/.test(cssContent)).toBe(true);
-  });
-
-  it('#lifetime-banner should use var(--text-muted) for text color', () => {
-    expect(/#lifetime-banner\s*{[^}]*color:\s*var\(--text-muted\)/.test(cssContent)).toBe(true);
-  });
-
-  it('.lifetime-count should use var(--accent-sky) color', () => {
-    expect(/\.lifetime-count\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  // ── .lock-badge absent ────────────────────────────────────────────────────
-
-  it('.lock-badge is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.lock-badge');
-  });
-
-  // ── ST-003 Restyle-boundary locks ─────────────────────────────────────────
-
-  it('ST-003 restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
-    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
-  });
-
-  it('ST-003 restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
-    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-
-  // ── No new CSS variables introduced ──────────────────────────────────────
-
-  it('should not introduce new CSS variables beyond root tokens', () => {
-    // Extract the Active Streaks card section
-    const streakSectionMatch = cssContent.match(/\/\* ─── Active Streaks card[^]*$/);
-    if (streakSectionMatch) {
-      const streakSection = streakSectionMatch[0];
-      // Match all var(...) calls to get actual variable usage
-      const varMatches = streakSection.match(/var\((--[\w-]+)\)/g) || [];
-      const usedVars = [...new Set(varMatches.map(m => m.match(/--[\w-]+/)[0]))];
-
-      // All used variables must be defined in :root before the section
-      const rootSection = cssContent.substring(
-        0,
-        cssContent.indexOf('/* ─── Active Streaks card'),
-      );
-      for (const variable of usedVars) {
-        expect(rootSection).toContain(variable);
-      }
-    }
-  });
-});
-
-// ─── Task 6: ST-006 override form, badge, and revert button styling ──────
-
-describe('styles.css — ST-006 override form, badge, and revert button', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  it('.tile__override-badge rule is defined', () => {
-    expect(cssContent).toContain('.tile__override-badge');
-  });
-
-  it('override-form layout rule is defined (form[data-form="override"] or .override-form)', () => {
-    const hasOverrideFormRule =
-      cssContent.includes('[data-form="override"]') ||
-      cssContent.includes('.override-form');
-    expect(hasOverrideFormRule).toBe(true);
-  });
-
-  it('.revert-btn rule is defined', () => {
-    expect(cssContent).toContain('.revert-btn');
-  });
-});
-
-// ─── Task 8: ST-007 Search Lab CSS — search-filters, results-table, summary, export-controls ───
-
-describe('styles.css — ST-007 search-lab CSS (Task 8)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  // ── Selectors present ──────────────────────────────────────────────────────
-
-  it('should contain .search-filters selector', () => {
-    expect(cssContent).toContain('.search-filters');
-  });
-
-  it('should contain .search-results-table selector', () => {
-    expect(cssContent).toContain('.search-results-table');
-  });
-
-  it('should contain .search-summary selector', () => {
-    expect(cssContent).toContain('.search-summary');
-  });
-
-  it('should contain .export-controls selector', () => {
-    expect(cssContent).toContain('.export-controls');
-  });
-
-  it('should contain .filter-actions selector', () => {
-    expect(cssContent).toContain('.filter-actions');
-  });
-
-  // ── .search-filters uses card variables ───────────────────────────────────
-
-  it('.search-filters should use --bg-card background', () => {
-    // .search-filters extends .card; background via --bg-card
-    const match = cssContent.match(/\.search-filters\s*{[^}]+}/);
-    // Either standalone rule uses --bg-card, or it composes .card (which already has it).
-    // We require a rule that asserts var(--bg-card) in the search-filters rule OR that .search-filters
-    // is documented as a .card extension and does not introduce a different background.
-    // Per DoD: assert no colour literal in search-filters section.
-    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
-    expect(st007Section).toBeTruthy();
-    // The ST-007 section must use var(--bg-card) at least once for backgrounds
-    expect(st007Section[0]).toContain('var(--bg-card)');
-  });
-
-  it('.search-filters should use --bg-card-border for border', () => {
-    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
-    expect(st007Section).toBeTruthy();
-    expect(st007Section[0]).toContain('var(--bg-card-border)');
-  });
-
-  // ── No colour literals in ST-007 section ──────────────────────────────────
-
-  it('ST-007 section should contain no hex colour literals', () => {
-    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
-    expect(st007Section).toBeTruthy();
-    // Must not contain bare hex colour literals (#xxx or #xxxxxx)
-    const hexLiteralPattern = /#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/g;
-    const hexMatches = st007Section[0].match(hexLiteralPattern) || [];
-    expect(hexMatches).toHaveLength(0);
-  });
-
-  it('ST-007 section should contain no rgb/rgba colour literals', () => {
-    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
-    expect(st007Section).toBeTruthy();
-    // Must not contain bare rgb/rgba literals (only var(--accent-...) is allowed)
-    const rgbLiteralPattern = /rgba?\(\s*\d+/g;
-    const rgbMatches = st007Section[0].match(rgbLiteralPattern) || [];
-    expect(rgbMatches).toHaveLength(0);
-  });
-
-  // ── .search-results-table row anatomy ────────────────────────────────────
-
-  it('.search-results-table [data-row] should define a grid layout', () => {
-    expect(/\.search-results-table\s+\[data-row\][^{]*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
-  });
-
-  // ── .search-results-table--editable (Edit Day) ──────────────────────────
-
-  it('editable grid rows add a 4th column for the Edit Day button', () => {
-    expect(/\.search-results-table\.search-results-table--editable\s+\[data-row\][^{]*{[^}]*grid-template-columns:\s*1fr\s+1fr\s+1fr\s+auto/.test(cssContent)).toBe(true);
-  });
-
-  it('.row-edit-btn selector is styled', () => {
-    expect(cssContent).toMatch(/\.search-results-table\s+\.row-edit-btn\s*\{/);
-  });
-
-  // ── .search-summary extends summary-cell idiom ───────────────────────────
-
-  it('.search-summary should have display: grid', () => {
-    expect(/\.search-summary\s*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
-  });
-
-  // ── .export-controls layout ───────────────────────────────────────────────
-
-  it('.export-controls should have display: flex', () => {
-    expect(/\.export-controls\s*{[^}]*display:\s*flex/.test(cssContent)).toBe(true);
-  });
-
-  // ── No new CSS variables beyond existing tokens ────────────────────────────
-
-  it('should not introduce new CSS custom properties in ST-007 section', () => {
-    const st007Section = cssContent.match(/\/\* ─── ST-007[^]*$/);
-    if (st007Section) {
-      // Find all var() usages
-      const varMatches = st007Section[0].match(/var\((--[\w-]+)\)/g) || [];
-      const usedVars = [...new Set(varMatches.map(m => m.match(/--[\w-]+/)[0]))];
-      // Find all new custom property definitions (--foo: ...)
-      const definedVars = st007Section[0].match(/--([\w-]+)\s*:/g) || [];
-      // No new variables should be defined in ST-007 section
-      expect(definedVars).toHaveLength(0);
-      // All used variables must already exist in :root (before ST-007)
-      const beforeSt007 = cssContent.substring(0, cssContent.indexOf('/* ─── ST-007'));
-      for (const variable of usedVars) {
-        expect(beforeSt007).toContain(variable);
-      }
-    }
-  });
-
-  // ── Restyle-boundary locks (existing tests remain green) ──────────────────
-
-  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
-    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
-  });
-
-  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
-    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-});
-
-
-// ─── Task 16: ST-007a near-miss-panel (tolerance/hall-of-fame moved into Active Streaks card)
-
-describe('styles.css — ST-007a near-miss-panel (Task 16)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  // ── Near-miss panel present ───────────────────────────────────────────────
-
-  it('should contain .near-miss-panel selector', () => {
-    expect(cssContent).toContain('.near-miss-panel');
-  });
-
-  // ── Near-miss panel anatomy ───────────────────────────────────────────────
-
-  it('should contain .near-miss-header selector', () => {
-    expect(cssContent).toContain('.near-miss-header');
-  });
-
-  it('should contain .near-miss-empty selector', () => {
-    expect(cssContent).toContain('.near-miss-empty');
-  });
-
-  it('.near-miss-row should define a grid layout', () => {
-    expect(/\.near-miss-row\s*{[^}]*display:\s*grid/.test(cssContent)).toBe(true);
-  });
-
-  it('near-miss rows should use three equal columns for date/steps/shortfall', () => {
-    expect(/\.near-miss-row\s*{[^}]*grid-template-columns:\s*1fr\s+1fr\s+1fr/.test(cssContent)).toBe(true);
-  });
-
-  it('nm-date cell should be styled', () => {
-    expect(cssContent).toMatch(/\[data-cell="nm-date"\]\s*{/);
-  });
-
-  it('nm-steps cell should be styled', () => {
-    expect(cssContent).toMatch(/\[data-cell="nm-steps"\]\s*{/);
-  });
-
-  it('nm-shortfall cell should be styled', () => {
-    expect(cssContent).toMatch(/\[data-cell="nm-shortfall"\]\s*{/);
-  });
-
-  // ── Legacy tolerance/hall-of-fame selectors absent ────────────────────────
-
-  it('.tolerance-metrics is absent from styles.css (moved into Active Streaks card)', () => {
-    expect(cssContent).not.toContain('.tolerance-metrics');
-  });
-
-  it('.tolerance-metric is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.tolerance-metric');
-  });
-
-  it('.tolerance-value is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.tolerance-value');
-  });
-
-  it('.hall-of-fame is absent from styles.css (rendered as Best Runs)', () => {
-    expect(cssContent).not.toContain('.hall-of-fame');
-  });
-
-  it('.hof-* selectors are absent from styles.css', () => {
-    for (const selector of ['.hof-title', '.hof-entry', '.hof-rank', '.hof-days', '.hof-range', '.hof-empty']) {
-      expect(cssContent).not.toContain(selector);
-    }
-  });
-
-  // ── Removed selectors absent ──────────────────────────────────────────────
-
-  it('.goal-preset is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.goal-preset');
-  });
-
-  it('.goal-input is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.goal-input');
-  });
-
-  it('.goal-apply is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.goal-apply');
-  });
-
-  it('.lock-badge is absent from styles.css', () => {
-    expect(cssContent).not.toContain('.lock-badge');
-  });
-
-  // ── Restyle-boundary locks unchanged ─────────────────────────────────────
-
-  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
-    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
-  });
-
-  it('restyle-boundary lock: global button rule still uses var(--accent-sky)', () => {
-    expect(/button\s*{[^}]*color:\s*var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-});
-
-describe('styles.css — ST-006b challenge widget copied-badge animation', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  it('.copied-badge animation references a defined @keyframes rule', () => {
-    const animationName = cssContent.match(/\.copied-badge\s*{[^}]*animation:\s*([a-z-]+)/);
-    expect(animationName).not.toBeNull();
-    const name = animationName[1];
-    expect(cssContent).toMatch(new RegExp(`@keyframes\\s+${name}\\s*{`));
-  });
-
-  it('.copied-badge animation includes a fade-out phase (opacity falls back to 0)', () => {
-    const name = cssContent.match(/\.copied-badge\s*{[^}]*animation:\s*([a-z-]+)/)?.[1];
-    const keyframes = cssContent.match(new RegExp(`@keyframes\\s+${name}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
-    const opacityValues = [...keyframes.matchAll(/opacity:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
-    expect(opacityValues.length).toBeGreaterThan(0);
-    expect(Math.min(...opacityValues)).toBe(0);
-  });
-});
-
-describe('styles.css — challenge mockup card + dashboard stacking', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  it('lifetime banner spans the full dashboard width on row 1', () => {
-    expect(/\.dashboard-panel\s+#lifetime-banner\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/.test(cssContent)).toBe(true);
-    expect(/\.dashboard-panel\s+#lifetime-banner\s*\{[^}]*grid-row:\s*1\b/.test(cssContent)).toBe(true);
-  });
-
-  it('challenge card stacks in the left column below progress (grid-column: 1)', () => {
-    expect(/\.dashboard-panel\s+#challenge-card\s*\{[^}]*grid-column:\s*1\b/.test(cssContent)).toBe(true);
-  });
-
-  it('challenge card is placed on grid-row 3 (below #progress-card)', () => {
-    expect(/\.dashboard-panel\s+#challenge-card\s*\{[^}]*grid-row:\s*3\b/.test(cssContent)).toBe(true);
-  });
-
-  it('streak card spans the progress+challenge stack (grid-row: 2 / 4)', () => {
-    expect(/\.dashboard-panel\s+#streak-card\s*\{[^}]*grid-row:\s*2\s*\/\s*4\b/.test(cssContent)).toBe(true);
-  });
-
-  it('defines the mockup metric grid (.challenge-metrics display: grid)', () => {
-    expect(cssContent).toMatch(/\.challenge-metrics\s*\{[^}]*display:\s*grid/);
-  });
-
-  it('defines the metric tile selector (.challenge-metric)', () => {
-    expect(cssContent).toMatch(/\.challenge-metric\s*\{/);
-  });
-
-  it('defines the gear button (.challenge-icon-btn)', () => {
-    expect(cssContent).toMatch(/\.challenge-icon-btn\s*\{/);
-  });
-
-  it('defines the copy button (.challenge-copy-btn)', () => {
-    expect(cssContent).toMatch(/\.challenge-copy-btn\s*\{/);
-  });
-
-  it('hides the collapsible date config when [hidden] is applied', () => {
-    expect(cssContent).toMatch(/\.challenge-config\[hidden\]\s*\{\s*display:\s*none/);
-  });
-
-  it('challenge card uses an accent-sky left border (mockup border-left)', () => {
-    expect(/\.challenge-card\s*\{[^}]*border-left:\s*4px\s+solid\s+var\(--accent-sky\)/.test(cssContent)).toBe(true);
-  });
-});
-
-describe('styles.css — mobile dashboard ordering', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
-  });
-
-  /** Extract the ≤760px media query block (ends before the 640px block). */
-  function mobileBlock() {
-    return (
-      cssContent.match(/@media \(max-width: 760px\)[\s\S]*?(?=@media \(max-width: 640px\))/)?.[0] ?? ''
-    );
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(__dirname, '..');
+const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
+
+/** The declarations of the first rule whose selector list includes `selector`. */
+function rule(selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`(^|[},\\s])${escaped}\\s*(,[^{]*)?\\{([^}]*)\\}`, 'm'));
+  return match ? match[3] : null;
+}
+
+describe('styles.css — Deep Blue palette (unchanged by the redesign)', () => {
+  const ORIGINAL_TOKENS = {
+    '--bg-body': '#020617',
+    '--bg-card': 'rgba(15, 23, 42, 0.6)',
+    '--bg-card-solid': '#0f172a',
+    '--bg-card-border': 'rgba(56, 189, 248, 0.2)',
+    '--text-primary': '#f1f5f9',
+    '--text-muted': '#94a3b8',
+    '--accent-sky': '#38bdf8',
+    '--accent-sky-glow': 'rgba(56, 189, 248, 0.25)',
+    '--accent-cyan': '#06b6d4',
+    '--accent-amber': '#f59e0b',
+    '--accent-amber-soft': 'rgba(245, 158, 11, 0.12)',
+    '--accent-green': '#4ade80',
+    '--accent-green-glow': 'rgba(74, 222, 128, 0.4)',
+  };
+
+  for (const [token, value] of Object.entries(ORIGINAL_TOKENS)) {
+    it(`${token} is still ${value}`, () => {
+      expect(rule(':root')).toContain(`${token}: ${value};`);
+    });
   }
 
-  it('mobile: all dashboard cards reset to single-column auto-flow', () => {
-    const block = mobileBlock();
-    expect(block).not.toBe('');
-    for (const sel of [
-      '#lifetime-banner',
-      '#progress-card',
-      '#streak-card',
-      '#challenge-card',
-      '#month-overview-card',
-    ]) {
-      expect(block).toMatch(
-        new RegExp(`\\.dashboard-panel\\s+${sel}\\b[^{]*\\{[^}]*grid-column:\\s*1\\b`)
-      );
-      expect(block).toMatch(
-        new RegExp(`\\.dashboard-panel\\s+${sel}\\b[^{]*\\{[^}]*grid-row:\\s*auto\\b`)
-      );
-    }
+  it('the missed-day red is the original calendar red', () => {
+    expect(rule(':root')).toContain('--accent-red: #f87171;');
   });
 
-  it('mobile: order is lifetime-banner(1), progress(2), streak(3), challenge(4), calendar(5)', () => {
-    const block = mobileBlock();
-    const expected = [
-      ['#lifetime-banner', 1],
-      ['#progress-card', 2],
-      ['#streak-card', 3],
-      ['#challenge-card', 4],
-      ['#month-overview-card', 5],
-    ];
-    for (const [sel, order] of expected) {
-      expect(block).toMatch(
-        new RegExp(`\\.dashboard-panel\\s+${sel}\\s*\\{[^}]*order:\\s*${order}\\b`)
-      );
-    }
+  it('body keeps the deep blue background and the radial glow', () => {
+    expect(rule('body')).toContain('background-color: var(--bg-body)');
+    expect(rule('body')).toContain('#0c4a6e');
   });
 });
 
-// ─── Task 8: ST-015 settings button & modal overlay styles ───────────────────
-
-describe('styles.css — ST-015 settings button & modal overlay (Task 8)', () => {
-  let cssContent;
-
-  beforeAll(() => {
-    const cssPath = path.resolve(__dirname, '../styles.css');
-    cssContent = fs.readFileSync(cssPath, 'utf8');
+describe('styles.css — mobile shell', () => {
+  it('[hidden] always wins over display rules (screens and sheets use it)', () => {
+    expect(rule('[hidden]')).toMatch(/display:\s*none\s*!important/);
   });
 
-  it('#settings-btn selector is defined', () => {
-    expect(cssContent).toContain('#settings-btn');
+  it('the app bar sticks to the top and respects the status-bar inset', () => {
+    const appBar = rule('.app-bar');
+    expect(appBar).toContain('position: sticky');
+    expect(appBar).toContain('var(--safe-top)');
   });
 
-  it('.modal-overlay selector is defined', () => {
-    expect(cssContent).toContain('.modal-overlay');
+  it('search and settings actions only show on Today', () => {
+    expect(css).toMatch(/body:not\(\[data-active-screen="today"\]\) \.app-bar__actions\s*\{\s*display: none;/);
   });
 
-  it('#settings-modal selector is defined', () => {
-    expect(cssContent).toContain('#settings-modal');
+  it('the bottom nav is fixed, clears the gesture bar and highlights the current tab', () => {
+    const nav = rule('.bottom-nav');
+    expect(nav).toContain('position: fixed');
+    expect(nav).toContain('bottom: 0');
+    expect(nav).toContain('var(--safe-bottom)');
+    expect(css).toContain('.bottom-nav__item[aria-current="page"]');
   });
 
-  it('.settings-date-picker selector is defined', () => {
-    expect(cssContent).toContain('.settings-date-picker');
+  it('screens leave room for the bottom nav', () => {
+    expect(rule('.screens')).toContain('var(--bottom-nav-h)');
   });
 
-  it('.settings-impact-preview selector is defined', () => {
-    expect(cssContent).toContain('.settings-impact-preview');
+  it('touch targets are at least 44px', () => {
+    expect(rule(':root')).toContain('--tap: 44px;');
+    expect(rule('.icon-btn')).toContain('width: var(--tap)');
+    expect(rule('.btn')).toContain('min-height: 48px');
   });
 
-  it('.settings-close-btn selector is defined (compact ✕, not the pill .btn)', () => {
-    expect(cssContent).toContain('.settings-close-btn');
-    expect(/\.settings-close-btn\s*\{[^}]*border-radius:\s*50%/.test(cssContent)).toBe(true);
+  it('the day sheet slides up from the bottom', () => {
+    const sheet = rule('.sheet');
+    expect(sheet).toContain('position: fixed');
+    expect(sheet).toContain('bottom: 0');
+    expect(sheet).toContain('animation: sheet-in');
   });
 
-  it('.settings-divider selector is defined', () => {
-    expect(cssContent).toContain('.settings-divider');
+  it('respects reduced motion', () => {
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.screen \{ animation: none; \}/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.sheet \{ animation: none; \}/);
   });
 
-  it('.settings-impact-label selector is defined', () => {
-    expect(cssContent).toContain('.settings-impact-label');
+  it('uses the bundled fonts: Manrope for text, JetBrains Mono for numbers', () => {
+    expect(rule(':root')).toContain("--font-sans: 'Manrope Variable'");
+    expect(rule(':root')).toContain("--font-mono: 'JetBrains Mono'");
+    expect(css).not.toContain('fonts.googleapis.com');
+    expect(css).not.toMatch(/font-family:[^;]*Inter/);
+  });
+});
+
+describe('styles.css — day states read apart without colour alone', () => {
+  it('hit days are filled, missed days are outlined', () => {
+    expect(rule('.heatmap-tile--missed')).toContain('border-color: var(--accent-red-line)');
+    expect(css).toMatch(/\.heatmap-tile--met,\s*\.heatmap-tile--exceeded\s*\{[^}]*background: var\(--accent-sky\)/);
+    expect(rule('.week-chart__bar--missed')).toContain('border:');
+    expect(rule('.day-row__dot--missed')).toContain('background: transparent');
   });
 
-  it('.settings-label-text selector is defined', () => {
-    expect(cssContent).toContain('.settings-label-text');
+  it('today in progress has its own look', () => {
+    expect(rule('.week-chart__bar--today')).toContain('repeating-linear-gradient');
+    expect(rule('.day-chip--today')).not.toBeNull();
+  });
+});
+
+describe('styles.css — every emitted class is styled', () => {
+  /**
+   * Classes that are behaviour hooks or styled through a companion class
+   * (e.g. `.challenge-copy-btn` is styled by `.btn`).
+   */
+  const HOOK_CLASSES = new Set([
+    'backup-panel', 'backup-section', 'challenge-copy-btn', 'challenge-icon-btn', 'challenge-share-btn',
+    'cloud-sync-account', 'cloud-sync-panel', 'cloud-sync-primary', 'cloud-sync-section',
+    'odyssey-bar', 'odyssey-stop--start', 'rpg-level-card__titles', 'settings-city-select',
+    'settings-clear-all-checkbox', 'settings-date-picker', 'settings-label-text', 'show-more-btn',
+    'storage-health-action',
+  ]);
+
+  const sources = fs.readdirSync(path.join(root, 'src'))
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js') && !f.endsWith('.fixtures.js'))
+    .map((f) => fs.readFileSync(path.join(root, 'src', f), 'utf8'))
+    .join('\n');
+  const emitted = new Set(
+    [...sources.matchAll(/className = ['`]([^'`]+)['`]/g)]
+      .flatMap((m) => m[1].split(/\s+/))
+      .filter((c) => c && !c.includes('$') && !c.includes('{')),
+  );
+
+  it('finds the emitted classes', () => {
+    expect(emitted.size).toBeGreaterThan(100);
   });
 
-  it('.disabled-picker selector with opacity-50 and pointer-events-none is defined', () => {
-    expect(/\.disabled-picker\s*\{[^}]*opacity:\s*0\.5/.test(cssContent)).toBe(true);
-    expect(/\.disabled-picker\s*\{[^}]*pointer-events:\s*none/.test(cssContent)).toBe(true);
+  it('has a rule for each one (or lists it as a hook)', () => {
+    const missing = [...emitted].filter((c) => !HOOK_CLASSES.has(c) && !new RegExp(`\\.${c}(?![\\w-])`).test(css));
+    expect(missing).toEqual([]);
   });
 
-  it('.modal-dialog selector is defined for the settings modal', () => {
-    expect(cssContent).toMatch(/#settings-modal\s+\.modal-dialog/);
-  });
-
-  it('.modal-header selector is defined for the settings modal', () => {
-    expect(cssContent).toMatch(/#settings-modal\s+\.modal-header/);
-  });
-
-  it('ST-015 section has no hex colour literals', () => {
-    const st015Section = cssContent.match(/\/\* ─── ST-015[^]*$/);
-    if (st015Section) {
-      const hexMatches = st015Section[0].match(/#[0-9a-fA-F]{3,6}(?![0-9a-fA-F])/g) || [];
-      expect(hexMatches).toHaveLength(0);
-    }
-  });
-
-  it('restyle-boundary lock: .container still uses var(--bg-card-solid)', () => {
-    expect(/\.container\s*{[^}]*background:\s*var\(--bg-card-solid\)/.test(cssContent)).toBe(true);
+  it('the hook list has no stale entries', () => {
+    const stale = [...HOOK_CLASSES].filter((c) => !emitted.has(c));
+    expect(stale).toEqual([]);
   });
 });

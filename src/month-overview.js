@@ -21,15 +21,17 @@ import {
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /**
- * Compact steps label for a tile: "7.2k" above 1000, raw integer below.
+ * Compact steps label for a tile: "7.2k" above 1000 (truncated to one
+ * decimal), raw integer below.
  * @param {number} steps
  * @returns {string}
  */
 export function _formatSteps(steps) {
   if (!Number.isFinite(steps)) return '';
   if (steps >= 1000) {
-    const thousands = steps / 1000;
-    return `${thousands.toFixed(1).replace(/\.0$/, '')}k`;
+    // Truncate, never round: 9,982 steps must not read as the 10k goal.
+    const tenths = Math.floor(steps / 100) / 10;
+    return `${tenths.toFixed(1).replace(/\.0$/, '')}k`;
   }
   return String(steps);
 }
@@ -52,6 +54,28 @@ export function _stateClass(state) {
   }
 }
 
+const OUTCOME_WORDS = {
+  [CLASSIFICATION_EXCEEDED]: 'goal hit',
+  [CLASSIFICATION_MET]: 'goal hit',
+  [CLASSIFICATION_MISSED]: 'missed',
+};
+
+/**
+ * Screen-reader name for an interactive tile: "August 1: 10,000 steps, goal hit".
+ * @param {object} day
+ * @returns {string}
+ */
+export function _tileAriaLabel(day) {
+  const [y, m, d] = day.date.split('-').map(Number);
+  const name = new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  if (day.isFuture) return `${name}: upcoming`;
+  const outcome = OUTCOME_WORDS[day.classification?.state];
+  if (!day.record || !outcome) return `${name}: no data`;
+  const steps = Number(day.record.effective_steps || 0).toLocaleString('en-US');
+  const edited = day.classification?.isOverridden ? ', edited' : '';
+  return `${name}: ${steps} steps, ${outcome}${edited}`;
+}
+
 /**
  * Factory: dashboard current-month overview card.
  *
@@ -66,6 +90,7 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
    *
    * @param {{ slot?: HTMLElement, year?: number, month?: number,
    *           payload?: object, cardId?: string, showHistoryHint?: boolean,
+   *           showTitle?: boolean, showLegend?: boolean,
    *           onDayClick?: (day: object, tileEl: HTMLElement) => void }} [options]
    * @returns {Promise<void>}
    */
@@ -96,7 +121,10 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
     const onDayClick = options.onDayClick || null;
 
     slot.querySelector(`#${cardId}`)?.remove();
-    slot.prepend(_buildCard(doc, payload, cardId, options.showHistoryHint !== false, onDayClick));
+    slot.prepend(_buildCard(doc, payload, cardId, options.showHistoryHint !== false, onDayClick, {
+      showTitle: options.showTitle !== false,
+      showLegend: options.showLegend === true,
+    }));
   }
 
   /**
@@ -106,9 +134,10 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
    * @param {string} cardId
    * @param {boolean} showHistoryHint
    * @param {Function|null} onDayClick - optional callback(day, tileEl) for interactive tiles
+   * @param {{ showTitle: boolean, showLegend: boolean }} display
    * @returns {HTMLElement}
    */
-  function _buildCard(doc, payload, cardId, showHistoryHint, onDayClick) {
+  function _buildCard(doc, payload, cardId, showHistoryHint, onDayClick, { showTitle, showLegend }) {
     const card = doc.createElement('div');
     card.className = 'card';
     card.id = cardId;
@@ -128,7 +157,7 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
     hitRate.textContent = pct != null ? `Hit Rate: ${pct}%` : 'Hit Rate: —';
     title.appendChild(hitRate);
 
-    card.appendChild(title);
+    if (showTitle) card.appendChild(title);
 
     // ── Heatmap grid ───────────────────────────────────────────────────────
     const grid = doc.createElement('div');
@@ -157,6 +186,8 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
 
     card.appendChild(grid);
 
+    if (showLegend) card.appendChild(_buildLegend(doc));
+
     // ── History hint ───────────────────────────────────────────────────────
     if (showHistoryHint) {
       const hint = doc.createElement('p');
@@ -166,6 +197,26 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
     }
 
     return card;
+  }
+
+  /**
+   * Legend under the Calendar grid: goal hit / missed / edited.
+   * @param {Document} doc
+   * @returns {HTMLElement}
+   */
+  function _buildLegend(doc) {
+    const legend = doc.createElement('div');
+    legend.className = 'heatmap-legend';
+    for (const [modifier, text] of [['met', 'Goal hit'], ['missed', 'Missed'], ['edited', 'Edited']]) {
+      const item = doc.createElement('span');
+      item.className = 'heatmap-legend__item';
+      const swatch = doc.createElement('span');
+      swatch.className = `heatmap-legend__swatch heatmap-legend__swatch--${modifier}`;
+      swatch.setAttribute('aria-hidden', 'true');
+      item.append(swatch, doc.createTextNode(text));
+      legend.appendChild(item);
+    }
+    return legend;
   }
 
   function _commitmentHitRate(payload) {
@@ -239,6 +290,9 @@ export function createMonthOverview(doc, calendarEngine, reporter) {
       tile.appendChild(badge);
     }
 
+    if (interactive) {
+      tile.setAttribute('aria-label', _tileAriaLabel(day));
+    }
     if (interactive && !day.isFuture) {
       tile.addEventListener('click', () => onDayClick(day, tile));
     }

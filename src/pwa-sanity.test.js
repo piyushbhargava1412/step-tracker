@@ -230,10 +230,9 @@ describe('README setup, deployment, and PWA-install guide', () => {
     expect(readme).toMatch(/^## Service Worker Updates/m);
   });
 
-  it('scopes offline usage to implemented surfaces with the Spatial Map placeholder note', () => {
+  it('documents offline usage, and no longer mentions the removed Map tab (ST-025)', () => {
     expect(readme).toMatch(/^## Offline Usage/m);
-    expect(readme).toContain('Spatial Map');
-    expect(readme).toContain('placeholder');
+    expect(readme).not.toContain('Spatial Map');
   });
 
   it('contains no credential-shaped literals', () => {

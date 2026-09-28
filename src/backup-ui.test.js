@@ -189,7 +189,7 @@ describe('createBackupUI — render', () => {
     expect(importInput.style.display).not.toBe('none');
   });
 
-  it('renders a "⚠️ Overwrites local database" warning badge in the restore section', () => {
+  it('renders a "Replaces the data on this device" warning badge in the restore section', () => {
     const doc = buildDoc();
     const container = doc.getElementById('tab-backup');
     const backup = makeBackup();
@@ -199,7 +199,7 @@ describe('createBackupUI — render', () => {
 
     const badge = container.querySelector('.warning-badge');
     expect(badge).not.toBeNull();
-    expect(badge.textContent).toBe('⚠️ Overwrites local database');
+    expect(badge.textContent).toBe('Replaces the data on this device');
   });
 
   it('renders "Last local export: Never" when no settings collaborator is injected', () => {

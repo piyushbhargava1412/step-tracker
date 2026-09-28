@@ -1,5 +1,5 @@
 /**
- * Tests for src/storage-health-ui.js — the "💾 Storage & Data Health" panel.
+ * Tests for src/storage-health-ui.js — the "Storage protection" panel.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -51,7 +51,7 @@ describe('createStorageHealthUI', () => {
     const ui = createStorageHealthUI(doc, makeSettings(), makeReporter(), makeNav());
     await ui.render(container);
     const heading = container.querySelector('h2');
-    expect(heading.textContent).toBe('💾 Storage & Data Health');
+    expect(heading.textContent).toBe('Storage protection');
   });
 
   it('renders the Request Browser Storage Protection button', async () => {
