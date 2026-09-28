@@ -118,7 +118,7 @@ The service worker versioned caches update on next visit after a deploy (update-
 
 ## Step Sync
 
-The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST API. Clicking the **Sync Steps** button (`#sync-btn`) triggers `createStepSync(auth, db, reporter, doc = document).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
+The step-sync engine (`src/steps.js`) pulls daily step data from an injected `StepSource` (`src/step-source.js`); today that is the Google Fit source (`src/fit-step-source.js`), the sole gateway to the Google Fit REST API. Clicking the **Sync Steps** button (`#sync-btn`) triggers `createStepSync(createFitStepSource(auth, reporter), db, reporter, doc).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
 
 **Request shape:**
 - Each chunk is a `POST` to `https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate` with `Authorization: Bearer <token>` (the token is re-read from `auth.getAccessToken()` on every attempt and is never logged, cached, or persisted) and `Content-Type: application/json`.
@@ -128,7 +128,7 @@ The step-sync engine (`src/steps.js`) is the sole gateway to the Google Fit REST
 - Distance is normalised from metres to kilometres; when Google Fit returns no distance data, distance falls back to `steps × 0.000762` km/step (`STEP_TO_KM`). Days with zero steps still produce a record (zero-filled).
 
 **History backfill:**
-- The history anchor is `2013-01-01` (`HISTORY_ANCHOR_DATE`) — the earliest Google Fit data that can be fetched. On a first sync this spans ~13 years (~166 chunks), so **the first sync can take several minutes**; the app shows a progress message in the sync status line and asks you to keep the tab open.
+- History is fetched back to the sync horizon set in ⚙️ Settings (default `2018-01-01`; changing it re-checks whether older days need fetching). On a first sync this spans years (~100 chunks at the default), so **the first sync can take several minutes**; the app shows a progress message in the sync status line and asks you to keep the tab open.
 - Syncs run in a two-segment window model: an incremental window over the latest 3 stored days (always), plus a full-history backfill window when the backfill is not yet complete.
 - An interrupted backfill is fail-stop: already-persisted chunks are kept, and the next click resumes at the correct older date. A terminal error skips the latch write, so the persisted chunks stay put for the resume.
 - Once the backfill reaches the anchor, a one-time latch (`initial_backfill_complete` in the Dexie `settings` store) is written, so every future sync collapses to a single incremental request.

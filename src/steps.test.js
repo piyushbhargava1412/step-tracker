@@ -3,18 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import {
   createStepSync,
-  HISTORY_ANCHOR_DATE,
   CHUNK_DAYS,
   BUCKET_MS,
-  HOURLY_BUCKET_MS,
   SAFETY_BUFFER_DAYS,
   STEP_TO_KM,
-  METRES_PER_KM,
-  RETRY_BACKOFF_MS,
-  MAX_RETRY_AFTER_MS,
   BACKFILL_COMPLETE_KEY,
   DEFAULT_SYNC_ANCHOR,
-  STEP_API_URL,
   PHASE_FULL_HISTORY,
   PHASE_INCREMENTAL,
   _localMidnight,
@@ -22,22 +16,25 @@ import {
   _formatLocalDate,
   _chunkWindow,
   _determineSyncWindows,
-  _normalizeBuckets,
-  _normalizeHourlyBuckets,
-  _fetchChunk,
+  _toDailyRecords,
   _upsertChunk,
   _effectiveHighWater,
   _latchBackfillComplete,
   _readOldestStoredLabel,
-  _resolveBackoffMs,
-  _syncFailure,
-  MAX_ATTEMPTS_PER_CHUNK,
-  FAILURE_AUTH_EXPIRED,
-  FAILURE_RETRY_EXHAUSTED,
-  FAILURE_HTTP_ERROR,
-  FAILURE_NETWORK_ERROR,
-  SYNC_ERROR_NAME,
 } from './steps.js';
+import {
+  SYNC_ERROR_NAME,
+  FAILURE_AUTH_EXPIRED,
+  FAILURE_HTTP_ERROR,
+  FAILURE_RETRY_EXHAUSTED,
+  FAILURE_NETWORK_ERROR,
+  syncFailure,
+} from './step-source.js';
+import {
+  createFitStepSource,
+  HOURLY_BUCKET_MS,
+  RETRY_BACKOFF_MS,
+} from './fit-step-source.js';
 import { DB_VERSION } from './db.js';
 import { createBackup } from './backup.js';
 import {
@@ -77,19 +74,24 @@ describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date he
 
   describe('createStepSync factory', () => {
     it('returns a plain object (not a class instance) with a sync method', () => {
-      const result = createStepSync(auth, db, reporter, doc);
+      const result = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc);
       expect(typeof result.sync).toBe('function');
       expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
     });
 
     it('three-arg call — doc defaults to document without error', () => {
-      expect(() => createStepSync(auth, db, reporter)).not.toThrow();
-      const result = createStepSync(auth, db, reporter);
+      expect(() => createStepSync(createFitStepSource(auth, reporter), db, reporter)).not.toThrow();
+      const result = createStepSync(createFitStepSource(auth, reporter), db, reporter);
       expect(typeof result.sync).toBe('function');
     });
 
+    it('fails fast when the first argument is not a StepSource (e.g. a legacy auth object)', () => {
+      expect(() => createStepSync(auth, db, reporter, doc)).toThrow(/StepSource/);
+      expect(() => createStepSync(null, db, reporter, doc)).toThrow(TypeError);
+    });
+
     it('isSyncing flag is closure-scoped and not exposed on the returned object', () => {
-      const result = createStepSync(auth, db, reporter, doc);
+      const result = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc);
       expect(result.isSyncing).toBeUndefined();
     });
   });
@@ -97,18 +99,12 @@ describe('Task 2: src/steps.js scaffold — constants and DST-safe local-date he
   // ── Decision-11 constants ──────────────────────────────────────────────────
 
   describe('Decision-11 constants', () => {
-    it('HISTORY_ANCHOR_DATE resolves to local midnight on 2013-01-01', () => {
-      expect(HISTORY_ANCHOR_DATE.getFullYear()).toBe(2013);
-      expect(HISTORY_ANCHOR_DATE.getMonth()).toBe(0); // January
-      expect(HISTORY_ANCHOR_DATE.getDate()).toBe(1);
-      expect(HISTORY_ANCHOR_DATE.getHours()).toBe(0);
+    it('no hardcoded 2013 history anchor remains — the configured sync anchor is the only floor', () => {
+      const stepsContent = fs.readFileSync(path.resolve(__dirname, './steps.js'), 'utf-8');
+      expect(stepsContent).not.toContain('HISTORY_ANCHOR_DATE');
+      expect(stepsContent).not.toContain('2013');
     });
 
-    it('STEP_API_URL equals the full Google Fit aggregate endpoint', () => {
-      expect(STEP_API_URL).toBe(
-        'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate'
-      );
-    });
 
     it('TOTAL_DAYS does not appear anywhere in src/steps.js', () => {
       const stepsContent = fs.readFileSync(
@@ -437,7 +433,7 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
     expect(PHASE_INCREMENTAL).toBe('Incremental sync');
   });
 
-  it('oldest.date === HISTORY_ANCHOR_DATE with the flag absent → incremental window only', async () => {
+  it('oldest.date before the default anchor with the flag absent → incremental window only', async () => {
     const db = makeDb({
       oldest: { date: '2013-01-01' },
       latest: { date: '2025-06-14' },
@@ -731,707 +727,6 @@ describe('Task 4: _determineSyncWindows — two-segment window resolution', () =
   // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
 });
 
-// ── Task 5: _normalizeBuckets — dual data type, zero-fill, distance fallback ──
-
-describe('Task 5: _normalizeBuckets — dual data type, zero-fill, distance fallback', () => {
-  /** Local midnight on June 15, 2025 — used as the default bucket timestamp. */
-  const JUNE_15_MS = new Date(2025, 5, 15, 0, 0, 0, 0).getTime();
-  const JUNE_15_MS_STR = String(JUNE_15_MS);
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
-
-  // ── Helper ────────────────────────────────────────────────────────────────────
-
-  /**
-   * Build a minimal bucket with the given step intVals and distance fpVals.
-   * Both datasets carry a realistic dataSourceId by default.
-   */
-  function makeBucket({
-    startTimeMillis = JUNE_15_MS_STR,
-    startTimeNanos = undefined,
-    stepPoints = [],
-    distPoints = [],
-    includeDistDataset = true,
-    stepDataSourceId = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
-    distDataSourceId = 'derived:com.google.distance.delta:com.google.android.gms:estimated_distance',
-  } = {}) {
-    const dataset = [
-      {
-        dataSourceId: stepDataSourceId,
-        point: stepPoints.map((intVal) => ({ value: [{ intVal }] })),
-      },
-    ];
-    if (includeDistDataset) {
-      dataset.push({
-        dataSourceId: distDataSourceId,
-        point: distPoints.map((fpVal) => ({ value: [{ fpVal }] })),
-      });
-    }
-    const bucket = { dataset };
-    if (startTimeMillis != null) bucket.startTimeMillis = startTimeMillis;
-    if (startTimeNanos != null) bucket.startTimeNanos = startTimeNanos;
-    return bucket;
-  }
-
-  // ── 1: Empty dataset array → 0-step record (zero-fill, not a skip) ───────────
-
-  it('bucket with empty dataset array produces a record with effective_steps: 0 and effective_distance_km: 0 — not a skipped day', () => {
-    const bucket = { startTimeMillis: JUNE_15_MS_STR, dataset: [] };
-    const records = _normalizeBuckets([bucket]);
-    expect(records.length).toBe(1);
-    expect(records[0].effective_steps).toBe(0);
-    expect(records[0].effective_distance_km).toBe(0);
-  });
-
-  // ── 2: Step sum ───────────────────────────────────────────────────────────────
-
-  it('bucket with step_count.delta dataset returns correct summed original_steps', () => {
-    const bucket = makeBucket({ stepPoints: [1000, 2000, 500] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(3500);
-  });
-
-  // ── 3: Distance metres → km at 3 decimal places ───────────────────────────────
-
-  it('distance.delta fpVal metres converted to km rounded to 3 decimals', () => {
-    const metres = 1234.567;
-    const bucket = makeBucket({ stepPoints: [5000], distPoints: [metres] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
-  });
-
-  // ── 4: Real distance preferred over step-derived value ────────────────────────
-
-  it('real distance.delta value used in preference to step-derived fallback when present', () => {
-    const steps = 5000;
-    const metres = 4500; // != steps * STEP_TO_KM * 1000
-    const bucket = makeBucket({ stepPoints: [steps], distPoints: [metres] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
-    expect(record.original_distance_km).not.toBe(Number((steps * STEP_TO_KM).toFixed(3)));
-  });
-
-  // ── 5: Missing distance dataset → step-derived fallback ──────────────────────
-
-  it('day with missing distance.delta dataset → effective_distance_km derived from steps * STEP_TO_KM', () => {
-    const steps = 8000;
-    const bucket = makeBucket({ stepPoints: [steps], includeDistDataset: false });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
-  });
-
-  // ── 6: Empty distance dataset (no points) → step-derived fallback ────────────
-
-  it('empty distance.delta dataset (no points) → step-derived fallback used', () => {
-    const steps = 6000;
-    const bucket = makeBucket({ stepPoints: [steps], distPoints: [] }); // distPoints: [] → empty
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
-  });
-
-  // ── 7: Non-finite distance total → step-derived fallback ─────────────────────
-
-  it('distance total of Infinity → step-derived fallback used', () => {
-    const steps = 7000;
-    const bucket = makeBucket({ stepPoints: [steps], distPoints: [Infinity] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.effective_distance_km).toBe(Number((steps * STEP_TO_KM).toFixed(3)));
-  });
-
-  // ── 8: steps === 0, distance > 0 (cycling / manual log) ─────────────────────
-
-  it('day with steps === 0 and distance_km > 0 is persisted as-is — not treated as inconsistent', () => {
-    const bucket = makeBucket({ stepPoints: [0], distPoints: [5000] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(0);
-    expect(record.original_distance_km).toBeGreaterThan(0);
-    expect(record.effective_steps).toBe(0);
-    expect(record.effective_distance_km).toBeGreaterThan(0);
-  });
-
-  // ── 9: Dataset located by dataSourceId substring, not position ────────────────
-
-  it('datasets located by dataSourceId.includes substring — reordering still yields correct steps', () => {
-    // Distance dataset is placed at index 0, steps at index 1 — reversed from request order
-    const bucket = {
-      startTimeMillis: JUNE_15_MS_STR,
-      dataset: [
-        {
-          dataSourceId: 'derived:com.google.distance.delta:...',
-          point: [{ value: [{ fpVal: 3000 }] }],
-        },
-        {
-          dataSourceId: 'derived:com.google.step_count.delta:...',
-          point: [{ value: [{ intVal: 9999 }] }],
-        },
-      ],
-    };
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(9999);
-    expect(record.original_distance_km).toBe(Number((3000 / 1000).toFixed(3)));
-  });
-
-  // ── 10: Positional fallback when dataSourceId absent ─────────────────────────
-
-  it('positional fallback (index 0 for steps, index 1 for distance) used when dataSourceId absent', () => {
-    const steps = 4321;
-    const metres = 3000;
-    const bucket = {
-      startTimeMillis: JUNE_15_MS_STR,
-      dataset: [
-        { point: [{ value: [{ intVal: steps }] }] }, // index 0 → steps
-        { point: [{ value: [{ fpVal: metres }] }] }, // index 1 → distance
-      ],
-    };
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(steps);
-    expect(record.original_distance_km).toBe(Number((metres / 1000).toFixed(3)));
-  });
-
-  // ── 11: Date label from local getters, never toISOString() ───────────────────
-
-  it('date label derived from bucket.startTimeMillis via local getters (getFullYear/getMonth/getDate)', () => {
-    vi.useFakeTimers();
-    const localMidnightMs = new Date(2025, 5, 15, 0, 0, 0, 0).getTime();
-    vi.setSystemTime(localMidnightMs);
-
-    const bucket = { startTimeMillis: String(localMidnightMs), dataset: [] };
-    const [record] = _normalizeBuckets([bucket]);
-
-    const d = new Date(localMidnightMs);
-    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    expect(record.date).toBe(expected);
-  });
-
-  // ── 12: Nanos fallback when startTimeMillis absent ───────────────────────────
-
-  it('nanos fallback: when startTimeMillis absent, Number(startTimeNanos) / 1e6 used for date derivation', () => {
-    // Use a small ms value (1000 ms) so nanos = 1e9 stays well below MAX_SAFE_INTEGER
-    const testMs = 1000;
-    const nanos = String(testMs * 1_000_000); // "1000000000"
-    const bucket = { startTimeNanos: nanos, dataset: [] };
-    const [record] = _normalizeBuckets([bucket]);
-
-    const d = new Date(testMs);
-    const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    expect(record.date).toBe(expected);
-  });
-
-  // ── 13: Missing dataset property → no throw, 0-step record ──────────────────
-
-  it('missing dataset property on bucket does not throw; produces 0-step record', () => {
-    const bucket = { startTimeMillis: JUNE_15_MS_STR }; // no dataset
-    expect(() => _normalizeBuckets([bucket])).not.toThrow();
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(0);
-  });
-
-  // ── 14: Missing point array inside dataset → no throw ────────────────────────
-
-  it('missing point array inside dataset does not throw', () => {
-    const bucket = {
-      startTimeMillis: JUNE_15_MS_STR,
-      dataset: [
-        { dataSourceId: 'derived:com.google.step_count.delta:...' }, // no point
-      ],
-    };
-    expect(() => _normalizeBuckets([bucket])).not.toThrow();
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(0);
-  });
-
-  // ── 15: Missing value array inside point → no throw ──────────────────────────
-
-  it('missing value array inside point does not throw', () => {
-    const bucket = {
-      startTimeMillis: JUNE_15_MS_STR,
-      dataset: [
-        {
-          dataSourceId: 'derived:com.google.step_count.delta:...',
-          point: [{ /* no value */ }],
-        },
-      ],
-    };
-    expect(() => _normalizeBuckets([bucket])).not.toThrow();
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.original_steps).toBe(0);
-  });
-
-  // ── 16: synced_at is ISO 8601 ─────────────────────────────────────────────────
-
-  it('synced_at is an ISO 8601 timestamp string on every output record', () => {
-    const bucket = { startTimeMillis: JUNE_15_MS_STR, dataset: [] };
-    const [record] = _normalizeBuckets([bucket]);
-    expect(typeof record.synced_at).toBe('string');
-    expect(Number.isFinite(new Date(record.synced_at).getTime())).toBe(true);
-  });
-
-  // ── 17: Both timestamp fields absent → bucket skipped, no NaN primary key ─────
-
-  it('a bucket with neither startTimeMillis nor startTimeNanos is skipped rather than persisted with a NaN date key', () => {
-    const bucket = { dataset: [] };
-    const records = _normalizeBuckets([bucket]);
-    expect(records.length).toBe(0);
-  });
-
-  it('a bucket with a non-numeric startTimeMillis is skipped rather than persisted with a NaN date key', () => {
-    const bucket = { startTimeMillis: 'not-a-number', dataset: [] };
-    const records = _normalizeBuckets([bucket]);
-    expect(records.length).toBe(0);
-  });
-
-  // ── Output shape ─────────────────────────────────────────────────────────────
-
-  it('every output record carries the full { date, original_steps, original_distance_km, effective_steps, effective_distance_km, synced_at } shape', () => {
-    const bucket = makeBucket({ stepPoints: [500], distPoints: [400] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(Object.keys(record).sort()).toEqual([
-      'date',
-      'effective_distance_km',
-      'effective_steps',
-      'original_distance_km',
-      'original_steps',
-      'synced_at',
-    ]);
-  });
-
-  it('effective_steps and effective_distance_km equal their original_ counterparts from _normalizeBuckets (no override at this layer)', () => {
-    const bucket = makeBucket({ stepPoints: [1234], distPoints: [999] });
-    const [record] = _normalizeBuckets([bucket]);
-    expect(record.effective_steps).toBe(record.original_steps);
-    expect(record.effective_distance_km).toBe(record.original_distance_km);
-  });
-});
-
-// ── Task 6: _fetchChunk — transient-retry policy and 401 short-circuit ────────
-
-describe('Task 6: _fetchChunk — transient-retry policy and 401 short-circuit', () => {
-  /** A single chunk on exact local-midnight boundaries: June 1 → July 1, 2025. */
-  const CHUNK = {
-    startMs: new Date(2025, 5, 1).getTime(),
-    endMs: new Date(2025, 6, 1).getTime(),
-  };
-
-  let auth, reporter;
-
-  /**
-   * Minimal Response double exposing only the surface _fetchChunk may touch.
-   *
-   * @param {number} status
-   * @param {object=} opts
-   * @param {object=} opts.json     Body resolved by response.json()
-   * @param {object=} opts.headers  Header map consulted by headers.get(name)
-   */
-  function makeResponse(status, { json = { bucket: [] }, headers = {} } = {}) {
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      headers: { get: vi.fn((name) => headers[name] ?? null) },
-      json: vi.fn().mockResolvedValue(json),
-    };
-  }
-
-  /** Parse the JSON body of the nth (0-based) fetch call. */
-  function bodyOfCall(n = 0) {
-    return JSON.parse(globalThis.fetch.mock.calls[n][1].body);
-  }
-
-  /** Raw (unparsed) body string of the nth fetch call. */
-  function rawBodyOfCall(n = 0) {
-    return globalThis.fetch.mock.calls[n][1].body;
-  }
-
-  beforeEach(() => {
-    auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
-    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    vi.useRealTimers();
-  });
-
-  // ── Request shape (Decision 5) ─────────────────────────────────────────────
-
-  it('POST body contains exactly two aggregateBy entries — step_count.delta and distance.delta', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-
-    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    const body = bodyOfCall();
-    expect(body.aggregateBy.length).toBe(2);
-    expect(body.aggregateBy.map((entry) => entry.dataTypeName)).toEqual([
-      'com.google.step_count.delta',
-      'com.google.distance.delta',
-    ]);
-  });
-
-  it('no dataSourceId key appears anywhere in the serialized request body', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-
-    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    expect(rawBodyOfCall()).not.toContain('dataSourceId');
-  });
-
-  it('startTimeMillis / endTimeMillis correspond to 00:00:00.000 local time', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-
-    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    const body = bodyOfCall();
-    expect(body.startTimeMillis).toBe(_localMidnight(CHUNK.startMs).getTime());
-    expect(body.endTimeMillis).toBe(_localMidnight(CHUNK.endMs).getTime());
-    for (const ms of [body.startTimeMillis, body.endTimeMillis]) {
-      expect(new Date(ms).getHours()).toBe(0);
-      expect(new Date(ms).getMinutes()).toBe(0);
-      expect(new Date(ms).getSeconds()).toBe(0);
-      expect(new Date(ms).getMilliseconds()).toBe(0);
-    }
-  });
-
-  it('a chunk whose bounds carry a time-of-day is normalized down to local midnight', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-    const messy = {
-      startMs: new Date(2025, 5, 1, 13, 45, 30, 123).getTime(),
-      endMs: new Date(2025, 6, 1, 9, 5, 0, 7).getTime(),
-    };
-
-    await _fetchChunk(auth, reporter, messy, 1, 1, PHASE_INCREMENTAL);
-
-    const body = bodyOfCall();
-    expect(body.startTimeMillis).toBe(new Date(2025, 5, 1).getTime());
-    expect(body.endTimeMillis).toBe(new Date(2025, 6, 1).getTime());
-  });
-
-  it('bucketByTime.durationMillis equals BUCKET_MS', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-
-    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    expect(bodyOfCall().bucketByTime.durationMillis).toBe(BUCKET_MS);
-    expect(BUCKET_MS).toBe(86_400_000);
-  });
-
-  it('POSTs to STEP_API_URL with the bearer token and a JSON content type', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(200));
-
-    await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    const [url, init] = globalThis.fetch.mock.calls[0];
-    expect(url).toBe(STEP_API_URL);
-    expect(init.method).toBe('POST');
-    expect(init.headers.Authorization).toBe('Bearer tok-abc');
-    expect(init.headers['Content-Type']).toBe('application/json');
-  });
-
-  // ── Happy path ─────────────────────────────────────────────────────────────
-
-  it('HTTP 200 on the first attempt → one fetch call, resolves to the parsed JSON', async () => {
-    const payload = { bucket: [{ startTimeMillis: '1' }] };
-    globalThis.fetch.mockResolvedValue(makeResponse(200, { json: payload }));
-
-    const result = await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(result).toEqual(payload);
-    expect(reporter.sync).not.toHaveBeenCalled();
-  });
-
-  // ── Transient retry (Decision 17 + Decision 12a) ────────────────────────────
-
-  it('429 then 200 → exactly two fetch calls, with the ⚠️ rate-limit message written before the backoff', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(429))
-      .mockResolvedValueOnce(makeResponse(200));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 2, 7, PHASE_FULL_HISTORY);
-
-    // Let the first attempt settle without letting the backoff elapse.
-    await vi.advanceTimersByTimeAsync(0);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).toHaveBeenCalledWith(
-      `⚠️ Rate limited by Google Fit — retrying chunk 2/7 in ${RETRY_BACKOFF_MS / 1000}s…`
-    );
-
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
-    await expect(pending).resolves.toEqual({ bucket: [] });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('503 then 200 → two fetch calls, with the ⚠️ Google Fit error 503 message written before the backoff', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(503))
-      .mockResolvedValueOnce(makeResponse(200));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 3, PHASE_INCREMENTAL);
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).toHaveBeenCalledWith(
-      `⚠️ Google Fit error 503 — retrying chunk 1/3 in ${RETRY_BACKOFF_MS / 1000}s…`
-    );
-
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
-    await expect(pending).resolves.toEqual({ bucket: [] });
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('429 then 429 → exactly two fetch calls and a retry-exhausted classification', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch.mockResolvedValue(makeResponse(429));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 4, 9, PHASE_FULL_HISTORY);
-    const assertion = expect(pending).rejects.toMatchObject({
-      name: SYNC_ERROR_NAME,
-      kind: FAILURE_RETRY_EXHAUSTED,
-      status: 429,
-      index: 4,
-      total: 9,
-      phase: PHASE_FULL_HISTORY,
-    });
-
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
-    await assertion;
-    expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_ATTEMPTS_PER_CHUNK);
-    expect(MAX_ATTEMPTS_PER_CHUNK).toBe(2);
-  });
-
-  it('503 then 500 → retry-exhausted classification carrying the second status', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(503))
-      .mockResolvedValueOnce(makeResponse(500));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-    const assertion = expect(pending).rejects.toMatchObject({
-      kind: FAILURE_RETRY_EXHAUSTED,
-      status: 500,
-    });
-
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
-    await assertion;
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  // ── Non-retryable outcomes ─────────────────────────────────────────────────
-
-  it('401 → exactly one fetch call, no retry, auth-expired classification', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(401));
-
-    await expect(
-      _fetchChunk(auth, reporter, CHUNK, 5, 12, PHASE_INCREMENTAL)
-    ).rejects.toMatchObject({
-      name: SYNC_ERROR_NAME,
-      kind: FAILURE_AUTH_EXPIRED,
-      status: 401,
-      index: 5,
-      total: 12,
-    });
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).not.toHaveBeenCalled();
-  });
-
-  it('403 → exactly one fetch call and a non-retryable http-error classification', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(403));
-
-    await expect(
-      _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL)
-    ).rejects.toMatchObject({ kind: FAILURE_HTTP_ERROR, status: 403 });
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).not.toHaveBeenCalled();
-  });
-
-  it('600 (outside the 5xx band) is not retried — classified as http-error', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(600));
-
-    await expect(
-      _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL)
-    ).rejects.toMatchObject({ kind: FAILURE_HTTP_ERROR, status: 600 });
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('a thrown TypeError from fetch → one fetch call and a network-error classification', async () => {
-    const networkFailure = new TypeError('Failed to fetch');
-    globalThis.fetch.mockRejectedValue(networkFailure);
-
-    await expect(
-      _fetchChunk(auth, reporter, CHUNK, 3, 8, PHASE_INCREMENTAL)
-    ).rejects.toMatchObject({
-      name: SYNC_ERROR_NAME,
-      kind: FAILURE_NETWORK_ERROR,
-      status: null,
-      index: 3,
-      total: 8,
-      cause: networkFailure,
-    });
-
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).not.toHaveBeenCalled();
-  });
-
-  // ── Backoff resolution (Decision 17) ───────────────────────────────────────
-
-  it('Retry-After: 5 → the backoff sleeps exactly 5000 ms, not RETRY_BACKOFF_MS', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(429, { headers: { 'Retry-After': '5' } }))
-      .mockResolvedValueOnce(makeResponse(200));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    await vi.advanceTimersByTimeAsync(4999);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(reporter.sync).toHaveBeenCalledWith(
-      '⚠️ Rate limited by Google Fit — retrying chunk 1/1 in 5s…'
-    );
-
-    await vi.advanceTimersByTimeAsync(1);
-    await pending;
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('Retry-After: 600 exceeds MAX_RETRY_AFTER_MS → falls back to RETRY_BACKOFF_MS', async () => {
-    vi.useFakeTimers();
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(429, { headers: { 'Retry-After': '600' } }))
-      .mockResolvedValueOnce(makeResponse(200));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS - 1);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await pending;
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-    expect(reporter.sync).toHaveBeenCalledWith(
-      `⚠️ Rate limited by Google Fit — retrying chunk 1/1 in ${RETRY_BACKOFF_MS / 1000}s…`
-    );
-  });
-
-  describe('_resolveBackoffMs', () => {
-    it('honours a finite positive value within the cap, read as seconds', () => {
-      expect(_resolveBackoffMs('5')).toBe(5000);
-      expect(_resolveBackoffMs('30')).toBe(MAX_RETRY_AFTER_MS);
-    });
-
-    it('rejects values above MAX_RETRY_AFTER_MS, zero, negative, absent and unparseable', () => {
-      expect(_resolveBackoffMs('600')).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs('0')).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs('-1')).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs(null)).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs(undefined)).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs('')).toBe(RETRY_BACKOFF_MS);
-      expect(_resolveBackoffMs('Wed, 21 Oct 2015 07:28:00 GMT')).toBe(RETRY_BACKOFF_MS);
-    });
-  });
-
-  describe('_syncFailure', () => {
-    it('carries the kind, status and chunk coordinates Task 10 renders from', () => {
-      const error = _syncFailure({
-        kind: FAILURE_HTTP_ERROR,
-        status: 403,
-        index: 2,
-        total: 5,
-        phase: PHASE_INCREMENTAL,
-      });
-
-      expect(error).toBeInstanceOf(Error);
-      expect(error.name).toBe(SYNC_ERROR_NAME);
-      expect(error.kind).toBe(FAILURE_HTTP_ERROR);
-      expect(error.status).toBe(403);
-      expect(error.index).toBe(2);
-      expect(error.total).toBe(5);
-      expect(error.phase).toBe(PHASE_INCREMENTAL);
-      expect(error.cause).toBeUndefined();
-    });
-
-    it('omits the status suffix and preserves the cause for a thrown network failure', () => {
-      const cause = new TypeError('Failed to fetch');
-      const error = _syncFailure({
-        kind: FAILURE_NETWORK_ERROR,
-        status: null,
-        index: 1,
-        total: 1,
-        phase: PHASE_FULL_HISTORY,
-        cause,
-      });
-
-      expect(error.message).not.toContain('HTTP');
-      expect(error.cause).toBe(cause);
-    });
-  });
-
-  // ── Token handling (Decision 14) ───────────────────────────────────────────
-
-  it('the token is re-read from auth.getAccessToken() on every attempt — never cached', async () => {
-    vi.useFakeTimers();
-    auth.getAccessToken
-      .mockReturnValueOnce('tok-first')
-      .mockReturnValueOnce('tok-second');
-    globalThis.fetch
-      .mockResolvedValueOnce(makeResponse(429))
-      .mockResolvedValueOnce(makeResponse(200));
-
-    const pending = _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL);
-    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
-    await pending;
-
-    expect(auth.getAccessToken).toHaveBeenCalledTimes(2);
-    expect(globalThis.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer tok-first');
-    expect(globalThis.fetch.mock.calls[1][1].headers.Authorization).toBe('Bearer tok-second');
-  });
-
-  it('never logs, persists or interpolates token material into any message or diagnostic', async () => {
-    globalThis.fetch.mockResolvedValue(makeResponse(401));
-
-    const thrown = await _fetchChunk(auth, reporter, CHUNK, 1, 1, PHASE_INCREMENTAL).catch(
-      (error) => error
-    );
-
-    const emitted = [
-      thrown.message,
-      JSON.stringify({ ...thrown, message: thrown.message }),
-      ...reporter.sync.mock.calls.flat(),
-      ...console.error.mock.calls.flat().map((arg) => String(arg)),
-    ].join(' ');
-
-    expect(emitted).not.toContain('tok-abc');
-    expect(emitted).not.toContain('Bearer');
-    expect(emitted).not.toContain('Authorization');
-  });
-
-  // ── Guard clauses ──────────────────────────────────────────────────────────
-
-  it('fails fast on a missing chunk without issuing any request', async () => {
-    await expect(
-      _fetchChunk(auth, reporter, undefined, 1, 1, PHASE_INCREMENTAL)
-    ).rejects.toThrow(TypeError);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
-
-  it('fails fast on a chunk with non-finite bounds without issuing any request', async () => {
-    await expect(
-      _fetchChunk(auth, reporter, { startMs: 0, endMs: Number.NaN }, 1, 1, PHASE_INCREMENTAL)
-    ).rejects.toThrow(/startMs, endMs/);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
-
-  // ── Pre-flight token guard (covered orchestrator-level in Task 9/10) ───────
-});
-
 // ── Task 7: _upsertChunk — transactional override-preserving upsert ────────────
 
 describe('Task 7: _upsertChunk — transactional override-preserving upsert', () => {
@@ -1442,7 +737,7 @@ describe('Task 7: _upsertChunk — transactional override-preserving upsert', ()
   let db;
 
   /**
-   * Build one incoming API record (the shape _normalizeBuckets produces).
+   * Build one incoming API record (the shape _toDailyRecords produces).
    */
   function makeApiRecord({
     date = '2025-06-15',
@@ -1529,7 +824,7 @@ describe('Task 7: _upsertChunk — transactional override-preserving upsert', ()
   });
 
   it('absent date is inserted with original_steps and effective_steps from the API record', async () => {
-    // _normalizeBuckets always sets effective_steps === original_steps on a fresh API record.
+    // _toDailyRecords always sets effective_steps === original_steps on a fresh API record.
     const record = makeApiRecord({ original_steps: 7500, effective_steps: 7500 });
     db.daily_records.bulkGet.mockResolvedValue([undefined]);
 
@@ -1864,12 +1159,15 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
     vi.useRealTimers();
   });
 
+  /** The anchor these cases latch against: local midnight on 2013-01-01. */
+  const ANCHOR_2013_MS = new Date(2013, 0, 1).getTime();
+
   // ── Oldest record reaches or passes the anchor → latch ─────────────────────
 
   it("puts { key: BACKFILL_COMPLETE_KEY, value: true } when the oldest record reaches the anchor", async () => {
     const db = makeDb({ oldest: { date: '2013-01-01' } });
 
-    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
 
     expect(db.settings.put).toHaveBeenCalledTimes(1);
     expect(db.settings.put).toHaveBeenCalledWith({
@@ -1881,7 +1179,7 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
   it('latches when the oldest record predates the anchor (dates before 2013)', async () => {
     const db = makeDb({ oldest: { date: '2012-12-31' } });
 
-    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
 
     expect(db.settings.put).toHaveBeenCalledTimes(1);
     expect(db.settings.put).toHaveBeenCalledWith({
@@ -1893,8 +1191,8 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
   it('latches exactly once — a single put call for a single invocation', async () => {
     const db = makeDb({ oldest: { date: '2013-01-01' } });
 
-    await _latchBackfillComplete(db);
-    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
 
     // Each invocation performs its own read+write; a single run writes once.
     expect(db.daily_records.orderBy).toHaveBeenCalledWith('date');
@@ -1905,7 +1203,7 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
   it('does not latch when the oldest record is still newer than the anchor', async () => {
     const db = makeDb({ oldest: { date: '2013-01-02' } });
 
-    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
 
     expect(db.settings.put).not.toHaveBeenCalled();
   });
@@ -1916,17 +1214,43 @@ describe('Task 8: _latchBackfillComplete — backfill completion latch', () => {
     const putError = new Error('write blocked');
     const db = makeDb({ oldest: { date: '2013-01-01' }, putError });
 
-    await expect(_latchBackfillComplete(db)).resolves.toBeUndefined();
+    await expect(_latchBackfillComplete(db, ANCHOR_2013_MS)).resolves.toBeUndefined();
 
     expect(console.error).toHaveBeenCalledWith('[steps]', putError);
   });
 
   // ── Transaction isolation and schema ────────────────────────────────────────
 
+  it('latches against the configured anchor, not a fixed 2013 floor (default 2018-01-01 horizon)', async () => {
+    const db = makeDb({ oldest: { date: '2018-01-01' } });
+
+    await _latchBackfillComplete(db, new Date(2018, 0, 1).getTime());
+
+    expect(db.settings.put).toHaveBeenCalledWith({ key: BACKFILL_COMPLETE_KEY, value: true });
+  });
+
+  it('does not latch when the oldest record is newer than the configured anchor', async () => {
+    const db = makeDb({ oldest: { date: '2018-01-02' } });
+
+    await _latchBackfillComplete(db, new Date(2018, 0, 1).getTime());
+
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
+  it('fails fast on a non-finite anchor without reading or writing', async () => {
+    const db = makeDb({ oldest: { date: '2018-01-01' } });
+
+    await expect(_latchBackfillComplete(db, Number.NaN)).rejects.toThrow(TypeError);
+    await expect(_latchBackfillComplete(db)).rejects.toThrow(TypeError);
+
+    expect(db.daily_records.orderBy).not.toHaveBeenCalled();
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+
   it('the put is issued outside any db.transaction call', async () => {
     const db = makeDb({ oldest: { date: '2013-01-01' } });
 
-    await _latchBackfillComplete(db);
+    await _latchBackfillComplete(db, ANCHOR_2013_MS);
 
     expect(db.transaction).not.toHaveBeenCalled();
   });
@@ -2006,7 +1330,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     const first = engine.sync();
 
     await vi.advanceTimersByTimeAsync(0);
@@ -2041,7 +1365,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     const first = engine.sync();
 
     await vi.advanceTimersByTimeAsync(0);
@@ -2077,7 +1401,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     const pending = engine.sync();
 
     expect(syncBtn().disabled).toBe(true);
@@ -2093,7 +1417,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(syncBtn().disabled).toBe(false);
@@ -2105,7 +1429,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(syncBtn().textContent).toBe('Sync Steps');
@@ -2117,7 +1441,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, {
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, {
       getElementById: () => null,
     });
     await expect(engine.sync()).resolves.toBeUndefined();
@@ -2136,11 +1460,11 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(messages()[0]).toBe(
-      '⏳ Full history sync — fetching all Google Fit data since 2013. This can take several minutes; keep this tab open.'
+      '⏳ Full history sync — fetching all Google Fit data since 2018-01-01. This can take several minutes; keep this tab open.'
     );
   });
 
@@ -2154,7 +1478,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const progress = messages().filter((m) => m.startsWith('⏳'));
@@ -2178,7 +1502,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     // Each chunk now issues two fetches (daily + hourly) before the upsert.
@@ -2199,7 +1523,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       return { ok: true, status: 200, json: async () => ({ bucket: [] }) };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     // Daily and hourly fetches for the same chunk run in parallel (maxActive = 2).
@@ -2221,10 +1545,10 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
-    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    const anchorMs = new Date(2013, 0, 1).getTime();
     const endMs = _addDays(_localMidnight(TODAY), 1).getTime();
     const dayCount = Math.round((endMs - anchorMs) / BUCKET_MS);
     const total = _chunkWindow(new Date(anchorMs), new Date(endMs)).length;
@@ -2244,7 +1568,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessage()).toBe('✅ Synced 7 days (1 request) — up to date.');
@@ -2265,10 +1589,10 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
-    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    const anchorMs = new Date(2013, 0, 1).getTime();
     const endMs = _addDays(_localMidnight(TODAY), 1).getTime();
     const incStartMs = _addDays(
       _localMidnight(new Date(2025, 5, 14)),
@@ -2299,7 +1623,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(db.settings.put).toHaveBeenCalledTimes(1);
@@ -2346,7 +1670,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       };
     });
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
 
     await engine.sync();
     expect(db.settings.put).not.toHaveBeenCalled();
@@ -2370,7 +1694,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       _localMidnight(new Date(2024, 0, 10)),
       1
     ).getTime();
-    const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
+    const anchorMs = new Date(2013, 0, 1).getTime();
     expect(bodies.some((b) => b.endTimeMillis === backfillEndMs)).toBe(true);
     expect(bodies.some((b) => b.startTimeMillis === anchorMs)).toBe(true);
     expect(db.settings.put).toHaveBeenCalledTimes(1);
@@ -2465,7 +1789,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
         .mockResolvedValueOnce(makeResponse(429))
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     const pending = engine.sync();
     await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS);
     await pending;
@@ -2498,7 +1822,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(401)));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2524,7 +1848,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(401)));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2545,7 +1869,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeResponse(403)));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2576,7 +1900,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
       vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2606,7 +1930,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
       .mockResolvedValue(makeResponse(200, { json: {} }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
 
     await engine.sync();
     expect(lastSyncMessage()).toContain('network error');
@@ -2646,7 +1970,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2670,7 +1994,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     auth.getAccessToken.mockReturnValue(null);
     db = {};
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessage()).toBe('🔑 Connect your Google Account first');
@@ -2686,7 +2010,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     auth.getAccessToken.mockReturnValue('');
     db = {};
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessage()).toBe('🔑 Connect your Google Account first');
@@ -2715,7 +2039,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessage()).toMatch(/^✅/);
@@ -2744,7 +2068,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const expected =
@@ -2785,7 +2109,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await expect(engine.sync()).resolves.toBeUndefined();
 
     expect(lastSyncMessage()).toContain('up to date');
@@ -2882,7 +2206,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
@@ -2895,7 +2219,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     stubFetch();
     driveSync.push = vi.fn().mockRejectedValue(new Error('Drive upload failed'));
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
@@ -2910,7 +2234,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
@@ -2930,7 +2254,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
       throw new Error('Drive push failed');
     });
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
@@ -2949,7 +2273,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, null, null);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, null, null);
     await engine.sync();
 
     const calls = reporter.sync.mock.calls.map(([msg]) => msg);
@@ -2962,7 +2286,7 @@ describe('Task 8: post-sync silent Drive upload hook', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc);
     await engine.sync();
 
     const calls = reporter.sync.mock.calls.map(([msg]) => msg);
@@ -3070,7 +2394,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
 
     expect(driveSync.pull).toHaveBeenCalledTimes(1);
@@ -3085,7 +2409,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     stubFetch();
     driveSync.pull = vi.fn().mockResolvedValue(null);
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
 
     expect(driveSync.pull).toHaveBeenCalledTimes(1);
@@ -3102,7 +2426,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
 
     expect(driveSync.pull).not.toHaveBeenCalled();
@@ -3114,7 +2438,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     stubFetch();
     driveSync.pull = vi.fn().mockRejectedValue(new Error('Drive pull failed'));
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
 
     expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(Error));
@@ -3129,7 +2453,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     driveSync.pull = vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] });
     backup.restoreBackup = vi.fn().mockRejectedValue(new TypeError('invalid envelope'));
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
 
     expect(console.error).toHaveBeenCalledWith('[drive-sync]', expect.any(TypeError));
@@ -3142,7 +2466,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     db = makeStatefulDb({ seed: [] });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc);
     await engine.sync();
 
     expect(db.daily_records.count).not.toHaveBeenCalled();
@@ -3171,7 +2495,7 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     };
     driveSync.pull = vi.fn().mockResolvedValue(remoteEnvelope);
 
-    const engine = createStepSync(auth, realDb, reporter, doc, driveSync, realBackup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), realDb, reporter, doc, driveSync, realBackup);
     await engine.sync();
 
     // The restored row actually landed in Dexie via the real restoreBackup transaction.
@@ -3245,7 +2569,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     stubFetch();
     prefs.getDriveBackupEnabled.mockResolvedValue(false);
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
 
@@ -3258,7 +2582,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
 
@@ -3276,7 +2600,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     stubFetch();
     driveSync.push.mockResolvedValue({ skipped: true });
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
 
@@ -3288,7 +2612,7 @@ describe('Task 27: post-sync Drive auto-upload opt-out', () => {
     db = makeStatefulDb({ seed: [{ date: '2025-06-15' }], flag: { key: 'initial_backfill_complete', value: true } });
     stubFetch();
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
@@ -3357,7 +2681,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
     const buildSpy = vi.spyOn(backup, 'buildBackup');
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
     expect(driveSync.push).toHaveBeenCalledTimes(1);
@@ -3378,7 +2702,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
   it('a changed DB triggers a new upload on the next sync', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
     expect(driveSync.push).toHaveBeenCalledTimes(1);
@@ -3407,7 +2731,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
         .mockResolvedValue(emptyBucket())
     );
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
     expect(driveSync.push).toHaveBeenCalledTimes(1);
@@ -3428,7 +2752,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValue(undefined);
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
     expect(driveSync.push).toHaveBeenCalledTimes(1);
@@ -3443,7 +2767,7 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
     prefs.getDriveBackupEnabled.mockResolvedValue(false);
     const buildSpy = vi.spyOn(backup, 'buildBackup');
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup, prefs);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, prefs);
     await engine.sync();
     await flush();
 
@@ -3455,103 +2779,11 @@ describe('Task 28: post-sync upload dirty-check + coalescing', () => {
   it('no prefs collaborator injected → defaults to enabled and pushes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyBucket()));
 
-    const engine = createStepSync(auth, db, reporter, doc, driveSync, backup);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup);
     await engine.sync();
     await flush();
 
     expect(driveSync.push).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ── Task ST-010-2: Hourly Step Fetch ──────────────────────────────────────────
-
-describe('Task ST-010-2: HOURLY_BUCKET_MS constant', () => {
-  it('HOURLY_BUCKET_MS is exported and equals 3_600_000', () => {
-    expect(HOURLY_BUCKET_MS).toBe(3_600_000);
-  });
-});
-
-describe('Task ST-010-2: _normalizeHourlyBuckets', () => {
-  /**
-   * Builds each fixture from local y/m/d/h components (never a fixed UTC
-   * epoch) so the expected local-hour index holds regardless of the
-   * machine/CI timezone running the suite — this mirrors the fix itself
-   * (buckets are read back through `.getHours()`, the local-clock lens).
-   */
-
-  /** Build a single 1-hour bucket at the given local hour with the given step intVals. */
-  function makeHourlyBucket(localHour, intVals = []) {
-    const startMs = new Date(2025, 0, 1, localHour).getTime();
-    return {
-      startTimeMillis: String(startMs),
-      dataset: [
-        {
-          dataSourceId:
-            'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps',
-          point: intVals.map((intVal) => ({ value: [{ intVal }] })),
-        },
-      ],
-    };
-  }
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('returns null for null input', () => {
-    expect(_normalizeHourlyBuckets(null)).toBeNull();
-  });
-
-  it('returns null for an empty array', () => {
-    expect(_normalizeHourlyBuckets([])).toBeNull();
-  });
-
-  it('returns a 24-element array for valid bucket data', () => {
-    const buckets = [makeHourlyBucket(0, [1000]), makeHourlyBucket(12, [500])];
-    const result = _normalizeHourlyBuckets(buckets);
-    expect(result).not.toBeNull();
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBe(24);
-  });
-
-  it('places step totals at the correct local hour index', () => {
-    const buckets = [
-      makeHourlyBucket(0, [1000, 200]),
-      makeHourlyBucket(3, [500]),
-      makeHourlyBucket(23, [750]),
-    ];
-    const result = _normalizeHourlyBuckets(buckets);
-    expect(result[0]).toBe(1200);
-    expect(result[3]).toBe(500);
-    expect(result[23]).toBe(750);
-  });
-
-  it('zero-pads missing hour slots — partial bucket list has no undefined or sparse holes', () => {
-    const buckets = [makeHourlyBucket(5, [1000])]; // only hour 5 present
-    const result = _normalizeHourlyBuckets(buckets);
-    expect(result.length).toBe(24);
-    expect(result[5]).toBe(1000);
-    for (let h = 0; h < 24; h += 1) {
-      if (h !== 5) expect(result[h]).toBe(0);
-    }
-  });
-
-  it('all 24 slots are defined — no sparse holes for any partial input', () => {
-    const result = _normalizeHourlyBuckets([makeHourlyBucket(10, [300])]);
-    for (let i = 0; i < 24; i += 1) {
-      expect(result[i]).toBeDefined();
-      expect(typeof result[i]).toBe('number');
-    }
-  });
-
-  it('returns a full 24-element array with correct per-hour totals for a complete 24-bucket payload', () => {
-    // Build 24 buckets, one per local hour, with steps = hour * 100.
-    const buckets = Array.from({ length: 24 }, (_, h) => makeHourlyBucket(h, [h * 100]));
-    const result = _normalizeHourlyBuckets(buckets);
-    expect(result.length).toBe(24);
-    for (let h = 0; h < 24; h += 1) {
-      expect(result[h]).toBe(h * 100);
-    }
   });
 });
 
@@ -3697,7 +2929,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
   it('reporter.status is called with "⏳ Fetching hourly step data…" before the second API call', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(emptyOk()));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(reporter.status).toHaveBeenCalledWith('⏳ Fetching hourly step data…');
@@ -3716,7 +2948,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
     );
     reporter.status.mockImplementation((msg) => callOrder.push(`status:${msg}`));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const statusIdx = callOrder.findIndex((e) => e.startsWith('status:⏳ Fetching hourly'));
@@ -3738,7 +2970,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessageFor(reporter)).toMatch(/^✅/);
@@ -3759,7 +2991,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     expect(lastSyncMessageFor(reporter)).toMatch(/^✅/);
@@ -3787,7 +3019,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
       })
     );
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     // All daily chunks should have been fetched despite hourly failures.
@@ -3842,7 +3074,7 @@ describe('Task 16: parallel daily + hourly fetches in sync()', () => {
       });
     }));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     const syncP = engine.sync();
 
     // Flush microtasks until both fetches are in flight, or bail after 30 ticks
@@ -3870,7 +3102,7 @@ describe('Task 16: parallel daily + hourly fetches in sync()', () => {
       return emptyOk();
     }));
 
-    const engine = createStepSync(auth, db, reporter, document);
+    const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
     const lastMsg = reporter.sync.mock.calls
@@ -3879,5 +3111,215 @@ describe('Task 16: parallel daily + hourly fetches in sync()', () => {
       .at(-1);
     expect(lastMsg).toMatch(/^✅/);
     expect(console.error).toHaveBeenCalledWith('[steps] hourly fetch failed', expect.any(Error));
+  });
+});
+
+// ── ST-016: StepSource seam ───────────────────────────────────────────────────
+
+describe('ST-016: _toDailyRecords — DayReadings to daily_records rows', () => {
+  it('maps a reading with measured distance onto original_* and effective_* alike', () => {
+    const [record] = _toDailyRecords([
+      { date: '2025-06-15', steps: 8000, distanceKm: 6.1, hourlySteps: null },
+    ]);
+    expect(record).toEqual({
+      date: '2025-06-15',
+      original_steps: 8000,
+      original_distance_km: 6.1,
+      effective_steps: 8000,
+      effective_distance_km: 6.1,
+      hourly_steps: null,
+      synced_at: expect.any(String),
+    });
+    expect(Number.isFinite(new Date(record.synced_at).getTime())).toBe(true);
+  });
+
+  it('estimates distance as steps × STEP_TO_KM (3 dp) when the source has none', () => {
+    const [record] = _toDailyRecords([{ date: '2025-06-15', steps: 8000, distanceKm: null, hourlySteps: null }]);
+    const estimate = Number((8000 * STEP_TO_KM).toFixed(3));
+    expect(record.original_distance_km).toBe(estimate);
+    expect(record.effective_distance_km).toBe(estimate);
+  });
+
+  it('keeps a measured 0 km as 0 — only null triggers the estimate', () => {
+    const [record] = _toDailyRecords([{ date: '2025-06-15', steps: 500, distanceKm: 0, hourlySteps: null }]);
+    expect(record.original_distance_km).toBe(0);
+  });
+
+  it('carries hourlySteps through as hourly_steps, defaulting a missing value to null', () => {
+    const hourly = new Array(24).fill(0);
+    hourly[8] = 1200;
+    const [withHourly, withoutHourly] = _toDailyRecords([
+      { date: '2025-06-15', steps: 1200, distanceKm: 1, hourlySteps: hourly },
+      { date: '2025-06-16', steps: 0, distanceKm: null },
+    ]);
+    expect(withHourly.hourly_steps).toBe(hourly);
+    expect(withoutHourly.hourly_steps).toBeNull();
+  });
+
+  it('returns an empty array for no readings', () => {
+    expect(_toDailyRecords([])).toEqual([]);
+  });
+});
+
+describe('ST-016: sync() depends only on the StepSource port', () => {
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+  let reporter;
+
+  /** A StepSource that never touches fetch: one reading per chunk start day. */
+  function makeFakeSource(overrides = {}) {
+    return {
+      label: 'Fake Health',
+      notReadyMessage: '🔑 Grant Fake Health access first',
+      accessLostMessage: 'Fake Health access was revoked — grant it again',
+      isReady: vi.fn(() => true),
+      fetchDays: vi.fn(async (chunk) => [
+        { date: _formatLocalDate(chunk.startMs), steps: 4200, distanceKm: null, hourlySteps: null },
+      ]),
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(() => { throw new Error('fetch must not be called'); }));
+    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
+    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('runs a full incremental sync through fetchDays without any fetch', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const source = makeFakeSource();
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(source.fetchDays).toHaveBeenCalledWith(
+      { startMs: new Date(2025, 5, 9).getTime(), endMs: new Date(2025, 5, 16).getTime() },
+      { index: 1, total: 1, phase: PHASE_INCREMENTAL }
+    );
+    const stored = db._rows.get('2025-06-09');
+    expect(stored.original_steps).toBe(4200);
+    expect(stored.original_distance_km).toBe(Number((4200 * STEP_TO_KM).toFixed(3)));
+    expect(lastSyncMessageFor(reporter)).toMatch(/^✅ Synced 7 days/);
+  });
+
+  it('shows the source\'s notReadyMessage and never fetches when the source is not ready', async () => {
+    const db = makeStatefulDb();
+    const source = makeFakeSource({ isReady: () => false });
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(source.fetchDays).not.toHaveBeenCalled();
+    expect(lastSyncMessageFor(reporter)).toBe('🔑 Grant Fake Health access first');
+  });
+
+  it('renders classified failures with the source label', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const source = makeFakeSource({
+      fetchDays: vi.fn(async (_chunk, { index, total, phase }) => {
+        throw syncFailure({ kind: FAILURE_HTTP_ERROR, status: 403, index, total, phase });
+      }),
+    });
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(lastSyncMessageFor(reporter)).toBe(
+      '❌ Sync stopped at chunk 1/1 — Fake Health returned 403. 0 days saved; click Sync Steps to resume.'
+    );
+  });
+
+  it('renders access loss with the source\'s accessLostMessage', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const source = makeFakeSource({
+      fetchDays: vi.fn(async (_chunk, { index, total, phase }) => {
+        throw syncFailure({ kind: FAILURE_AUTH_EXPIRED, status: null, index, total, phase });
+      }),
+    });
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(lastSyncMessageFor(reporter)).toBe(
+      '🔑 Fake Health access was revoked — grant it again, then click Sync Steps to continue (history synced back to 2013-01-01).'
+    );
+  });
+
+  it('names the source in the full-history status message', async () => {
+    const db = makeStatefulDb();
+    const source = makeFakeSource();
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(reporter.sync.mock.calls.map((c) => c[0])).toContain(
+      '⏳ Full history sync — fetching all Fake Health data since 2018-01-01. This can take several minutes; keep this tab open.'
+    );
+  });
+});
+
+describe('Configured sync anchor drives the backfill latch and messages (default 2018-01-01)', () => {
+  const TODAY = new Date(2025, 5, 15, 9, 0, 0, 0);
+  let reporter;
+
+  /** Zero-filling fake source: one reading per day in every chunk, like Fit. */
+  function makeZeroFillSource() {
+    return {
+      label: 'Google Fit',
+      notReadyMessage: '🔑 Connect your Google Account first',
+      accessLostMessage: 'Session expired — reconnect your Google Account',
+      isReady: () => true,
+      fetchDays: vi.fn(async ({ startMs, endMs }) => {
+        const days = [];
+        for (let d = new Date(startMs); d.getTime() < endMs; d = _addDays(d, 1)) {
+          days.push({ date: _formatLocalDate(d.getTime()), steps: 0, distanceKm: null, hourlySteps: null });
+        }
+        return days;
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
+    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('a first full sync to the default anchor latches the backfill and reports it complete', async () => {
+    const db = makeStatefulDb();
+
+    await createStepSync(makeZeroFillSource(), db, reporter, document).sync();
+
+    const msgs = reporter.sync.mock.calls.map((c) => c[0]);
+    expect(msgs[0]).toBe(
+      '⏳ Full history sync — fetching all Google Fit data since 2018-01-01. This can take several minutes; keep this tab open.'
+    );
+    expect(msgs.at(-1)).toMatch(/— full history complete back to 2018-01-01\. Future syncs will be fast\.$/);
+    expect(msgs.at(-1)).not.toContain('continue the backfill');
+    expect(db.settings.put).toHaveBeenCalledWith({ key: BACKFILL_COMPLETE_KEY, value: true });
+  });
+
+  it('a user-configured anchor is used in both messages', async () => {
+    const db = makeStatefulDb({ syncAnchor: '2024-03-01' });
+
+    await createStepSync(makeZeroFillSource(), db, reporter, document).sync();
+
+    const msgs = reporter.sync.mock.calls.map((c) => c[0]);
+    expect(msgs[0]).toContain('data since 2024-03-01.');
+    expect(msgs.at(-1)).toContain('full history complete back to 2024-03-01.');
   });
 });

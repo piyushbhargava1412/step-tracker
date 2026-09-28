@@ -1,36 +1,36 @@
 /**
- * Google Fit step-sync engine.
+ * Step-sync engine.
  *
- * Single-responsibility: fetch, normalize and persist Google Fit step data.
- * This module is the sole gateway to the Google Fit REST API.
+ * Single-responsibility: decide which days to sync, pull them from an injected
+ * StepSource (see step-source.js) chunk by chunk, and persist them into
+ * `daily_records` without ever clobbering user overrides. The engine knows
+ * nothing about Google Fit, Health Connect or HTTP — sources do.
  *
- * Factory: createStepSync(auth, db, reporter, doc = document)
+ * Factory: createStepSync(source, db, reporter, doc = document, …)
  *
  * All private helpers are exported with an underscore prefix so the test
  * suite can assert on them directly without any circular dependency.
- * No other src/ module is imported here.
  */
 
 // ── Constants (exported for testability) ─────────────────────────────────────
 
-import { DEFAULT_SYNC_ANCHOR } from './settings.js';
-export { DEFAULT_SYNC_ANCHOR };
-
-/**
- * Oldest possible sync start: local midnight on 2013-01-01.
- * Constructed via numeric args — never new Date('2013-01-01'), which is
- * parsed as UTC and would land on 2012-12-31 in negative-offset timezones.
- */
-export const HISTORY_ANCHOR_DATE = new Date(2013, 0, 1);
+import { DEFAULT_SYNC_ANCHOR, BACKFILL_COMPLETE_KEY } from './settings.js';
+import { _localDate } from './date-utils.js';
+import {
+  SYNC_ERROR_NAME,
+  FAILURE_AUTH_EXPIRED,
+  FAILURE_RETRY_EXHAUSTED,
+  FAILURE_HTTP_ERROR,
+  FAILURE_NETWORK_ERROR,
+  assertStepSource,
+} from './step-source.js';
+export { DEFAULT_SYNC_ANCHOR, BACKFILL_COMPLETE_KEY };
 
 /** Days per API request chunk. */
 export const CHUNK_DAYS = 30;
 
-/** Duration in ms for a calendar bucket (passed to Google Fit bucketByTime). */
+/** Milliseconds in one calendar day — used to count the days a window spans. */
 export const BUCKET_MS = 86_400_000;
-
-/** Duration in ms for a 1-hour bucket — used for the second hourly-step pass. */
-export const HOURLY_BUCKET_MS = 3_600_000;
 
 /**
  * Re-fetch this many calendar days before the newest stored record so that
@@ -38,25 +38,10 @@ export const HOURLY_BUCKET_MS = 3_600_000;
  */
 export const SAFETY_BUFFER_DAYS = 3;
 
-/** Fallback: metres per step, used when Google Fit returns no distance data. */
+/** Kilometres per step — estimates distance when a source reports none. */
 export const STEP_TO_KM = 0.000762;
 
-/** Conversion factor from metres (Google Fit fpVal unit) to kilometres. */
-export const METRES_PER_KM = 1000;
-
-/** Default backoff before a single retry on a transient 429 / 5xx. */
-export const RETRY_BACKOFF_MS = 2000;
-
-/**
- * Maximum Retry-After we will honour (30 s). Values above this fall back to
- * RETRY_BACKOFF_MS so a rogue header cannot stall the run indefinitely.
- */
-export const MAX_RETRY_AFTER_MS = 30_000;
-
-/** Key in the Dexie `settings` store that latches a completed backfill. */
-export const BACKFILL_COMPLETE_KEY = 'initial_backfill_complete';
-
-/** Phase tag for a window that walks history back to HISTORY_ANCHOR_DATE. */
+/** Phase tag for a window that walks history back to the configured sync anchor. */
 export const PHASE_FULL_HISTORY = 'Full history sync';
 
 /** Phase tag for the recent-days window fetched on every run. */
@@ -64,46 +49,6 @@ export const PHASE_INCREMENTAL = 'Incremental sync';
 
 /** Matches the 'YYYY-MM-DD' primary key stored on every daily_records row. */
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Google Fit Dataset aggregate endpoint. */
-export const STEP_API_URL =
-  'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
-
-/** Aggregated data types requested for every chunk — order is request order. */
-export const STEP_DATA_TYPE = 'com.google.step_count.delta';
-export const DISTANCE_DATA_TYPE = 'com.google.distance.delta';
-
-/**
- * Attempts allowed per chunk: the initial request plus a single retry.
- * A second consecutive non-OK response is terminal for the whole run.
- */
-export const MAX_ATTEMPTS_PER_CHUNK = 2;
-
-/** Milliseconds in a second — Retry-After is specified in seconds. */
-const MS_PER_SECOND = 1000;
-
-/** HTTP statuses this module classifies on. */
-const HTTP_UNAUTHORIZED = 401;
-const HTTP_TOO_MANY_REQUESTS = 429;
-const HTTP_SERVER_ERROR_MIN = 500;
-const HTTP_SERVER_ERROR_MAX = 599;
-
-// ── Failure classification ───────────────────────────────────────────────────
-
-/** `name` carried by every error this module throws for a classified failure. */
-export const SYNC_ERROR_NAME = 'StepSyncError';
-
-/** The bearer token was rejected — the user must reconnect (decision 9). */
-export const FAILURE_AUTH_EXPIRED = 'auth-expired';
-
-/** A transient status survived the single permitted retry. */
-export const FAILURE_RETRY_EXHAUSTED = 'retry-exhausted';
-
-/** A deterministic non-2xx status that a retry could not help. */
-export const FAILURE_HTTP_ERROR = 'http-error';
-
-/** fetch() itself threw — offline, DNS, CORS or an aborted connection. */
-export const FAILURE_NETWORK_ERROR = 'network-error';
 
 // ── Private date helpers (exported for testability; _ prefix = impl detail) ──
 
@@ -155,8 +100,6 @@ export function _addDays(date, n) {
   d.setHours(0, 0, 0, 0);
   return d;
 }
-
-import { _localDate } from './date-utils.js';
 
 /**
  * Format a millisecond timestamp as a local YYYY-MM-DD string using
@@ -285,296 +228,42 @@ export async function _determineSyncWindows(db) {
   return windows;
 }
 
-// ── Bucket normalization ──────────────────────────────────────────────────────
+// ── Reading → record mapping ─────────────────────────────────────────────────
 
 /**
- * Convert a raw Google Fit `dataset:aggregate` response bucket array into the
- * record shape persisted in `daily_records`.
+ * Map a source's DayReadings onto the `daily_records` row shape.
  *
- * Each bucket yields exactly one record — including days with 0 steps (Decision 6).
+ * Owns the one domain rule sources must not decide: when a source has no
+ * measured distance (`distanceKm === null`), estimate it as
+ * `steps × STEP_TO_KM`, rounded to 3 dp. A measured 0 km is kept as 0.
+ * `effective_*` starts equal to `original_*`; overrides are applied later by
+ * `_upsertChunk`.
  *
- * Dataset lookup:
- *   - Locate each dataset by `dataSourceId.includes('step_count.delta')` /
- *     `.includes('distance.delta')`.
- *   - Fall back to positional index 0 (steps) / 1 (distance) when
- *     `dataSourceId` is absent on all datasets.
- *
- * Distance (km) priority:
- *   1. Real `distance.delta` fpVal metres ÷ METRES_PER_KM, rounded to 3 dp.
- *   2. Fallback to `steps × STEP_TO_KM`, rounded to 3 dp, when the distance
- *      dataset is absent, has no points, or yields a non-finite total.
- *
- * @param {Array<object>} buckets  Raw buckets from the Fit aggregate response.
+ * @param {Array<import('./step-source.js').DayReading>} readings
  * @returns {Array<{
  *   date: string,
  *   original_steps: number,
  *   original_distance_km: number,
  *   effective_steps: number,
  *   effective_distance_km: number,
+ *   hourly_steps: number[]|null,
  *   synced_at: string,
  * }>}
  */
-export function _normalizeBuckets(buckets) {
-  return buckets.flatMap((bucket) => {
-    // ── Date label ────────────────────────────────────────────────────────────
-    const millis =
-      bucket.startTimeMillis != null
-        ? Number(bucket.startTimeMillis)
-        : Number(bucket.startTimeNanos) / 1_000_000;
-
-    // Fail-safe: a bucket with neither (or a non-numeric) timestamp would
-    // otherwise persist a 'NaN-NaN-NaN' primary key. Skip it instead.
-    if (!isFinite(millis)) {
-      return [];
-    }
-    const date = _formatLocalDate(millis);
-
-    // ── Dataset lookup ────────────────────────────────────────────────────────
-    const dataset = bucket.dataset ?? [];
-
-    const stepDataset =
-      dataset.find((ds) => ds.dataSourceId?.includes('step_count.delta')) ??
-      dataset[0];
-
-    const distDataset =
-      dataset.find((ds) => ds.dataSourceId?.includes('distance.delta')) ??
-      dataset[1];
-
-    // ── Step sum ──────────────────────────────────────────────────────────────
-    const stepPoints = stepDataset?.point ?? [];
-    const steps = Math.trunc(
-      stepPoints.reduce((sum, point) => sum + (point.value?.[0]?.intVal ?? 0), 0)
-    );
-
-    // ── Distance (km) with fallback ───────────────────────────────────────────
-    const distPoints = distDataset?.point ?? [];
-    const metres = distPoints.reduce(
-      (sum, point) => sum + (point.value?.[0]?.fpVal ?? 0),
-      0
-    );
-
-    const useRealDistance = distPoints.length > 0 && isFinite(metres);
-    const distanceKm = useRealDistance
-      ? Number((metres / METRES_PER_KM).toFixed(3))
-      : Number((steps * STEP_TO_KM).toFixed(3));
-
-    return [
-      {
-        date,
-        original_steps: steps,
-        original_distance_km: distanceKm,
-        effective_steps: steps,
-        effective_distance_km: distanceKm,
-        synced_at: new Date().toISOString(),
-      },
-    ];
+export function _toDailyRecords(readings) {
+  const synced_at = new Date().toISOString();
+  return readings.map(({ date, steps, distanceKm, hourlySteps }) => {
+    const distance = distanceKm ?? Number((steps * STEP_TO_KM).toFixed(3));
+    return {
+      date,
+      original_steps: steps,
+      original_distance_km: distance,
+      effective_steps: steps,
+      effective_distance_km: distance,
+      hourly_steps: hourlySteps ?? null,
+      synced_at,
+    };
   });
-}
-
-/**
- * Convert an array of hourly Google Fit bucket objects into a 24-element array
- * of step counts indexed by local wall-clock hour (0–23).
- *
- * Each bucket covers exactly one hour. Multiple `intVal` point values in the
- * same bucket are summed. Hours with no bucket default to 0 (zero-padded — no
- * sparse holes). Buckets with a non-finite or missing timestamp are skipped.
- *
- * Indexed by *local* hour (not UTC): `bucketByTime` requests are anchored to
- * `_localMidnight` (steps.js), so each bucket's instant must be read back
- * through the same local-clock lens the user experiences — reading it back in
- * UTC would shift every hour by the timezone offset (e.g. IST users would see
- * their morning walk logged as steps taken between 1am–7am).
- *
- * @param {Array<object>|null|undefined} buckets  Raw 1-hour buckets from a
- *   `dataset:aggregate` response with `bucketByTime.durationMillis = HOURLY_BUCKET_MS`.
- * @returns {Array<number>|null}  24-element array of step counts (one per
- *   local hour), or `null` when `buckets` is null, undefined, or empty.
- */
-export function _normalizeHourlyBuckets(buckets) {
-  if (!buckets || buckets.length === 0) return null;
-
-  const hourly = new Array(24).fill(0);
-
-  for (const bucket of buckets) {
-    const millis =
-      bucket.startTimeMillis != null
-        ? Number(bucket.startTimeMillis)
-        : Number(bucket.startTimeNanos) / 1_000_000;
-
-    if (!isFinite(millis)) continue;
-
-    const hour = new Date(millis).getHours();
-
-    // Locate the step dataset by dataSourceId substring or fall back to index 0.
-    const stepDataset =
-      bucket.dataset?.find((ds) => ds.dataSourceId?.includes('step_count.delta')) ??
-      bucket.dataset?.[0];
-
-    const points = stepDataset?.point ?? [];
-    const sum = points.reduce((acc, pt) => acc + (pt.value?.[0]?.intVal ?? 0), 0);
-    hourly[hour] += sum;
-  }
-
-  return hourly;
-}
-
-// ── Chunk fetch ───────────────────────────────────────────────────────────────
-
-/**
- * Resolve after `ms` milliseconds. Wraps setTimeout in a promise so the retry
- * backoff is a plain `await` — and so tests can drive it with fake timers.
- *
- * @param {number} ms
- * @returns {Promise<void>}
- */
-export function _sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Resolve the backoff to wait before the single permitted retry.
- *
- * `Retry-After` is read as **seconds** and honoured only when it parses to a
- * finite value greater than zero and no larger than MAX_RETRY_AFTER_MS — a
- * rogue or hostile header must not be able to stall the run. The HTTP-date
- * form is deliberately not parsed; it falls through to the default, which is
- * always a shorter wait than any date Google would send.
- *
- * @param {string|null|undefined} retryAfter  Raw Retry-After header value.
- * @returns {number} Milliseconds to wait.
- */
-export function _resolveBackoffMs(retryAfter) {
-  const waitMs = Number(retryAfter) * MS_PER_SECOND;
-  const honourable =
-    Number.isFinite(waitMs) && waitMs > 0 && waitMs <= MAX_RETRY_AFTER_MS;
-  return honourable ? waitMs : RETRY_BACKOFF_MS;
-}
-
-/**
- * Build a classified failure for the orchestrator (Task 10) to render.
- *
- * The message is a developer diagnostic only — it never carries request
- * headers or token material (decision 14). The user-facing terminal string is
- * composed by the caller from these fields.
- *
- * @param {object} details
- * @param {string} details.kind    One of the FAILURE_* constants.
- * @param {number|null} details.status  HTTP status, or null for a thrown fetch.
- * @param {number} details.index   1-based index of the failing chunk.
- * @param {number} details.total   Total chunk count for the run.
- * @param {string} details.phase   PHASE_FULL_HISTORY | PHASE_INCREMENTAL.
- * @param {Error=} details.cause   Underlying error, when one exists.
- * @returns {Error}
- */
-export function _syncFailure({ kind, status, index, total, phase, cause }) {
-  const statusSuffix = status === null ? '' : ` (HTTP ${status})`;
-  const error = new Error(
-    `[steps] ${kind} on chunk ${index}/${total}${statusSuffix}`
-  );
-  error.name = SYNC_ERROR_NAME;
-  error.kind = kind;
-  error.status = status;
-  error.index = index;
-  error.total = total;
-  error.phase = phase;
-  if (cause !== undefined) error.cause = cause;
-  return error;
-}
-
-/**
- * Fetch one chunk of daily aggregates from Google Fit.
- *
- * This is the module's only external I/O and the only place the bearer token is
- * used. It is a module-level export — not a closure-private function — so the
- * suite can exercise it directly; `sync()` passes `auth` and `reporter` through
- * from the factory closure.
- *
- * Retry policy (decision 17): at most MAX_ATTEMPTS_PER_CHUNK attempts. `429`
- * and `5xx` are retried once; `401` short-circuits immediately, and every other
- * non-OK status or thrown network error is terminal — a retry cannot help. The
- * token is re-read from `auth.getAccessToken()` on each attempt and the request
- * is rebuilt, so a refreshed token is picked up and no header object is ever
- * replayed. The `⚠️` message is written *before* the sleep so the user sees the
- * reason during the wait rather than after it.
- *
- * @param {object} auth      Collaborator exposing getAccessToken().
- * @param {object} reporter  Status reporter with a sync(text) method.
- * @param {{startMs: number, endMs: number}} chunk  Window bounds for this call.
- * @param {number} index     1-based chunk index, for status and diagnostics.
- * @param {number} total     Total chunk count for the run.
- * @param {string} phase     PHASE_FULL_HISTORY | PHASE_INCREMENTAL.
- * @returns {Promise<object>} The parsed aggregate response.
- * @throws {TypeError} On a malformed chunk — before any request is issued.
- * @throws {Error} A SYNC_ERROR_NAME error carrying { kind, status, index, total, phase }.
- */
-export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
-  if (!Number.isFinite(chunk?.startMs) || !Number.isFinite(chunk?.endMs)) {
-    throw new TypeError('[steps] _fetchChunk requires a { startMs, endMs } chunk');
-  }
-
-  const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const body = JSON.stringify({
-    aggregateBy: [
-      { dataTypeName: STEP_DATA_TYPE },
-      { dataTypeName: DISTANCE_DATA_TYPE },
-    ],
-    bucketByTime: {
-      durationMillis: BUCKET_MS,
-      timeZoneId: userTimeZone
-    },
-    startTimeMillis: _localMidnight(chunk.startMs).getTime(),
-    endTimeMillis: _localMidnight(chunk.endMs).getTime(),
-  });
-
-  const fail = (kind, status, cause) =>
-    _syncFailure({ kind, status, index, total, phase, cause });
-
-  let lastStatus = null;
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_CHUNK; attempt += 1) {
-    let response;
-    try {
-      response = await fetch(STEP_API_URL, {
-        method: 'POST',
-        headers: {
-          // Read fresh on every attempt — never captured, cached or logged.
-          Authorization: `Bearer ${auth.getAccessToken()}`,
-          'Content-Type': 'application/json',
-        },
-        body,
-      });
-    } catch (cause) {
-      throw fail(FAILURE_NETWORK_ERROR, null, cause);
-    }
-
-    if (response.ok) return response.json();
-
-    lastStatus = response.status;
-
-    if (lastStatus === HTTP_UNAUTHORIZED) {
-      throw fail(FAILURE_AUTH_EXPIRED, lastStatus);
-    }
-
-    const isTransient =
-      lastStatus === HTTP_TOO_MANY_REQUESTS ||
-      (lastStatus >= HTTP_SERVER_ERROR_MIN && lastStatus <= HTTP_SERVER_ERROR_MAX);
-    if (!isTransient) {
-      throw fail(FAILURE_HTTP_ERROR, lastStatus);
-    }
-
-    if (attempt < MAX_ATTEMPTS_PER_CHUNK) {
-      const waitMs = _resolveBackoffMs(response.headers.get('Retry-After'));
-      const waitSeconds = waitMs / MS_PER_SECOND;
-      reporter.sync(
-        lastStatus === HTTP_TOO_MANY_REQUESTS
-          ? `⚠️ Rate limited by Google Fit — retrying chunk ${index}/${total} in ${waitSeconds}s…`
-          : `⚠️ Google Fit error ${lastStatus} — retrying chunk ${index}/${total} in ${waitSeconds}s…`
-      );
-      await _sleep(waitMs);
-    }
-  }
-
-  throw fail(FAILURE_RETRY_EXHAUSTED, lastStatus);
 }
 
 // ── Transactional upsert ─────────────────────────────────────────────────────
@@ -583,7 +272,7 @@ export async function _fetchChunk(auth, reporter, chunk, index, total, phase) {
  * High-water mark for a day's effective value.
  *
  * Returns the higher of the stored effective value and the freshly fetched
- * cloud value, so a scrubbed/lowered Google Fit response can never take
+ * cloud value, so a scrubbed/lowered source response can never take
  * away steps (or distance) a user has already seen and celebrated.
  *
  * A non-finite stored value is treated as absent — a corrupt row must never
@@ -628,7 +317,7 @@ export function _effectiveHighWater(existing, incoming) {
  *   effective_steps: number,
  *   effective_distance_km: number,
  *   synced_at: string,
- * }>} records  Normalized records from `_normalizeBuckets` for this chunk.
+ * }>} records  Records from `_toDailyRecords` for this chunk.
  * @returns {Promise<void>}
  */
 export async function _upsertChunk(db, records) {
@@ -687,7 +376,8 @@ export async function _upsertChunk(db, records) {
 
 /**
  * Latch the backfill as complete once the oldest stored record reaches or
- * passes HISTORY_ANCHOR_DATE.
+ * passes the sync anchor the backfill ran to (the user's configured horizon —
+ * the full-history window's `startMs`).
  *
  * Re-reads the oldest record itself — never trusts a caller-supplied value —
  * and writes the terminal flag to the `settings` store. The write sits
@@ -696,14 +386,19 @@ export async function _upsertChunk(db, records) {
  * consequence of a lost latch is one extra idempotent backfill pass, never a
  * sync failure.
  *
- * @param {object} db  Dexie database exposing `daily_records` and `settings`.
+ * @param {object} db        Dexie database exposing `daily_records` and `settings`.
+ * @param {number} anchorMs  Local-midnight ms of the sync anchor.
  * @returns {Promise<void>}
+ * @throws {TypeError} When `anchorMs` is not finite — before any read.
  */
-export async function _latchBackfillComplete(db) {
+export async function _latchBackfillComplete(db, anchorMs) {
+  if (!Number.isFinite(anchorMs)) {
+    throw new TypeError('[steps] _latchBackfillComplete requires a finite anchorMs');
+  }
   try {
     const oldest = await db.daily_records.orderBy('date').first();
     if (!oldest) return;
-    if (_localMidnight(oldest.date).getTime() <= HISTORY_ANCHOR_DATE.getTime()) {
+    if (_localMidnight(oldest.date).getTime() <= anchorMs) {
       await db.settings.put({ key: BACKFILL_COMPLETE_KEY, value: true });
     }
   } catch (error) {
@@ -749,29 +444,31 @@ export async function _readOldestStoredLabel(db) {
  * @param {number} args.total           Total chunk count for the run.
  * @param {number} args.persistedDays   Days persisted before the failure.
  * @param {object} args.db              Dexie database (auth-expired read only).
+ * @param {import('./step-source.js').StepSource} args.source  Supplies the
+ *                                      label and access-lost wording.
  * @returns {Promise<string>}  The emoji-prefixed terminal message.
  */
-export async function _renderSyncErrorMessage({ error, i, total, persistedDays, db }) {
+export async function _renderSyncErrorMessage({ error, i, total, persistedDays, db, source }) {
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_AUTH_EXPIRED) {
     const oldestLabel = (await _readOldestStoredLabel(db)) ?? 'the beginning';
-    return `🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to ${oldestLabel}).`;
+    return `🔑 ${source.accessLostMessage}, then click Sync Steps to continue (history synced back to ${oldestLabel}).`;
   }
 
   const at = `chunk ${i}/${total}`;
   const resume = `${persistedDays} days saved; click Sync Steps to resume.`;
 
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_RETRY_EXHAUSTED) {
-    return `❌ Sync stopped at ${at} — Google Fit returned ${error.status} twice. ${resume}`;
+    return `❌ Sync stopped at ${at} — ${source.label} returned ${error.status} twice. ${resume}`;
   }
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_HTTP_ERROR) {
-    return `❌ Sync stopped at ${at} — Google Fit returned ${error.status}. ${resume}`;
+    return `❌ Sync stopped at ${at} — ${source.label} returned ${error.status}. ${resume}`;
   }
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_NETWORK_ERROR) {
     return `❌ Sync stopped at ${at} — network error. ${resume}`;
   }
 
   // Any unclassified throw — a Dexie rejection from _upsertChunk, or
-  // _normalizeBuckets / _determineSyncWindows failing — is a persistence
+  // _toDailyRecords / _determineSyncWindows failing — is a persistence
   // failure. Chunk coordinates arrive resolved from the caller.
   return `❌ Sync stopped while saving ${at} — database error. ${resume}`;
 }
@@ -781,7 +478,8 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
 /**
  * Create the step-sync engine.
  *
- * @param {object} auth      - Collaborator exposing getAccessToken().
+ * @param {import('./step-source.js').StepSource} source - Where daily step
+ *                             data comes from (Google Fit, Health Connect, …).
  * @param {object} db        - Dexie database instance.
   * @param {object} reporter  - Status reporter with a sync(text) method.
   * @param {Document} doc     - The document to use for DOM access (defaults to
@@ -803,7 +501,9 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
   *                             treated as enabled (default).
  * @returns {{ sync: Function }}
  */
-export function createStepSync(auth, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
+export function createStepSync(source, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
+  assertStepSource(source);
+
   // Re-entrancy guard — lives in the factory closure, never at module level.
   let isSyncing = false;
 
@@ -814,9 +514,9 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
   let postSyncPush = null;
 
   /**
-   * Synchronise Google Fit step data into the local Dexie database.
+   * Synchronise the source's step data into the local Dexie database.
    *
-   * Orchestration (decision 12a / 13 / 14 / 16): pre-flight token guard, a
+   * Orchestration (decision 12a / 13 / 14 / 16): pre-flight readiness guard, a
    * silent closure-scoped re-entrancy guard, the button busy state, an
    * empty-local-DB Drive restore recovery, window resolution, a strictly
    * sequential per-chunk fetch→normalize→upsert loop, the backfill latch, a
@@ -832,10 +532,9 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
    * @returns {Promise<void>}
    */
   async function sync() {
-    // 1. Pre-flight token guard — before touching the button.
-    const token = auth.getAccessToken();
-    if (!token) {
-      reporter.sync('🔑 Connect your Google Account first');
+    // 1. Pre-flight readiness guard — before touching the button.
+    if (!source.isReady()) {
+      reporter.sync(source.notReadyMessage);
       return;
     }
 
@@ -860,7 +559,7 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       // table (e.g. a fresh browser profile or localhost signing into an
       // account that already has cloud history) is otherwise indistinguishable
       // from a brand-new user and would trigger the multi-minute
-      // PHASE_FULL_HISTORY backfill from 2013 even though a Drive backup
+      // PHASE_FULL_HISTORY backfill from the sync anchor even though a Drive backup
       // already holds that history. Restore it first so step 4's
       // `_determineSyncWindows` sees the repopulated `daily_records`/`settings`
       // rows and resolves a normal incremental window instead. Fail-open: any
@@ -885,11 +584,14 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
 
       // 4. Resolve the windows from persisted state (full/incremental).
       const windows = await _determineSyncWindows(db);
-      const backfillRan = windows.some((w) => w.phase === PHASE_FULL_HISTORY);
+      // The full-history window always starts at the resolved sync anchor, so
+      // it is the single source of truth for the latch and both messages.
+      const backfillWindow = windows.find((w) => w.phase === PHASE_FULL_HISTORY);
+      const backfillRan = backfillWindow !== undefined;
 
       if (backfillRan) {
         reporter.sync(
-          '⏳ Full history sync — fetching all Google Fit data since 2013. This can take several minutes; keep this tab open.'
+          `⏳ Full history sync — fetching all ${source.label} data since ${_formatLocalDate(backfillWindow.startMs)}. This can take several minutes; keep this tab open.`
         );
       }
 
@@ -910,70 +612,19 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
         const index = i + 1;
         lastChunk = { index, total };
 
-        // ── Parallel fetch: daily aggregate + 1-hour step buckets ──────────────
-        // Emit progress before issuing both calls so the status is visible during
-        // the wait. The hourly call is non-fatal: its promise uses .catch() to
-        // return null on any failure, so a transient error never aborts the sync.
-        reporter.status?.('⏳ Fetching hourly step data…');
+        const readings = await source.fetchDays(
+          { startMs: chunk.startMs, endMs: chunk.endMs },
+          { index, total, phase: chunk.phase }
+        );
+        const records = _toDailyRecords(readings);
 
-        const [raw, hourlyData] = await Promise.all([
-          _fetchChunk(auth, reporter, chunk, index, total, chunk.phase),
-          fetch(STEP_API_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${auth.getAccessToken()}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              aggregateBy: [{ dataTypeName: STEP_DATA_TYPE }],
-              bucketByTime: { durationMillis: HOURLY_BUCKET_MS },
-              startTimeMillis: _localMidnight(chunk.startMs).getTime(),
-              endTimeMillis: _localMidnight(chunk.endMs).getTime(),
-            }),
-          }).then(async (resp) => {
-            if (!resp.ok) throw new Error(`[steps] hourly fetch non-OK: ${resp.status}`);
-            return resp.json();
-          }).catch((err) => {
-            console.error('[steps] hourly fetch failed', err);
-            return null;
-          }),
-        ]);
-
-        const records = _normalizeBuckets(raw.bucket ?? []);
-
-        /** Date-keyed map of raw hourly buckets; null when the call failed. */
-        let hourlyByDate = null;
-        if (hourlyData !== null) {
-          hourlyByDate = {};
-          // Group the hourly buckets by their local YYYY-MM-DD date so each
-          // daily record can be matched to its own 24-element array.
-          for (const bucket of (hourlyData.bucket ?? [])) {
-            const ms =
-              bucket.startTimeMillis != null
-                ? Number(bucket.startTimeMillis)
-                : Number(bucket.startTimeNanos) / 1_000_000;
-            if (!isFinite(ms)) continue;
-            const date = _formatLocalDate(ms);
-            if (!hourlyByDate[date]) hourlyByDate[date] = [];
-            hourlyByDate[date].push(bucket);
-          }
-        }
-
-        // Attach hourly_steps to every record before the transactional upsert.
-        const recordsWithHourly = records.map((record) => ({
-          ...record,
-          hourly_steps: hourlyByDate
-            ? _normalizeHourlyBuckets(hourlyByDate[record.date] ?? [])
-            : null,
-        }));
-
-        await _upsertChunk(db, recordsWithHourly);
-        persistedDays += recordsWithHourly.length;
+        await _upsertChunk(db, records);
+        persistedDays += records.length;
       }
 
       // 7. Latch the backfill when a full-history window completed it.
       if (backfillRan) {
-        await _latchBackfillComplete(db);
+        await _latchBackfillComplete(db, backfillWindow.startMs);
       }
 
       // 8. Success message variant (decision 12a).
@@ -981,11 +632,10 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       const oldestMs = oldestRow
         ? _localMidnight(oldestRow.date).getTime()
         : null;
-      const anchorMs = _localMidnight(HISTORY_ANCHOR_DATE).getTime();
 
-      if (backfillRan && oldestMs != null && oldestMs <= anchorMs) {
+      if (backfillRan && oldestMs != null && oldestMs <= backfillWindow.startMs) {
         reporter.sync(
-          `✅ Synced ${dayCount} days across ${total} requests — full history complete back to ${_formatLocalDate(HISTORY_ANCHOR_DATE.getTime())}. Future syncs will be fast.`
+          `✅ Synced ${dayCount} days across ${total} requests — full history complete back to ${_formatLocalDate(backfillWindow.startMs)}. Future syncs will be fast.`
         );
       } else if (backfillRan && oldestMs != null) {
         reporter.sync(
@@ -1060,7 +710,7 @@ export function createStepSync(auth, db, reporter, doc = document, driveSync = n
       const i = error.index ?? lastChunk?.index ?? 1;
       const errorTotal = error.total ?? lastChunk?.total ?? 1;
 
-      reporter.sync(await _renderSyncErrorMessage({ error, i, total: errorTotal, persistedDays, db }));
+      reporter.sync(await _renderSyncErrorMessage({ error, i, total: errorTotal, persistedDays, db, source }));
     } finally {
       // 9. finally invariants: restore the button, clear the guard, and leave
       //    #sync-status exactly as the last reporter.sync() wrote it.

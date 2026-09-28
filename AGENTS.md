@@ -42,6 +42,8 @@ step aggregates from Google Fit, and computes the current streak client-side wit
 | Storage Health protection matrix, silent persist gestures & panel | [flows/storage-health.md](.context/flows/storage-health.md) |
 | Group Challenge Tracker flow | [flows/group-challenge-tracker.md](.context/flows/group-challenge-tracker.md) |
 | PWA install, offline app-shell caching & Cloudflare Pages deploy | [flows/pwa-offline-install.md](.context/flows/pwa-offline-install.md) |
+| Health Connect / Android migration roadmap & slices (ST-016 → ST-024) | [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md) |
+| Step data sources (`StepSource` port, Google Fit source) | [flows/historical-step-sync.md](.context/flows/historical-step-sync.md) |
 
 ## Business Flows
 

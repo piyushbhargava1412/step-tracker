@@ -7,6 +7,7 @@ import {
   DEFAULT_DRIVE_BACKUP_ENABLED,
   LAST_LOCAL_EXPORT_KEY,
   LAST_DRIVE_SYNC_KEY,
+  BACKFILL_COMPLETE_KEY,
 } from './settings.js';
 import { HOME_BASE_CITIES } from './odyssey.js';
 
@@ -17,6 +18,10 @@ describe('constants', () => {
 
   it('exports DEFAULT_SYNC_ANCHOR = 2018-01-01', () => {
     expect(DEFAULT_SYNC_ANCHOR).toBe('2018-01-01');
+  });
+
+  it('exports BACKFILL_COMPLETE_KEY = initial_backfill_complete', () => {
+    expect(BACKFILL_COMPLETE_KEY).toBe('initial_backfill_complete');
   });
 });
 
@@ -29,6 +34,7 @@ describe('createSettings', () => {
       settings: {
         get: vi.fn(),
         put: vi.fn(),
+        delete: vi.fn().mockResolvedValue(undefined),
       },
     };
     settings = createSettings(db);
@@ -113,6 +119,35 @@ describe('createSettings', () => {
     it('throws TypeError for correct format but invalid month (2023-13-01) before any DB write', async () => {
       await expect(settings.setSyncAnchorDate('2023-13-01')).rejects.toThrow(TypeError);
       expect(db.settings.put).not.toHaveBeenCalled();
+    });
+
+    it('clears the backfill latch before persisting the new anchor, so a moved horizon is re-evaluated', async () => {
+      const order = [];
+      db.settings.delete = vi.fn(async () => { order.push('delete'); });
+      db.settings.put.mockImplementation(async () => { order.push('put'); });
+
+      await settings.setSyncAnchorDate('2016-01-01');
+
+      expect(db.settings.delete).toHaveBeenCalledWith(BACKFILL_COMPLETE_KEY);
+      expect(order).toEqual(['delete', 'put']);
+    });
+
+    it('does not persist the anchor when clearing the latch fails, and logs + rethrows', async () => {
+      const err = new Error('delete blocked');
+      db.settings.delete = vi.fn().mockRejectedValue(err);
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(settings.setSyncAnchorDate('2016-01-01')).rejects.toBe(err);
+
+      expect(db.settings.put).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenCalledWith('[settings]', err);
+      spy.mockRestore();
+    });
+
+    it('does not touch the latch for an invalid date', async () => {
+      db.settings.delete = vi.fn();
+      await expect(settings.setSyncAnchorDate('nope')).rejects.toThrow(TypeError);
+      expect(db.settings.delete).not.toHaveBeenCalled();
     });
 
     it('accepts a date earlier than 2018 without clamping', async () => {
@@ -478,9 +513,9 @@ describe('wipeDatabase', () => {
     settings = createSettings(db);
   });
 
-  it('calls the three operations in order: clear → delete → setSyncAnchorDate', async () => {
+  it('calls the three operations in order: clear → delete → setSyncAnchorDate (which clears the latch itself first)', async () => {
     await settings.wipeDatabase();
-    expect(callOrder).toEqual(['clear', 'delete', 'put']);
+    expect(callOrder).toEqual(['clear', 'delete', 'delete', 'put']);
   });
 
   it('clears daily_records', async () => {
