@@ -19,6 +19,13 @@ describe('ST-017: native build HTML transform', () => {
     expect(html).toContain('src="/src/main.js"');
   });
 
+  it('removes Google\'s web sign-in script — it cannot work inside the app (ST-020)', () => {
+    expect(INDEX_HTML).toContain('accounts.google.com/gsi/client');
+    const html = stripPwaTags(INDEX_HTML);
+    expect(html).not.toContain('accounts.google.com/gsi/client');
+    expect(html).not.toContain('Google Identity Services Library');
+  });
+
   it('is a no-op on HTML without a manifest link', () => {
     const html = '<head><title>x</title></head>';
     expect(stripPwaTags(html)).toBe(html);

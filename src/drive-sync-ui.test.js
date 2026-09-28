@@ -594,3 +594,159 @@ describe('Task 27: auto-backup opt-out toggle', () => {
     expect(refreshed).toBe(true);
   });
 });
+
+// ─── ST-020: Google Drive connection + primary device ─────────────────────────
+
+describe('ST-020: Drive panel — Google connection and primary device', () => {
+  const APP = { id: 'dev-app', label: 'Android app', since: '2026-09-28T12:00:00.000Z' };
+  const nav = { storage: { persist: vi.fn(), persisted: vi.fn() } };
+
+  function makePrimary({ status = { primary: null, isThisDevice: false }, other = null } = {}) {
+    return {
+      status: vi.fn().mockResolvedValue(status),
+      otherPrimary: vi.fn().mockResolvedValue(other),
+      makeThisPrimary: vi.fn().mockResolvedValue(APP),
+    };
+  }
+
+  function makeConnection(connected) {
+    return { label: 'Connect Google Drive', isConnected: vi.fn(() => connected), connect: vi.fn() };
+  }
+
+  async function renderPanel({ primaryDevice = null, driveConnection = null, canMakePrimary = false, confirm = true, driveSync = makeDriveSync() } = {}) {
+    const doc = buildDoc();
+    const container = doc.getElementById('cloud-controls');
+    const reporter = makeReporter();
+    const confirmFn = vi.fn(() => confirm);
+    const backup = makeBackup();
+    const ui = createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, makeDriveBackupPrefs(), nav, {
+      primaryDevice,
+      driveConnection,
+      canMakePrimary,
+    });
+    await ui.render(container);
+    return { doc, container, reporter, confirmFn, driveSync, backup };
+  }
+
+  const click = (container, action) => container.querySelector(`[data-action="${action}"]`).click();
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('without the new collaborators the panel is unchanged (web, legacy)', async () => {
+    const { container } = await renderPanel();
+    expect(container.querySelector('[data-action="connect-drive"]')).toBeNull();
+    expect(container.querySelector('[data-action="make-primary"]')).toBeNull();
+    expect(container.querySelector('.cloud-sync-primary')).toBeNull();
+  });
+
+  it('offers "Connect Google Drive" when a Drive connection is supplied but not connected', async () => {
+    const driveConnection = makeConnection(false);
+    const { container } = await renderPanel({ driveConnection });
+
+    click(container, 'connect-drive');
+
+    expect(container.querySelector('[data-action="connect-drive"]').textContent).toBe('🔗 Connect Google Drive');
+    expect(driveConnection.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the connected state instead of the button once connected', async () => {
+    const { container } = await renderPanel({ driveConnection: makeConnection(true) });
+    expect(container.querySelector('[data-action="connect-drive"]')).toBeNull();
+    expect(container.textContent).toContain('✅ Google Drive connected');
+  });
+
+  it.each([
+    [{ primary: null, isThisDevice: false }, 'No primary device yet'],
+    [{ primary: APP, isThisDevice: true }, '📱 This device is the primary device — it backs up to Drive automatically.'],
+    [{ primary: APP, isThisDevice: false }, '📱 Primary device: Android app (since Sep 28, 2026) — this device does not back up automatically.'],
+  ])('describes the primary device (%o)', async (status, text) => {
+    const { container } = await renderPanel({ primaryDevice: makePrimary({ status }) });
+    expect(container.querySelector('.cloud-sync-primary').textContent).toContain(text);
+  });
+
+  it('offers "Make this the primary device" only where allowed and not already primary', async () => {
+    let { container } = await renderPanel({ primaryDevice: makePrimary(), canMakePrimary: false });
+    expect(container.querySelector('[data-action="make-primary"]')).toBeNull();
+
+    ({ container } = await renderPanel({ primaryDevice: makePrimary({ status: { primary: APP, isThisDevice: true } }), canMakePrimary: true }));
+    expect(container.querySelector('[data-action="make-primary"]')).toBeNull();
+
+    ({ container } = await renderPanel({ primaryDevice: makePrimary(), canMakePrimary: true }));
+    expect(container.querySelector('[data-action="make-primary"]').textContent).toBe('📱 Make this the primary device');
+  });
+
+  it('making this the primary asks first, records it, then uploads a backup that carries it', async () => {
+    const primaryDevice = makePrimary();
+    const { container, confirmFn, driveSync, backup, reporter } = await renderPanel({
+      primaryDevice,
+      driveConnection: makeConnection(true),
+      canMakePrimary: true,
+    });
+
+    click(container, 'make-primary');
+
+    await vi.waitFor(() => expect(reporter.sync).toHaveBeenCalledWith('✅ This device is now the primary device'));
+    expect(confirmFn).toHaveBeenCalledWith(expect.stringContaining('Only this device will back up to Google Drive automatically'));
+    expect(primaryDevice.makeThisPrimary).toHaveBeenCalledTimes(1);
+    expect(primaryDevice.makeThisPrimary.mock.invocationCallOrder[0]).toBeLessThan(backup.buildBackup.mock.invocationCallOrder[0]);
+    expect(driveSync.push).toHaveBeenCalledTimes(1);
+  });
+
+  it('making this the primary does nothing when the user cancels', async () => {
+    const primaryDevice = makePrimary();
+    const { container, driveSync } = await renderPanel({ primaryDevice, driveConnection: makeConnection(true), canMakePrimary: true, confirm: false });
+
+    click(container, 'make-primary');
+    await Promise.resolve();
+
+    expect(primaryDevice.makeThisPrimary).not.toHaveBeenCalled();
+    expect(driveSync.push).not.toHaveBeenCalled();
+  });
+
+  it('making this the primary needs Google Drive connected first', async () => {
+    const primaryDevice = makePrimary();
+    const { container, reporter } = await renderPanel({ primaryDevice, driveConnection: makeConnection(false), canMakePrimary: true });
+
+    click(container, 'make-primary');
+
+    await vi.waitFor(() => expect(reporter.sync).toHaveBeenCalledWith('ℹ️ Connect Google Drive first — the primary device is recorded in your Drive backup'));
+    expect(primaryDevice.makeThisPrimary).not.toHaveBeenCalled();
+  });
+
+  it('a manual backup asks first when another device is primary', async () => {
+    const primaryDevice = makePrimary({ other: APP });
+    const { container, confirmFn, driveSync } = await renderPanel({ primaryDevice, confirm: false });
+
+    click(container, 'backup-to-drive');
+    await vi.waitFor(() => expect(confirmFn).toHaveBeenCalled());
+
+    expect(confirmFn).toHaveBeenCalledWith('Android app is the primary device. Backing up from here replaces its Google Drive backup. Continue?');
+    expect(driveSync.push).not.toHaveBeenCalled();
+  });
+
+  it('a manual backup proceeds without asking when this device is primary or none is', async () => {
+    const { container, confirmFn, driveSync } = await renderPanel({ primaryDevice: makePrimary({ other: null }) });
+
+    click(container, 'backup-to-drive');
+
+    await vi.waitFor(() => expect(driveSync.push).toHaveBeenCalledTimes(1));
+    expect(confirmFn).not.toHaveBeenCalled();
+  });
+
+  it('a manual backup does not warn about an unknown primary when Drive cannot be asked — the upload reports its own error', async () => {
+    const { container, confirmFn, driveSync } = await renderPanel({
+      primaryDevice: makePrimary({ other: { id: null, label: 'another device', since: null } }),
+    });
+
+    click(container, 'backup-to-drive');
+
+    await vi.waitFor(() => expect(driveSync.push).toHaveBeenCalledTimes(1));
+    expect(confirmFn).not.toHaveBeenCalled();
+  });
+});

@@ -24,6 +24,25 @@ export const LAST_LOCAL_EXPORT_KEY = 'last_local_export_at';
 /** Key recording `{ at, bytes }` of the last successful Drive push. */
 export const LAST_DRIVE_SYNC_KEY = 'last_drive_sync';
 
+/**
+ * Key recording which installation is the primary device — the only one that
+ * uploads to Drive automatically (ST-020): `{ id, label, since }`. Stored as a
+ * settings row so it travels inside every backup and restore.
+ */
+export const PRIMARY_DEVICE_KEY = 'primary_device';
+
+/**
+ * @param {unknown} value
+ * @returns {value is { id: string, label: string, since: string }}
+ */
+export function isValidPrimaryDevice(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ['id', 'label', 'since'].every((field) => typeof value[field] === 'string' && value[field] !== '')
+  );
+}
+
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function isValidDate(dateStr) {
@@ -182,6 +201,26 @@ export function createSettings(db) {
     });
   }
 
+  async function getPrimaryDevice() {
+    try {
+      const row = await db.settings.get(PRIMARY_DEVICE_KEY);
+      return isValidPrimaryDevice(row?.value) ? row.value : null;
+    } catch (err) {
+      console.error('[settings]', err);
+      return null;
+    }
+  }
+
+  async function setPrimaryDevice(primary) {
+    if (!isValidPrimaryDevice(primary)) {
+      throw new TypeError('[settings] setPrimaryDevice requires { id, label, since } strings');
+    }
+    await db.settings.put({
+      key: PRIMARY_DEVICE_KEY,
+      value: { id: primary.id, label: primary.label, since: primary.since },
+    });
+  }
+
   async function countRecordsBefore(date) {
     assertValidDate(date, 'countRecordsBefore');
     return db.daily_records.where('date').below(date).count();
@@ -273,6 +312,8 @@ export function createSettings(db) {
     getLastLocalExport,
     setLastLocalExport,
     getLastDriveSync,
+    getPrimaryDevice,
+    setPrimaryDevice,
     setLastDriveSync,
     getHomeBaseCity,
     setHomeBaseCity,

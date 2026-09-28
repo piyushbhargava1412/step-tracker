@@ -2,6 +2,8 @@
  * Google Drive AppData gateway — sole file that talks to the Drive v3 REST API.
  */
 
+import { PRIMARY_DEVICE_KEY, isValidPrimaryDevice } from './settings.js';
+
 export const DRIVE_APPDATA_FILE_NAME = 'step_tracker_backup.json';
 export const DRIVE_API_BASE_URL = 'https://www.googleapis.com';
 
@@ -38,6 +40,31 @@ function buildBody(boundary, metadata, data) {
 
 function boundaryLeaksIntoBody(body, boundary) {
   return body.split(`--${boundary}`).length !== 4;
+}
+
+/**
+ * The primary device recorded in a backup envelope's settings, as Drive
+ * appProperties (string key/values), or undefined when none is recorded.
+ * Mirroring it onto the file lets any writer check who is primary with a
+ * metadata-only request, without downloading the backup.
+ */
+function primaryAppProperties(envelope) {
+  const primary = envelope?.settings?.find?.((row) => row?.key === PRIMARY_DEVICE_KEY)?.value;
+  if (!isValidPrimaryDevice(primary)) return undefined;
+  return {
+    primaryDeviceId: primary.id,
+    primaryDeviceLabel: primary.label,
+    primarySince: primary.since,
+  };
+}
+
+function primaryFromAppProperties(properties) {
+  const primary = {
+    id: properties?.primaryDeviceId,
+    label: properties?.primaryDeviceLabel,
+    since: properties?.primarySince,
+  };
+  return isValidPrimaryDevice(primary) ? primary : null;
 }
 
 function buildMultipartBody(metadata, data) {
@@ -90,11 +117,14 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
     }
   }
 
-  async function upload(token, fileId, data) {
+  async function upload(token, fileId, data, appProperties) {
     // FIX 2: Conditionally include parents for POST (create), but exclude for PATCH (update)
     const metadataObj = { name: DRIVE_APPDATA_FILE_NAME };
     if (!fileId) {
       metadataObj.parents = ['appDataFolder'];
+    }
+    if (appProperties) {
+      metadataObj.appProperties = appProperties;
     }
 
     const metadata = JSON.stringify(metadataObj);
@@ -125,6 +155,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
     }
 
     const data = JSON.stringify(envelope);
+    const appProperties = primaryAppProperties(envelope);
 
     let resp;
     try {
@@ -134,7 +165,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
         fileId = await find();
       }
 
-      resp = await upload(token, fileId, data);
+      resp = await upload(token, fileId, data, appProperties);
 
       if (usedCachedId && fileId !== null && resp.status === 404) {
         console.error(
@@ -143,7 +174,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
         );
         cachedFileId = null;
         const relocatedId = await find();
-        resp = await upload(token, relocatedId, data);
+        resp = await upload(token, relocatedId, data, appProperties);
       }
     } catch (err) {
       console.error('[drive-sync]', err);
@@ -219,5 +250,31 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
     return runEnvelopeValidator(parsed);
   }
 
-  return { find, push, pull };
+  /**
+   * Which installation is the primary device, per the newest backup file's
+   * metadata (null when there is no backup or none is recorded). Throws when
+   * Drive cannot be asked — no token, HTTP error, network error — so a caller
+   * deciding whether it may overwrite the backup never guesses.
+   *
+   * @returns {Promise<{ id: string, label: string, since: string }|null>}
+   */
+  async function readPrimaryDevice() {
+    const token = getAccessToken();
+    if (!token) {
+      throw new Error('[drive-sync] Google Account not connected');
+    }
+    const url =
+        `${DRIVE_FILES_URL}?spaces=appDataFolder` +
+        `&fields=${encodeURIComponent('files(id,appProperties)')}` +
+        `&q=name%3D%27${encodeURIComponent(DRIVE_APPDATA_FILE_NAME)}%27` +
+        `&orderBy=modifiedTime%20desc`;
+    const resp = await fetchFn(url, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) {
+      throw new Error(`[drive-sync] Drive metadata read failed: HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    return primaryFromAppProperties(data?.files?.[0]?.appProperties);
+  }
+
+  return { find, push, pull, readPrimaryDevice };
 }
