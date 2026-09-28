@@ -116,6 +116,27 @@ The **Spatial Map** tab is an empty placeholder panel in this version — no ren
 
 The service worker versioned caches update on next visit after a deploy (update-on-next-visit — no auto-reload). If you see an older version, simply **refresh** the page (or close and reopen the tab) to activate the waiting update.
 
+## Android App (Health Connect)
+
+The same code also ships as an Android app (Capacitor). In the app, steps and distance come from
+**Health Connect** instead of Google Fit: tap **Connect Health Connect**, allow Steps and Distance
+(and access to past data), and the app syncs — automatically on every later launch. Exports and
+backups are saved to `Documents/Step Tracker/` on the phone. Google Drive backup inside the app
+is not available yet (planned in ST-020); move your history across with a backup file.
+
+Quick start (Android Studio + JDK 21 installed):
+
+```bash
+npm run cap:sync
+```
+
+```bash
+npm run android:run
+```
+
+Full build, signing, install and emulator-testing guide: [docs/plans/android-release.md](docs/plans/android-release.md).
+Roadmap: [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md).
+
 ## Step Sync
 
 The step-sync engine (`src/steps.js`) pulls daily step data from an injected `StepSource` (`src/step-source.js`); today that is the Google Fit source (`src/fit-step-source.js`), the sole gateway to the Google Fit REST API. Clicking the **Sync Steps** button (`#sync-btn`) triggers `createStepSync(createFitStepSource(auth, reporter), db, reporter, doc).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.

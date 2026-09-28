@@ -30,3 +30,14 @@ Phase 2 of [health-connect-android-roadmap.md](../plans/health-connect-android-r
 ## Implementation
 
 * [vite.config.js](../../vite.config.js), [main.js](../../src/main.js) (SW registration gated on platform), [index.html](../../index.html), `package.json`, `.gitignore`, new `capacitor.config.json`, `android/`.
+
+## As built
+
+* `appId` `com.piyushbhargava.steptracker`, `capacitor.config.json` (JSON — the repo has no TypeScript). Background `#020617` matches the icon and page.
+* **Native build mode** is a small Vite plugin (`scripts/native-html.js`, tested) that strips the manifest link. The service worker is kept out at runtime instead: `main.js` passes `prod: import.meta.env.PROD && !isNative` to `createSwRegister`.
+* **minSdk raised 24 → 26**: Health Connect and the health plugin require Android 8.0.
+* **Gradle daemon pinned to JDK 21** (`android/gradle/gradle-daemon-jvm.properties`): Gradle 8.14 can't compile the health plugin's build script on JDK 25.
+* Icons/splash: `scripts/generate-android-assets.sh` (macOS `sips`) scales `public/icons/icon-512.png`; adaptive-icon background set to `#020617`.
+* Release signing reads `ST_RELEASE_*` from `~/.gradle/gradle.properties`; the keystore itself is **not generated yet** — steps in [android-release.md](../plans/android-release.md). Needed before ST-022.
+* `WRITE_EXTERNAL_STORAGE` (maxSdk 29) added for exports on Android ≤ 10 (ST-018).
+* Verified on a Pixel 9 emulator (Android 17): installs, launches, no service worker, data survives relaunch.

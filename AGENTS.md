@@ -11,8 +11,8 @@ need for the task at hand; do not read everything up front.
 
 ## Project Context
 
-Step-tracker is a browser-only step streak tracker that authenticates with Google, fetches daily
-step aggregates from Google Fit, and computes the current streak client-side with no backend.
+Step-tracker is a step streak tracker with no backend: a browser PWA that reads daily steps from
+Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
 
 - Technical map: [.context/repo_map.md](.context/repo_map.md)
 - Business scope: [.context/repo_scope.md](.context/repo_scope.md)
@@ -44,6 +44,8 @@ step aggregates from Google Fit, and computes the current streak client-side wit
 | PWA install, offline app-shell caching & Cloudflare Pages deploy | [flows/pwa-offline-install.md](.context/flows/pwa-offline-install.md) |
 | Health Connect / Android migration roadmap & slices (ST-016 → ST-024) | [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md) |
 | Step data sources (`StepSource` port, Google Fit source) | [flows/historical-step-sync.md](.context/flows/historical-step-sync.md) |
+| Android app: Health Connect connection & sync, platform layer | [flows/android-health-connect.md](.context/flows/android-health-connect.md) |
+| Android build, signing, install & emulator testing | [docs/plans/android-release.md](docs/plans/android-release.md) |
 
 ## Business Flows
 
@@ -64,6 +66,7 @@ relevant to your current task.**
 - [Storage Health — Protection Matrix, Silent Persist Gestures & Panel](.context/flows/storage-health.md)
 - [Group Challenge Tracker](.context/flows/group-challenge-tracker.md)
 - [PWA Install & Offline App Shell Caching](.context/flows/pwa-offline-install.md)
+- [Android App — Health Connect Connection & Sync](.context/flows/android-health-connect.md)
 
 <!-- repo-agentifier:managed:end -->
 

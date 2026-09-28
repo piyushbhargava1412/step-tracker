@@ -9,10 +9,16 @@ confidence: high
 ## Overview
 Authenticates the user in-browser with Google Identity Services and obtains an OAuth access token with Fitness read scopes (both step activity and location data) so step data can later be fetched. The connection is restored automatically after a page refresh (silent GSI token request), and a sync kicks off automatically the moment a valid token arrives — no second click needed.
 
+> **Platform note (ST-019):** this flow is the **browser** connection. The logic lives in
+> `src/platform/web/google-fit-connection.js` (`createGoogleFitConnection` — `connect()`,
+> `restore()`, `onConnected()`), selected by `src/platform/step-source.js`. In the Android app the
+> same header button connects **Health Connect** instead — see
+> `.context/flows/android-health-connect.md`.
+
 ## Entry Points
 - **Type**: UI Event (browser) + automatic on bootstrap
 - **Path/Topic**: `#auth-btn` click → `auth.requestToken()`; on boot with a persisted connection flag → `auth.requestToken({ prompt: '' })` (silent restore)
-- **File**: `index.html` (button), `src/main.js` (event binding + auto-sync hook), `src/auth.js` (implementation)
+- **File**: `index.html` (button), `src/main.js` (binds `#auth-btn` → `connection.connect()`, `connection.onConnected(runSync)`, `connection.restore()`), `src/platform/web/google-fit-connection.js` (flag + token wiring), `src/auth.js` (implementation)
 
 ## Core Path
 1. **Initialization**: On app start, `src/auth.js` calls `google.accounts.oauth2.initTokenClient()` with:
@@ -25,9 +31,9 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
 
 4. **UI Feedback**: Sets `#auth_btn` text to "Connected!" and reveals `#fetch_btn`.
 
-5. **Auto-sync on connect** (`main.js`): `createAuth(...).onTokenReceived(...)` registers a hook fired on every valid token. The hook persists a boolean `google_connected` flag to localStorage (never the token) and runs the shared post-sync re-render pipeline — so the first connect and any later silent restore both sync immediately, without clicking Sync Steps.
+5. **Auto-sync on connect** (`google-fit-connection.js`, wired by `main.js`): `createAuth(...).onTokenReceived(...)` registers a hook fired on every valid token. The hook persists a boolean `google_connected` flag to localStorage (never the token) and runs the shared post-sync re-render pipeline — so the first connect and any later silent restore both sync immediately, without clicking Sync Steps.
 
-6. **Silent session restore on refresh** (`main.js`): if `google_connected === '1'`, bootstrap calls `auth.requestToken({ prompt: '' })`. GSI re-issues a fresh token without UI when Google's session cookie is still valid, re-running step 5. If the session expired, the callback carries an error, the token stays `null`, and the user clicks Connect again.
+6. **Silent session restore on refresh** (`connection.restore()`): if `google_connected === '1'`, bootstrap calls `auth.requestToken({ prompt: '' })`. GSI re-issues a fresh token without UI when Google's session cookie is still valid, re-running step 5. If the session expired, the callback carries an error, the token stays `null`, and the user clicks Connect again.
 
 ## Data Touchpoints
 - **Entities**: 

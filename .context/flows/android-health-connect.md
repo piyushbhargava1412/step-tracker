@@ -1,0 +1,75 @@
+# Flow: Android App — Health Connect Connection & Sync
+
+<!-- context-meta
+verification-commit: ST-017–ST-019 working tree (feature/ST-017-019-android-health-connect)
+generated-at: 2026-09-28T13:00:00Z
+confidence: high (unit-tested; verified on a Pixel 9 emulator, Android 17, real Health Connect)
+-->
+
+## Overview
+Inside the Capacitor Android app, steps and distance come from **Health Connect** instead of the
+Google Fit REST API. The same web code runs in the app's WebView; `src/platform/*` decides per
+platform. The header button reads **Connect Health Connect**, requests Health Connect read access
+(steps, distance and history), and every sync reads hourly aggregates through
+`@capgo/capacitor-health`. No Google sign-in is involved in syncing steps (Drive backup in the app
+arrives with ST-020).
+
+## Entry Points
+- **Type**: UI event + automatic at launch
+- **Path**: `#auth-btn` click → `connection.connect()`; bootstrap → `connection.restore()`;
+  `connection.onConnected(runSync)` auto-syncs after either succeeds; `#sync-btn` → `stepSync.sync()`
+- **Files**: `src/main.js` (wiring), `src/platform/capabilities.js`, `src/platform/step-source.js`,
+  `src/platform/native/health-connect-connection.js`, `src/health-connect-step-source.js`,
+  `src/steps.js` (engine), `android/app/src/main/AndroidManifest.xml`
+
+## Core Path
+1. `bootstrap()` resolves `isNative = isNativePlatform()` (Capacitor), then:
+   - `selectStorageManager` → always-persisted storage (app storage is never evicted);
+   - `createFileSaver` → exports to `Documents/Step Tracker/`;
+   - `createStatusReporter(doc, { connectLabel: 'Connect Health Connect' })`;
+   - `selectStepSource` → `{ source: createHealthConnectStepSource(Health, reporter),
+     connection: createHealthConnectConnection({ health: Health, reporter, launcher: AppLauncher }) }`;
+   - no service worker (`prod && !isNative`).
+2. **Connect** (`connection.connect()`): `Health.isAvailable()`; if unavailable → status
+   `⚠️ Install or update Health Connect, then tap Connect again` and open Health Connect's Play
+   Store page. Otherwise `Health.requestAuthorization({ read: ['steps','distance'],
+   requestHistoryAccess: true })` — Health Connect shows its permission sheet (Steps + Distance),
+   then the "access past data" prompt. Steps granted → `✅ Connected` (button → Reconnect) and
+   sync; refused → `🔑 Step access not allowed — allow it in Health Connect`.
+3. **Restore at launch** (`connection.restore()`): if available and steps are already authorized
+   (`checkAuthorization`) → `✅ Connected` + sync; otherwise silent.
+4. **Sync** (`steps.js` engine, unchanged windows/latch/upsert): `source.isReady()` is async
+   (availability + steps authorized). Per ≤30-day chunk, `fetchDays` runs two
+   `Health.queryAggregated({ bucket: 'hour', aggregation: 'sum' })` calls (steps, distance) over the
+   chunk's exact local-midnight instants, groups buckets by **local calendar date** (DST-safe),
+   rounds hourly steps, and zero-fills every date in the chunk. Distance is best-effort.
+5. Records flow through `_toDailyRecords` → `_upsertChunk` exactly as for Fit (overrides kept,
+   high-water mark, `hourly_steps` refreshed).
+
+## Error Surface
+- Steps read rejected with code `permission-denied` → `FAILURE_AUTH_EXPIRED` →
+  `🔑 Health Connect access was removed — tap "Connect Health Connect" to allow it again, then click Sync Steps…`
+- Any other steps read failure → `FAILURE_SOURCE_ERROR` → `❌ Sync stopped at chunk i/n — Health Connect data could not be read.`
+- Distance read failure → logged `[health-connect] distance read failed`; day's distance estimated.
+- Not ready → `🔑 Tap "Connect Health Connect" to allow step access first`.
+
+## Behaviour Notes
+- Health Connect aggregates honour the user's **data-source priority list** (de-duplication across
+  phone/watch/apps); the app shows the same totals as the Health Connect app. A source not on the
+  list is excluded.
+- Without history access Health Connect only returns ~30 days before the grant; zero-filled days
+  beyond that are stored as 0. Restore a Fit-era backup file (Backup tab) to keep older history —
+  restore overwrites the same days.
+- The pre-sync empty-DB Drive recovery runs with `pull({ silent: true })`, so no Google token (the
+  normal state in the app until ST-020) never overwrites the connection status.
+
+## Integrations
+- `@capgo/capacitor-health` 8.x → Android Health Connect (`androidx.health.connect:connect-client`)
+- `@capacitor/app-launcher` → Play Store link; `@capacitor/filesystem` → exports
+
+## Tests
+- `src/health-connect-step-source.test.js` (contract, readiness, hourly→daily grouping, zero-fill,
+  distance fallback, error classification, DST day attribution — passes in several timezones)
+- `src/platform/native/health-connect-connection.test.js`, `src/platform/step-source.test.js`,
+  `src/platform/*.test.js`, `scripts/android-manifest.test.js`, `main.test.js` (Android wiring suite)
+- Device verification steps: `docs/plans/android-release.md` → *Testing on an emulator*.

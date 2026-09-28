@@ -8,6 +8,11 @@ generated-at: 2026-08-16T11:48:29Z
 confidence: medium
 -->
 
+
+> **Android app (ST-017):** none of this applies inside the Capacitor app. `npm run build:native`
+> strips the manifest link (`scripts/native-html.js`) and `main.js` passes
+> `prod: import.meta.env.PROD && !isNative` to `createSwRegister`, so no service worker is ever
+> registered there — the APK ships its assets and a worker would keep serving stale files.
 ## Overview
 Makes the app an installable Progressive Web App and gives the app shell offline availability. A
 checked-in web app manifest (`public/manifest.json`) plus two 192/512 PNG icons make the app

@@ -1,6 +1,6 @@
 # Health Connect & Android App Roadmap
 
-> Status: proposed · 2026-09-28
+> Status: in progress · ST-016 merged; ST-017–ST-019 built and emulator-verified · 2026-09-28
 > Goal: keep step data flowing after the Google Fit REST API shuts down (end of 2026) by reading from
 > **Health Connect** inside an **Android app** (Capacitor), without losing any stored history.
 > Out of scope for now: iOS / HealthKit, wearables-only sources, Play Billing.
@@ -68,9 +68,8 @@ scopes in [auth.js](../../src/auth.js) know about Fit.
   web build syncing, but it serves Google/Fitbit-ecosystem data and may not include phone-only steps
   recorded in Health Connect by other apps. Parked; revisit only if a spike shows its numbers match
   Health Connect's for the same days.
-- **Health Connect plugin**: chosen in a short spike at the start of ST-019 (candidates: Capawesome
-  Health, community `capacitor-health-connect`). Requirements: aggregate by local-day period, hourly
-  aggregation, steps + distance, history-read permission, background-read permission.
+- **Health Connect plugin**: decided — `@capgo/capacitor-health` (see ST-019 *As built*). Background
+  reads for ST-021 still need checking against it.
 
 ## Reference
 
