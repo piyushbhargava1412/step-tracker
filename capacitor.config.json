@@ -1,0 +1,8 @@
+{
+  "appId": "com.piyushbhargava.steptracker",
+  "appName": "Step Tracker",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#020617"
+  }
+}

@@ -257,3 +257,25 @@ describe('createStatusReporter', () => {
     expect(() => reporter.sync('some progress text')).not.toThrow();
   });
 });
+
+describe('ST-019: configurable connect label', () => {
+  function setup(options) {
+    document.body.innerHTML = '<span id="auth-status"></span><button id="auth-btn"></button>';
+    return createStatusReporter(document, options);
+  }
+
+  it('uses the given connect label while not connected', () => {
+    setup({ connectLabel: 'Connect Health Connect' }).auth('Not connected');
+    expect(document.getElementById('auth-btn').textContent).toBe('Connect Health Connect');
+  });
+
+  it('still reads "Reconnect" once connected', () => {
+    setup({ connectLabel: 'Connect Health Connect' }).auth('✅ Connected');
+    expect(document.getElementById('auth-btn').textContent).toBe('Reconnect');
+  });
+
+  it('defaults to "Connect Google Account"', () => {
+    setup().auth('Not connected');
+    expect(document.getElementById('auth-btn').textContent).toBe('Connect Google Account');
+  });
+});

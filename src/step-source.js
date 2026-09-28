@@ -18,7 +18,8 @@
  * @property {string}   notReadyMessage    Status shown when isReady() is false.
  * @property {string}   accessLostMessage  Lead-in of the 🔑 message shown when
  *                                         access is revoked mid-sync.
- * @property {() => boolean} isReady       Whether a sync may start now.
+ * @property {() => boolean|Promise<boolean>} isReady  Whether a sync may start
+ *                                         now; may answer asynchronously.
  * @property {(chunk: {startMs: number, endMs: number},
  *             ctx: {index: number, total: number, phase: string})
  *             => Promise<DayReading[]>} fetchDays
@@ -40,6 +41,9 @@ export const FAILURE_HTTP_ERROR = 'http-error';
 
 /** The transport itself failed — offline, DNS, CORS or an aborted connection. */
 export const FAILURE_NETWORK_ERROR = 'network-error';
+
+/** An on-device source (e.g. Health Connect) failed to read, with no HTTP status. */
+export const FAILURE_SOURCE_ERROR = 'source-error';
 
 /**
  * Build a classified failure for the engine to render.

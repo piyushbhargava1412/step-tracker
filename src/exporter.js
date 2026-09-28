@@ -80,44 +80,36 @@ function _filename(ext) {
 }
 
 /**
- * Factory — returns exportCsv and exportJson bound to the injected document.
- * All browser APIs (Blob, URL.createObjectURL/revokeObjectURL, anchor click)
- * are confined to _triggerDownload so tests can stub them via vi.stubGlobal
- * and an injected doc spy (Decision 3).
+ * Factory — returns exportCsv and exportJson, saving through an injected
+ * FileSaver (src/platform/files.js): a browser download on web, the phone's
+ * Documents folder in the Android app.
  *
- * @param {Document} doc - injected document for browser-API isolation
+ * @param {import('./platform/files.js').FileSaver} fileSaver
  * @returns {{ exportCsv: Function, exportJson: Function }}
  */
-export function createExporter(doc) {
+export function createExporter(fileSaver) {
+  if (typeof fileSaver?.saveTextFile !== 'function') {
+    throw new TypeError('[exporter] a FileSaver with saveTextFile() is required');
+  }
+
   /**
-   * Creates a temporary object URL, triggers a download via an anchor click,
-   * then revokes the URL in a finally block (no memory leak).
-   * Any error is caught and logged; never rethrows.
-   *
-   * @param {string} filename
-   * @param {string} mimeType
-   * @param {string} text
+   * Save the text; never rejects — a failed save is logged, not thrown, so a
+   * fire-and-forget caller cannot produce an unhandled rejection.
    */
-  function _triggerDownload(filename, mimeType, text) {
-    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+  async function save(filename, mimeType, text) {
     try {
-      const a = doc.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
+      await fileSaver.saveTextFile(filename, mimeType, text);
     } catch (err) {
       console.error('[exporter]', err);
-    } finally {
-      URL.revokeObjectURL(url);
     }
   }
 
   function exportCsv(records) {
-    _triggerDownload(_filename('csv'), 'text/csv', _toCsv(records));
+    return save(_filename('csv'), 'text/csv', _toCsv(records));
   }
 
   function exportJson(records) {
-    _triggerDownload(_filename('json'), 'application/json', _toJson(records));
+    return save(_filename('json'), 'application/json', _toJson(records));
   }
 
   return { exportCsv, exportJson };

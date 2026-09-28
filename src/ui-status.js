@@ -12,7 +12,15 @@ import { showSyncProgressModal, hideSyncProgressModal } from './sync-progress-mo
 /** Prefix steps.js uses to announce the start of a multi-minute backfill (see PHASE_FULL_HISTORY). */
 const FULL_HISTORY_SYNC_PREFIX = '⏳ Full history sync';
 
-export function createStatusReporter(doc = document) {
+/** Auth button label while not connected, unless the platform supplies its own. */
+export const DEFAULT_CONNECT_LABEL = 'Connect Google Account';
+
+/**
+ * @param {Document} [doc]
+ * @param {{ connectLabel?: string }} [options]  connectLabel: the auth button's
+ *   text while not connected (e.g. "Connect Health Connect" in the Android app).
+ */
+export function createStatusReporter(doc = document, { connectLabel = DEFAULT_CONNECT_LABEL } = {}) {
   return {
     /**
      * Update the database status element.
@@ -30,7 +38,7 @@ export function createStatusReporter(doc = document) {
     /**
      * Update the authentication status element and mirror the state onto the
      * auth button label (a connected session reads as "Reconnect", anything
-     * else as "Connect Google Account").
+     * else as the connect label).
      * @param {string} text - The text to display
      */
     auth(text) {
@@ -43,7 +51,7 @@ export function createStatusReporter(doc = document) {
 
       const authBtn = doc.getElementById('auth-btn');
       if (authBtn) {
-        authBtn.textContent = text === '✅ Connected' ? 'Reconnect' : 'Connect Google Account';
+        authBtn.textContent = text === '✅ Connected' ? 'Reconnect' : connectLabel;
       }
     },
 

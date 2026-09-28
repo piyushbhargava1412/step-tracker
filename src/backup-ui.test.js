@@ -623,3 +623,50 @@ describe('createBackupUI — AbortController cleanup', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('createBackupUI — export through an injected FileSaver (ST-018)', () => {
+  function renderWith(fileSaver) {
+    const doc = buildDoc();
+    const container = doc.getElementById('tab-backup');
+    const backup = makeBackup();
+    const reporter = makeReporter();
+    const ui = createBackupUI(doc, backup, reporter, makeConfirm(), null, fileSaver);
+    ui.render(container);
+    container.querySelector('[data-action="export-backup"]').click();
+    return { backup, reporter };
+  }
+
+  it('saves the pretty-printed backup JSON under the dated backup file name', async () => {
+    const fileSaver = { saveTextFile: vi.fn().mockResolvedValue({ location: null }) };
+    const { backup, reporter } = renderWith(fileSaver);
+
+    await vi.waitFor(() => expect(reporter.db).toHaveBeenCalledWith('✅ Backup exported successfully'));
+
+    const envelope = await backup.buildBackup.mock.results[0].value;
+    const [fileName, mimeType, text] = fileSaver.saveTextFile.mock.calls[0];
+    expect(fileName).toMatch(new RegExp(`^${BACKUP_FILENAME_PREFIX}\\d{4}-\\d{2}-\\d{2}\\.json$`));
+    expect(mimeType).toBe('application/json');
+    expect(text).toBe(JSON.stringify(envelope, null, 2));
+  });
+
+  it('tells the user where the file went when the saver reports a location (Android)', async () => {
+    const fileSaver = {
+      saveTextFile: vi.fn().mockResolvedValue({ location: 'Documents/Step Tracker/backup.json' }),
+    };
+    const { reporter } = renderWith(fileSaver);
+
+    await vi.waitFor(() =>
+      expect(reporter.db).toHaveBeenCalledWith('✅ Backup saved to Documents/Step Tracker/backup.json')
+    );
+  });
+
+  it('a failed save surfaces the ❌ export message', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fileSaver = { saveTextFile: vi.fn().mockRejectedValue(new Error('Storage permission is needed')) };
+    const { reporter } = renderWith(fileSaver);
+
+    await vi.waitFor(() =>
+      expect(reporter.db).toHaveBeenCalledWith('❌ Export failed: Storage permission is needed')
+    );
+  });
+});

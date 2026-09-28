@@ -22,6 +22,7 @@ import {
   FAILURE_RETRY_EXHAUSTED,
   FAILURE_HTTP_ERROR,
   FAILURE_NETWORK_ERROR,
+  FAILURE_SOURCE_ERROR,
   assertStepSource,
 } from './step-source.js';
 export { DEFAULT_SYNC_ANCHOR, BACKFILL_COMPLETE_KEY };
@@ -466,11 +467,40 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_NETWORK_ERROR) {
     return `❌ Sync stopped at ${at} — network error. ${resume}`;
   }
+  if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_SOURCE_ERROR) {
+    return `❌ Sync stopped at ${at} — ${source.label} data could not be read. ${resume}`;
+  }
 
   // Any unclassified throw — a Dexie rejection from _upsertChunk, or
   // _toDailyRecords / _determineSyncWindows failing — is a persistence
   // failure. Chunk coordinates arrive resolved from the caller.
   return `❌ Sync stopped while saving ${at} — database error. ${resume}`;
+}
+
+/**
+ * Ask a source whether a sync may start. A synchronous answer stays
+ * synchronous (so the button busy state is still set in the same tick for
+ * sources like Google Fit); an asynchronous one (Health Connect checks its
+ * permissions) is returned as a promise. Fail-closed: a thrown or rejected
+ * check is logged and counts as not ready, so the user sees the connect prompt.
+ *
+ * @param {import('./step-source.js').StepSource} source
+ * @returns {boolean|Promise<boolean>}
+ */
+export function _checkSourceReady(source) {
+  const notReady = (error) => {
+    console.error('[steps]', error);
+    return false;
+  };
+  try {
+    const answer = source.isReady();
+    if (typeof answer?.then === 'function') {
+      return Promise.resolve(answer).then((value) => value === true, notReady);
+    }
+    return answer === true;
+  } catch (error) {
+    return notReady(error);
+  }
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -532,17 +562,24 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
    * @returns {Promise<void>}
    */
   async function sync() {
-    // 1. Pre-flight readiness guard — before touching the button.
-    if (!source.isReady()) {
+    // 1. Silent re-entrancy guard — never clobbers the in-flight message. The
+    //    guard is claimed synchronously, before the (possibly asynchronous)
+    //    readiness check, so two overlapping calls can never both proceed.
+    if (isSyncing) return;
+    isSyncing = true;
+
+    // 2. Pre-flight readiness guard — before touching the button. A source may
+    //    answer asynchronously (Health Connect checks its permissions); a
+    //    rejected check counts as not ready.
+    let ready = _checkSourceReady(source);
+    if (ready instanceof Promise) ready = await ready;
+    if (!ready) {
+      isSyncing = false;
       reporter.sync(source.notReadyMessage);
       return;
     }
 
-    // 2. Silent re-entrancy guard — never clobbers the in-flight message.
-    if (isSyncing) return;
-
     // 3. Button busy state — owned here, unwound in `finally`.
-    isSyncing = true;
     const syncBtn = doc?.getElementById?.('sync-btn');
     if (syncBtn) {
       syncBtn.disabled = true;
@@ -571,7 +608,7 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
         try {
           const localCount = await db.daily_records.count();
           if (localCount === 0) {
-            const envelope = await driveSync.pull();
+            const envelope = await driveSync.pull({ silent: true });
             if (envelope) {
               await backup.restoreBackup(envelope);
               reporter.sync('☁️ Restored your existing data from Google Drive — syncing latest steps…');
