@@ -1,68 +1,64 @@
-# Flow: Today's Progress Card & Goal Commitment
+# Flow: Today's Progress Panel & Goal Commitment
 
 <!-- context-meta
-verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
-generated-at: 2026-08-14T00:00:00Z
+verification-commit: HEAD
+generated-at: 2026-09-28T17:00:00Z
 confidence: high
 -->
 
 ## Overview
-On page load the app reads today's step record from Dexie and the user's active step goal (a scalar
-integer, no km), computes progress metrics (percentage, remaining steps, goal-met state), and renders
-a "Today's Progress" card with a step-target `<select>` into `#tab-dashboard`. The user can change
-the active goal at any time via the `<select>` drop-down; each change immediately re-renders the
-card, streak, calendar, and month-overview.
+The Today screen's progress panel (ST-025) combines today's progress and the streaks in one card:
+a heading with the goal chip, a progress ring (steps / goal / percentage), "N steps to go" or "Goal
+met", and a 3 × 2 grid of tiles — Distance, Strict, Lifetime / 99% tol, 95% tol, Best run.
+`progress-ui.js` owns the heading, the ring and the Distance tile; `streak-ui.js` fills the other
+five tiles (see `streak-calculation-render.md`). Changing the goal chip re-scores the streaks and
+the calendar immediately.
 
 ## Entry Points
-- **Type**: App lifecycle (browser) — automatic on load
-  - `DOMContentLoaded` → `bootstrap()` → `progressUI.render()` (from `src/main.js`)
-- **Type**: UI Event (browser) — post-sync re-render
-  - `#sync-btn` click → after `stepSync.sync()` completes → `progressUI.render()`
-- **Type**: UI Event (browser) — goal change
-  - `#goal-select` `change` event → `goal.setActiveStepGoal(steps)` → `progressUI.render()` → fan-out: `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()`
-- **File**: `src/main.js` (wiring), `src/progress-ui.js` (render + goal selector), `src/progress.js` (computation), `src/goal.js` (goal engine)
+- **Type**: App lifecycle — `DOMContentLoaded` → `bootstrap()` → first `_renderViews(...)` pass → `progressUI.render()` (`src/main.js`)
+- **Type**: UI Event — every sync (sync button, pull-to-refresh, connect, resume) → `_renderViews(dataViews(), 'sync')`
+- **Type**: UI Event — goal change: `#goal-select` `change` → `goal.setActiveStepGoal(steps)` → `progressUI.render()` → `onGoalApplied` → `streakUI`, `calendarUI`, `weekUI` re-render
+- **Type**: Custom event — `data:records:mutated` → every data view re-renders
+- **File**: `src/main.js` (wiring), `src/progress-ui.js` (render + goal chip), `src/progress.js` (computation), `src/goal.js` (goal engine)
 
 ## Core Path
-1. `bootstrap()` in `src/main.js` instantiates `createGoal(db)`, `createStreak(db)`, `createStreakUI(...)`, `createProgressUI(doc, goal, db, reporter, onGoalApplied)`, then calls `progressUI.render()` (fail-open).
-2. `render()` (in `src/progress-ui.js`) calls `Promise.all([getTodayRecord(db), goal.getActiveStepGoal()])`:
-   - `getTodayRecord(db)` fetches `db.daily_records.get(todayLocalDate)` — returns `undefined` if no record yet.
-   - `goal.getActiveStepGoal()` reads `db.settings.get('active_step_goal')`:
-     - Valid row with `target_steps` in `STEP_GOAL_OPTIONS` → returns the integer.
-     - Absent or corrupt row → lazily writes `{ key: 'active_step_goal', target_steps: DEFAULT_STEP_GOAL }` and returns `DEFAULT_STEP_GOAL`.
-3. `computeProgress(todayRecord, stepGoal)` (pure function in `src/progress.js`) calculates:
-   - `steps` from record (0 if absent/corrupt).
-   - `target_steps` from the integer `stepGoal` (defaults to `DEFAULT_STEP_GOAL` on non-finite/absent values, pct=0 on target≤0).
-   - `pct = min(100, round(steps / target_steps × 100))`, `remaining_steps`, `goalMet = pct >= 100`.
-4. `_buildCard(progress)` builds the card DOM (metric row, progress track+fill, `.goal-met-badge` or `.remaining-hint`).
-5. `_buildSelector(progress)` builds the goal-selector DOM: a `<select id="goal-select">` populated from `STEP_GOAL_OPTIONS` (imported from `src/goal.js`). The `change` listener calls `goal.setActiveStepGoal(Number(e.target.value))` and invokes the `onGoalApplied` callback (which triggers `streakUI.render()`, `calendarUI.render()`, and `monthOverview.render()` in `main.js`). The selector is appended into `#active-lens` (the menu-bar "Active Lens" mount, `index.html`) when that element is present, falling back to the dashboard card container otherwise — so the goal selector now lives in the top nav bar rather than inside the progress card.
-6. Old `#progress-card` and `#goal-selector` elements are removed before inserting the freshly-built ones (idempotent re-render).
-7. On any data error, `reporter.db('❌ Progress load failed')` is called and `computeProgress(null, null)` produces a zero-state card; `render()` never throws.
+1. `render()` (in `src/progress-ui.js`) calls `Promise.all([getTodayRecord(db), goal.getActiveStepGoal()])`:
+   - `getTodayRecord(db)` fetches `db.daily_records.get(todayLocalDate)` — `undefined` if no record yet.
+   - `goal.getActiveStepGoal()` reads `settings.active_step_goal` (lazily writes `DEFAULT_STEP_GOAL` when absent or corrupt).
+2. `computeProgress(todayRecord, stepGoal)` (pure, `src/progress.js`) returns `steps`, `target_steps`,
+   `pct = min(100, round(steps / target × 100))`, `remaining_steps`, `goalMet`, and `distance_km`
+   (today's `effective_distance_km`; 0 when absent, corrupt or negative).
+3. The panel is rebuilt into `#today-progress` with `replaceChildren` (idempotent):
+   - `.today-head`: "Today's progress" label + `label.goal-chip > select#goal-select` (`aria-label`
+     "Daily step goal"), options from `STEP_GOAL_OPTIONS` labelled "Goal 10k · ~8 km".
+   - `.ring[role=progressbar]` (`aria-valuenow` = pct): SVG track + `.ring__fill` arc whose
+     `stroke-dasharray` is `pct% × RING_CIRCUMFERENCE` (`.ring__fill--full` when met), centre text
+     `.ring__steps`, `.ring__goal` ("of 10,000 steps"), `.ring__pct`.
+   - `.remaining-hint` "2,588 steps to go" or `.goal-met-badge` "Goal met"; `#goal-error[role=alert]`.
+4. `#tile-distance` gets Distance / "5.6 km" / "today".
+5. On any data error: `reporter.db('❌ Progress load failed')`, zero-state panel; `render()` never throws.
+6. The goal chip's `change` listener (on the freshly built `<select>`, so re-renders never stack
+   listeners) saves the goal as a number, re-renders, then calls `onGoalApplied` (errors logged);
+   a failed save writes "⚠️ Failed to save goal — please try again" into `#goal-error`.
 
 ## Data Touchpoints
-- **Entities**:
-  - `daily_records` row: `date` (PK, `YYYY-MM-DD` local), `effective_steps`, `effective_distance_km`
-  - `settings` row: `key = 'active_step_goal'`, `target_steps` (integer, member of `STEP_GOAL_OPTIONS`)
-- **Tables**: `daily_records` (Dexie, read-only in this flow); `settings` (Dexie, read + lazy-write default)
+- `daily_records` row: `date`, `effective_steps`, `effective_distance_km` (read-only here)
+- `settings` row `active_step_goal` (read + lazy default write)
 
 ## Integrations
-- **Type**: None — pure client-side DOM render from local Dexie data; no outbound API calls.
+- None — local Dexie data only.
 
 ## Scope
-- `src/goal.js` — Goal Commitment engine (`createGoal`, `getActiveStepGoal`, `setActiveStepGoal`, `STEP_GOAL_OPTIONS`, `DEFAULT_STEP_GOAL`). Scalar step-only lens; no km fields, no `effective_from` date-scoping, no `goal_history` write.
-- `src/progress.js` — Pure computation (`getTodayRecord`, `computeProgress`)
-- `src/progress-ui.js` — Render layer (`createProgressUI`, `render`, `_buildCard`, `_buildSelector`)
-- `src/main.js` — Composition-root wiring (instantiation, load-time render, post-sync re-render, goal-change three-renderer fan-out)
-- `index.html` — `#active-lens` menu-bar mount for the goal selector (see Core Path step 5)
-- `styles.css` — `.card`, `.card-title`, `.metric-row`, `.metric-value`, `.metric-unit`, `.metric-sub`, `.progress-track`, `.progress-fill`, `.progress-fill--full`, `.goal-met-badge`, `.remaining-hint`, `.goal-selector`, `.goal-select`
+- `src/goal.js` — `createGoal`, `getActiveStepGoal`, `setActiveStepGoal`, `STEP_GOAL_OPTIONS`, `STEP_GOAL_KM_HINTS`, `DEFAULT_STEP_GOAL`
+- `src/progress.js` — `getTodayRecord`, `computeProgress`
+- `src/progress-ui.js` — `createProgressUI`, `RING_CIRCUMFERENCE`, `_goalOptionLabel`
+- `src/main.js` — wiring; goal-change fan-out (`streakUI`, `calendarUI`, `weekUI`)
+- `index.html` — `.today-card` with `#today-progress` and the six tile slots (`#tile-distance`, `#tile-strict`, `#tile-lifetime`, `#tile-tol99`, `#tile-tol95`, `#tile-best`)
+- `styles.css` — `.today-card`, `.today-head`, `.goal-chip`, `.ring*`, `.remaining-hint`, `.goal-met-badge`, `.today-tiles`, `.stat-tile*`
 
 ## Tests
-- `src/goal.test.js` — `createGoal` factory: `getActiveStepGoal` (valid row, absent, corrupt, DB read error), `setActiveStepGoal` (valid steps from `STEP_GOAL_OPTIONS`, invalid steps throws `TypeError`, DB write error graceful).
-- `src/progress.test.js` — `computeProgress` (zero record, normal record, goal-met, corrupt/absent goal, target≤0 guard); `getTodayRecord` passthrough.
-- `src/progress-ui.test.js` — `createProgressUI`: render with data, render zero-state, idempotent re-render, goal `<select>` change event, `onGoalApplied` callback invoked, validation error, DB error path.
+- `src/goal.test.js`, `src/progress.test.js` (incl. `distance_km`), `src/progress-ui.test.js` (ring values and arc, goal met, zero state, Distance tile, goal chip options / change order / failed save / no stacked listeners, no emoji)
 
 ## Notes
-- Goal constants: `STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]`; `DEFAULT_STEP_GOAL = 10000`; `STEP_GOAL_KM_HINTS = { 4000: 3, 6000: 5, 8500: 7, 10000: 8 }` (display-only km hints). No km presets beyond the hint labels.
-- `_localDate` is imported from `src/date-utils.js` (extracted utility, not inline in `goal.js`).
-- `render()` is idempotent — safe to call multiple times (e.g. after each sync).
-- The `settings` store uses key `'active_step_goal'` (not the legacy `'active_goal'`). No `goal_history` table is read or written in this flow; it was dropped in DB_VERSION 4.
-- Goal change triggers a three-renderer fan-out in `src/main.js`: `streakUI.render()`, `calendarUI.render()`, `monthOverview.render()` — all fail-open.
+- Goal constants: `STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]`; `DEFAULT_STEP_GOAL = 10000`; `STEP_GOAL_KM_HINTS = { 4000: 3, 6000: 5, 8500: 7, 10000: 8 }`.
+- The old header "Active Lens" dropdown, the Today month-overview card and the separate streak card were removed in ST-025.

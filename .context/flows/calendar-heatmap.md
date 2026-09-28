@@ -1,4 +1,4 @@
-# Flow: Calendar Heatmap Grid and Day Detail Drawer
+# Flow: Calendar — Month Heatmap, Week View and Day Sheet
 
 > Added: ST-005 — 2026-08-11 | Updated: ST-007a — 2026-08-12
 
@@ -50,10 +50,10 @@ calendarUI.render(year, month)          [src/calendar-ui.js — createCalendarUI
 tile <button data-date="YYYY-MM-DD"> click (delegated listener on #calendar-grid)
   └─ _openDrawer(day)
        ├─ store doc.activeElement for focus restoration
-       ├─ populate #day-drawer: date h2, metric rows, Edit/Override button, optional Revert button
-       ├─ if record.is_overridden && records injected → show "Revert to Synced" button
+       ├─ populate #day-drawer: date h2, steps headline + goal chip, hourly chart, metric rows, Correct steps button, optional Revert button
+       ├─ if record.is_overridden && records injected → show "Revert to synced" button
        │    └─ revert click: window.confirm → records.revertRecord(date) → dispatch data:records:mutated
-       ├─ if records injected → Edit / Override button is active (click → editBtn.remove(); overrideForm.mount(drawer, day, { signal }))
+       ├─ if records injected → "Correct steps" button is active (click → editBtn.remove(); overrideForm.mount(drawer, day, { signal }))
        │    else → Edit button disabled (title: 'Editing arrives in ST-006')
        ├─ if record == null: zero-state ("No synced data for this date", all metrics → '—')
        ├─ drawer.classList.add('drawer--open'), remove hidden from drawer + overlay
@@ -91,12 +91,15 @@ _closeDrawer(tile)
 | Module | Role |
 |---|---|
 | `src/calendar.js` | Pure engine: grid arithmetic, step-based classification, aggregates, nav clamping, I/O surface |
-| `src/calendar-ui.js` | Sole DOM writer: renders nav/summary/grid, manages drawer lifecycle, mounts the shared override form |
+| `src/calendar-ui.js` | Month view DOM writer: renders nav/summary/grid into `#calendar-month`, manages the day sheet (`#day-drawer`) lifecycle, mounts the shared override form; `openDay(day)` opens the sheet for the Week view |
+| `src/week.js` | Week engine (ST-025): Monday-start weeks, `createWeek(db, goal).loadWeek(start)`, `computeWeekHits` (goal hits among finished days), `formatWeekRange` |
+| `src/calendar-week-ui.js` | Week view DOM writer (ST-025): range nav, Total / Daily avg / Goal hit tiles, bar chart with the goal line, day list into `#calendar-week` |
+| `src/calendar-view-switch.js` | Week / Month switch (`#calendar-view-switch`) — toggles the two views; the Week view renders when first shown |
 | `src/override-form.js` | Shared override form + proof lightbox (`createOverrideForm`, `createProofLightbox`) — reused by calendar drawer and Search Lab Edit Day |
 | `src/records.js` | Override/revert capability: `createRecords(db)` → `{ overrideRecord, revertRecord }` |
 | `src/image-processor.js` | Proof-image resize: `processImage(file)` → JPEG base64 data URL ≤1024 px |
-| `src/month-overview.js` | Reusable month overview renderer: heatmap tiles + commitment hit-rate card for both dashboard and calendar tabs |
-| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)`; registers `data:records:mutated` listener |
+| `src/month-overview.js` | Month heatmap renderer used by the Calendar (no title row, with a Goal hit / Missed / Edited legend; interactive tiles carry aria-labels; compact labels truncate — 9,982 → "9.9k") |
+| `src/main.js` | Wires `createCalendar(db, goal)` + `createCalendarUI(...)`, `createCalendarWeekUI(doc, createWeek(db, goal), reporter, { onDayClick: calendarUI.openDay })` and the view switch; every sync / mutation / goal change re-renders both views |
 
 ## Classification Ladder (SF-2)
 
@@ -116,7 +119,7 @@ _closeDrawer(tile)
 When the user changes the active step goal via the `<select>`:
 1. `goal.setActiveStepGoal(steps)` persists the new scalar to `settings.active_step_goal`.
 2. The `onGoalApplied` callback in `src/main.js` triggers a fail-open fan-out:
-   `streakUI.render()` → `calendarUI.render()` → `monthOverview.render()`.
+   `streakUI.render()` → `calendarUI.render()` → `weekUI.render()`.
 3. `calendarUI.render()` re-reads `goal.getActiveStepGoal()` via `calendar.loadMonth()` — the new
    goal takes effect immediately for all months.
 
@@ -130,3 +133,19 @@ All drawer content is written with `textContent` — no `innerHTML` assignment a
 - Upper: current local month (`_localDate()` from `src/date-utils.js`).
 - `null` earliest (empty store or load failure): both `canGoPrev` and `canGoNext` forced to `false`.
 - Navigation state lives in the `calendar-ui.js` render closure; the engine is stateless.
+
+## Mobile layout (ST-025)
+
+- The Calendar is a bottom tab: `#calendar-view-switch` (Week / Month, Month first shown), then
+  `#calendar-month` or `#calendar-week`.
+- Month: icon arrow buttons ("Previous month" / "Next month") around month and year selects, three
+  summary tiles (Total, Daily avg, Hit rate — no caption), the heatmap card with its legend.
+- Week: "21 – 27 Sep 2026" between arrow buttons (back while older records exist, forward up to the
+  current week), tiles Total / Daily avg / Goal hit ("6 of 7" over finished days; today excluded),
+  a bar chart (filled sky = hit, outlined red = missed, striped = today in progress) with a dashed
+  goal line, and a day list; tapping a bar or row calls `calendarUI.openDay(day)`.
+- Day sheet: `#day-drawer.sheet[data-overlay]` slides up from the bottom; the Android back button
+  closes it (navigation sends Escape). Content: date title, a large steps headline with a chip
+  (Goal hit / Missed goal / In progress for today below the goal), an hourly bar chart when the
+  record has `hourly_steps`, "Counted steps" / "Synced steps" rows, proof thumbnail, Revert to
+  synced and Correct steps (mounts the override form).
