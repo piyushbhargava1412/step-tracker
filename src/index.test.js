@@ -3,60 +3,162 @@ import { JSDOM } from 'jsdom';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { SCREENS, TAB_SCREENS } from './navigation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const htmlPath = path.resolve(__dirname, '../index.html');
 const html = fs.readFileSync(htmlPath, 'utf-8');
 const { document } = new JSDOM(html).window;
 
-describe('index.html tabbed shell contract', () => {
-  it('#auth-status element is present', () => {
-    expect(document.getElementById('auth-status')).not.toBeNull();
+describe('index.html — mobile app shell', () => {
+  it('has one screen element per navigation screen, and nothing else marked as a screen', () => {
+    const ids = [...document.querySelectorAll('[data-screen]')].map((el) => el.id).sort();
+    expect(ids).toEqual(Object.keys(SCREENS).map((name) => `tab-${name}`).sort());
   });
 
-  it('#db-status element is present', () => {
-    expect(document.getElementById('db-status')).not.toBeNull();
+  it('shows only Today on load', () => {
+    const visible = [...document.querySelectorAll('[data-screen]')].filter((el) => !el.hidden);
+    expect(visible.map((el) => el.id)).toEqual(['tab-today']);
   });
 
-  it('#auth-btn element is present', () => {
-    expect(document.getElementById('auth-btn')).not.toBeNull();
+  it('bottom navigation has the four tabs in order, with Today current', () => {
+    const tabs = [...document.querySelectorAll('.bottom-nav [data-tab]')];
+    expect(tabs.map((t) => t.dataset.tab)).toEqual(TAB_SCREENS);
+    expect(document.querySelector('[data-tab="today"]').getAttribute('aria-current')).toBe('page');
   });
 
-  it('six [data-tab] buttons exist with correct values', () => {
-    const tabs = document.querySelectorAll('[data-tab]');
-    expect(tabs.length).toBe(6);
-    const values = Array.from(tabs).map(t => t.dataset.tab);
-    expect(values).toContain('dashboard');
-    expect(values).toContain('calendar');
-    expect(values).toContain('search');
-    expect(values).toContain('lab');
-    expect(values).toContain('spatial');
-    expect(values).toContain('backup');
+  it('has no Map, Lab or Backup tab', () => {
+    for (const gone of ['spatial', 'lab', 'backup', 'search', 'dashboard']) {
+      expect(document.querySelector(`[data-tab="${gone}"]`), gone).toBeNull();
+    }
+    expect(document.getElementById('tab-spatial')).toBeNull();
+    expect(document.getElementById('tab-lab')).toBeNull();
   });
 
-  it('all six tab panels are present', () => {
-    for (const name of ['dashboard', 'calendar', 'search', 'lab', 'spatial', 'backup']) {
-      expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
+  it('app bar holds the back button (hidden), the title and the search + settings actions', () => {
+    const bar = document.querySelector('header.app-bar');
+    expect(bar.querySelector('#app-back[data-back]').hidden).toBe(true);
+    expect(bar.querySelector('#app-title').textContent).toBe('Today');
+    expect(bar.querySelector('#app-subtitle')).not.toBeNull();
+    expect(bar.querySelector('[data-go="search"]').getAttribute('aria-label')).toBe('Search days');
+    expect(bar.querySelector('[data-go="settings"]').getAttribute('aria-label')).toBe('Settings');
+  });
+
+  it('every icon-only button has an accessible name', () => {
+    for (const btn of document.querySelectorAll('.icon-btn')) {
+      expect(btn.getAttribute('aria-label'), btn.outerHTML).toBeTruthy();
     }
   });
 
-  it('dashboard panel is default-visible, others hidden', () => {
-    const dashboard = document.getElementById('tab-dashboard');
-    const calendar = document.getElementById('tab-calendar');
-    const search = document.getElementById('tab-search');
-    const spatial = document.getElementById('tab-spatial');
+  it('every data-go target is a real screen', () => {
+    for (const el of document.querySelectorAll('[data-go]')) {
+      expect(SCREENS[el.dataset.go], el.dataset.go).toBeDefined();
+    }
+  });
+});
 
-    const isHidden = (el) =>
-      el.style.display === 'none' || el.classList.contains('hidden') || el.hasAttribute('hidden');
+describe('index.html — Today screen', () => {
+  const today = document.getElementById('tab-today');
 
-    expect(isHidden(dashboard)).toBe(false);
-    expect(isHidden(calendar)).toBe(true);
-    expect(isHidden(search)).toBe(true);
-    expect(isHidden(spatial)).toBe(true);
+  it('keeps the status elements the status reporter writes to', () => {
+    for (const id of ['auth-status', 'db-status', 'last-sync', 'sync-status', 'sync-btn']) {
+      expect(today.querySelector(`#${id}`), id).not.toBeNull();
+    }
+    expect(document.getElementById('sync-btn').getAttribute('aria-label')).toBe('Sync steps');
   });
 
-  it('no onclick= inline attributes remain', () => {
+  it('has one progress panel with the ring mount and six stat tiles in order', () => {
+    const card = today.querySelector('.today-card');
+    expect(card.querySelector('#today-progress')).not.toBeNull();
+    const tiles = [...card.querySelectorAll('.today-tiles > .stat-tile')].map((t) => t.id);
+    expect(tiles).toEqual(['tile-distance', 'tile-strict', 'tile-lifetime', 'tile-tol99', 'tile-tol95', 'tile-best']);
+  });
+
+  it('has a challenge summary mount and no month overview or week chart', () => {
+    expect(today.querySelector('#today-challenge')).not.toBeNull();
+    expect(document.getElementById('dashboard-month')).toBeNull();
+    expect(document.getElementById('active-lens')).toBeNull();
+  });
+
+  it('has the pull-to-refresh indicator', () => {
+    expect(document.getElementById('ptr-indicator')).not.toBeNull();
+  });
+});
+
+describe('index.html — Calendar screen', () => {
+  const calendar = document.getElementById('tab-calendar');
+
+  it('has the Week / Month switch with Month selected', () => {
+    const options = [...calendar.querySelectorAll('#calendar-view-switch [data-calendar-view]')];
+    expect(options.map((o) => o.dataset.calendarView)).toEqual(['week', 'month']);
+    expect(calendar.querySelector('[data-calendar-view="month"]').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('has the month and week view mounts, week hidden', () => {
+    expect(calendar.querySelector('#calendar-month').hidden).toBe(false);
+    expect(calendar.querySelector('#calendar-week').hidden).toBe(true);
+  });
+
+  it('day drawer is a bottom sheet dialog the back button can close', () => {
+    const drawer = calendar.querySelector('#day-drawer');
+    expect(drawer.getAttribute('role')).toBe('dialog');
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
+    expect(drawer.getAttribute('aria-labelledby')).toBe('day-drawer-title');
+    expect(drawer.hasAttribute('data-overlay')).toBe(true);
+    expect(drawer.classList.contains('sheet')).toBe(true);
+    expect(calendar.querySelector('.drawer-overlay')).not.toBeNull();
+  });
+});
+
+describe('index.html — Insights, Journey and pushed screens', () => {
+  it('Insights holds the analytics mount; Journey holds levels and the expedition', () => {
+    expect(document.querySelector('#tab-insights #lab-analytics')).not.toBeNull();
+    expect(document.querySelector('#tab-journey #lab-gamification')).not.toBeNull();
+    expect(document.querySelector('#tab-journey #lab-odyssey')).not.toBeNull();
+  });
+
+  it('the challenge screen has its detail mount', () => {
+    expect(document.querySelector('#tab-challenge #challenge-detail')).not.toBeNull();
+  });
+
+  it('Settings holds the connect button, a Backup row and the settings panel mount', () => {
+    const settings = document.getElementById('tab-settings');
+    expect(settings.querySelector('#auth-btn')).not.toBeNull();
+    expect(settings.querySelector('[data-go="backup"]')).not.toBeNull();
+    expect(settings.querySelector('#settings-panel')).not.toBeNull();
+    expect(settings.querySelector('#app-version')).not.toBeNull();
+  });
+
+  it('Backup lives inside Settings and holds storage health, Drive and file panels', () => {
+    const backup = document.getElementById('tab-backup');
+    for (const id of ['storage-health-controls', 'cloud-controls', 'backup-controls']) {
+      expect(backup.querySelector(`#${id}`), id).not.toBeNull();
+    }
+  });
+
+  it('the settings modal is gone (Settings is a screen now)', () => {
+    expect(document.getElementById('settings-modal')).toBeNull();
+    expect(document.getElementById('settings-btn')).toBeNull();
+  });
+});
+
+describe('index.html — first launch', () => {
+  it('has a hidden onboarding screen with connect, restore and skip actions', () => {
+    const onboarding = document.getElementById('onboarding');
+    expect(onboarding.hidden).toBe(true);
+    for (const id of ['onboarding-connect', 'onboarding-restore', 'onboarding-skip']) {
+      expect(onboarding.querySelector(`#${id}`), id).not.toBeNull();
+    }
+  });
+});
+
+describe('index.html — platform and build contract', () => {
+  it('no onclick= inline attributes', () => {
     expect(document.body.innerHTML).not.toMatch(/onclick=/);
+  });
+
+  it('no emoji in the static shell (line icons only)', () => {
+    expect(document.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
   it('no config.local.js script tag', () => {
@@ -68,8 +170,13 @@ describe('index.html tabbed shell contract', () => {
     expect(html).toContain('type="module"');
   });
 
-  it('GSI library script still present', () => {
+  it('GSI library script still present (the native build strips it)', () => {
+    expect(html).toContain('<!-- Google Identity Services Library -->');
     expect(html).toContain('https://accounts.google.com/gsi/client');
+  });
+
+  it('fonts are bundled, not loaded from Google Fonts', () => {
+    expect(html).not.toContain('fonts.googleapis.com');
   });
 
   it('styles.css link still present', () => {
@@ -88,157 +195,7 @@ describe('index.html tabbed shell contract', () => {
     expect(metas[0].getAttribute('content')).toBe('#0ea5e9');
   });
 
-  it('no app.js script tag remains', () => {
-    expect(html).not.toMatch(/<script[^>]+src=["'][^"']*app\.js["']/);
-  });
-
-  it('no fetch_btn reference remains', () => {
-    expect(html).not.toContain('fetch_btn');
-  });
-
-  it('#sync-btn element is present inside <header> with exact label Sync Steps', () => {
-    const syncBtn = document.getElementById('sync-btn');
-    expect(syncBtn).not.toBeNull();
-    expect(syncBtn.textContent).toBe('Sync Steps');
-    expect(syncBtn.closest('header')).not.toBeNull();
-  });
-
-  it('#sync-status element is present inside <header>', () => {
-    const syncStatus = document.getElementById('sync-status');
-    expect(syncStatus).not.toBeNull();
-    expect(syncStatus.closest('header')).not.toBeNull();
-  });
-
-  it('calendar nav, summary, and grid containers are present', () => {
-    expect(document.getElementById('calendar-nav')).not.toBeNull();
-    expect(document.getElementById('calendar-summary')).not.toBeNull();
-    expect(document.getElementById('calendar-grid')).not.toBeNull();
-  });
-
-  it('calendar containers are descendants of #tab-calendar', () => {
-    const tab = document.getElementById('tab-calendar');
-    expect(tab.contains(document.getElementById('calendar-nav'))).toBe(true);
-    expect(tab.contains(document.getElementById('calendar-summary'))).toBe(true);
-    expect(tab.contains(document.getElementById('calendar-grid'))).toBe(true);
-  });
-
-  it('#day-drawer has correct ARIA attributes', () => {
-    const drawer = document.getElementById('day-drawer');
-    expect(drawer).not.toBeNull();
-    expect(drawer.getAttribute('role')).toBe('dialog');
-    expect(drawer.getAttribute('aria-modal')).toBe('true');
-    expect(drawer.getAttribute('aria-labelledby')).toBe('day-drawer-title');
-  });
-
-  it('#day-drawer is a descendant of #tab-calendar', () => {
-    const tab = document.getElementById('tab-calendar');
-    expect(tab.contains(document.getElementById('day-drawer'))).toBe(true);
-  });
-
-  it('.drawer-overlay element exists', () => {
-    expect(document.querySelector('.drawer-overlay')).not.toBeNull();
-  });
-
-  it('#tab-calendar is hidden by default', () => {
-    const calendar = document.getElementById('tab-calendar');
-    expect(calendar.style.display).toBe('none');
-  });
-});
-
-describe('index.html — ST-015 settings button & modal (Task 8)', () => {
-  it('#settings-btn is present inside .header-actions', () => {
-    const btn = document.getElementById('settings-btn');
-    expect(btn).not.toBeNull();
-    expect(btn.closest('.header-actions')).not.toBeNull();
-  });
-
-  it('#settings-btn appears after #sync-btn in .header-actions', () => {
-    const actions = document.querySelector('.header-actions');
-    const children = Array.from(actions.children);
-    const syncIdx = children.findIndex(el => el.id === 'sync-btn');
-    const settingsIdx = children.findIndex(el => el.id === 'settings-btn');
-    expect(settingsIdx).toBeGreaterThan(syncIdx);
-  });
-
-  it('#settings-modal is present with correct ARIA attributes', () => {
-    const modal = document.getElementById('settings-modal');
-    expect(modal).not.toBeNull();
-    expect(modal.getAttribute('role')).toBe('dialog');
-    expect(modal.getAttribute('aria-modal')).toBe('true');
-  });
-
-  it('#settings-modal is a direct child of div.container appended after <main>', () => {
-    const container = document.querySelector('div.container');
-    const modal = document.getElementById('settings-modal');
-    expect(modal).not.toBeNull();
-    expect(modal.parentElement).toBe(container);
-    const main = container.querySelector('main');
-    // modal comes after main in DOM order
-    const containerChildren = Array.from(container.children);
-    const mainIdx = containerChildren.indexOf(main);
-    const modalIdx = containerChildren.indexOf(modal);
-    expect(modalIdx).toBeGreaterThan(mainIdx);
-  });
-
-  it('#settings-modal has .modal-overlay class', () => {
-    const modal = document.getElementById('settings-modal');
-    expect(modal.classList.contains('modal-overlay')).toBe(true);
-  });
-
-  it('#settings-modal is a bare shell — no static interior elements (Task 12)', () => {
-    // Bare-shell pattern: render() builds all interior; static HTML provides only the shell
-    const modal = document.getElementById('settings-modal');
-    expect(modal).not.toBeNull();
-    expect(modal.children.length).toBe(0);
-  });
-
-  it('#settings-modal static HTML has no date picker input — render() builds it (Task 12)', () => {
-    const modal = document.getElementById('settings-modal');
-    const datePicker = modal.querySelector('input[type="date"]');
-    expect(datePicker).toBeNull();
-  });
-
-  it('#settings-modal static HTML has no prune/wipe/toggle buttons — render() builds them (Task 12)', () => {
-    const modal = document.getElementById('settings-modal');
-    expect(modal.querySelector('[data-action="prune"]')).toBeNull();
-    expect(modal.querySelector('[data-action="wipe"]')).toBeNull();
-    expect(modal.querySelector('[data-action="toggle-clear-all"]')).toBeNull();
-  });
-});
-
-describe('index.html — ST-009 Task 10: Lab tab button and panel skeleton', () => {
-  it('[data-tab="lab"] button exists between Search and Backup buttons in DOM order', () => {
-    const labBtn = document.querySelector('[data-tab="lab"]');
-    expect(labBtn, '[data-tab="lab"] button missing').not.toBeNull();
-    expect(labBtn.previousElementSibling.dataset.tab).toBe('search');
-    expect(labBtn.nextElementSibling.dataset.tab).toBe('backup');
-  });
-
-  it('#tab-lab section is initially hidden on load', () => {
-    const panel = document.getElementById('tab-lab');
-    expect(panel, '#tab-lab missing').not.toBeNull();
-    const isHidden = panel.hasAttribute('hidden') || panel.style.display === 'none';
-    expect(isHidden).toBe(true);
-  });
-
-  it('#lab-analytics, #lab-gamification, #lab-odyssey are descendants of #tab-lab', () => {
-    const panel = document.getElementById('tab-lab');
-    expect(panel.contains(document.getElementById('lab-analytics'))).toBe(true);
-    expect(panel.contains(document.getElementById('lab-gamification'))).toBe(true);
-    expect(panel.contains(document.getElementById('lab-odyssey'))).toBe(true);
-  });
-
-  it('existing tab buttons (Dashboard, Calendar, Search, Backup) are unaffected', () => {
-    const values = Array.from(document.querySelectorAll('[data-tab]')).map(t => t.dataset.tab);
-    expect(values).toContain('dashboard');
-    expect(values).toContain('calendar');
-    expect(values).toContain('search');
-    expect(values).toContain('backup');
-  });
-
-  it('existing tab panels (tab-dashboard, tab-calendar, tab-search, tab-backup) are unaffected', () => {
-    for (const name of ['dashboard', 'calendar', 'search', 'backup']) {
-      expect(document.getElementById(`tab-${name}`), `#tab-${name} missing`).not.toBeNull();
-    }
+  it('viewport covers the display cutout (edge-to-edge app)', () => {
+    expect(document.querySelector('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
   });
 });

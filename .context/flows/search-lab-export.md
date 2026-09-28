@@ -1,4 +1,4 @@
-# Flow: Search Lab — Filter & Export Daily Records
+# Flow: Search — Filter & Export Daily Records
 
 <!-- context-meta
 verification-commit: 7e440b755ebfd852ef1e22508b0aa5bb0fe55c4a
@@ -23,6 +23,8 @@ browser-only with no network calls.
   - `#tab-search` delegated click on `[data-action="export-csv"]` → download filtered records as CSV
   - `#tab-search` delegated click on `[data-action="export-json"]` → download filtered records as JSON
   - `#tab-search` delegated click on `[data-action="edit-day"]` (missed-outcome rows only) → mount the shared override form inline in the row
+  - `#tab-search` delegated click on `[data-action="show-more"]` → append the next 50 results
+  - Opening Search: the magnifier in Today's app bar (`data-go="search"`) pushes the Search screen (ST-025; it is no longer a tab)
   - `data:records:mutated` custom event → `searchUI.render()` re-runs the retained query so results reflect fresh data
 - **File**: `src/search-ui.js` (UI renderer), `src/search.js` (engine + Near-Miss), `src/override-form.js` (shared override form + proof lightbox), `src/exporter.js` (download), `src/main.js` (wiring)
 
@@ -31,9 +33,11 @@ browser-only with no network calls.
    `createExporter(doc)`, and `createSearchUI(doc, search, exporter, reporter, computeNearMisses,
    records, processImage)`, then calls `searchUI.render()` (fail-open). `records`/`processImage` are
    optional — without them the Lab renders as a read-only query surface.
-2. `render()` mounts five `.card` children into `#tab-search`: `.search-filters` (filter form),
-   `.search-results-table` (results grid), `.search-summary` (aggregate stats), `.near-miss-panel`
-   (Near-Miss results panel, initially empty), and `.export-controls` (CSV/JSON buttons).
+2. `render()` mounts five children into `#tab-search`, in phone order: `details.search-filters`
+   (collapsible "Filters" — From / To / Min steps / Max steps / Step target / Edited days / Goal
+   outcome; open at first, folded after each search), `.search-summary` (Matches, Match %, Distance
+   — "13.5 km" under 100 km, "7,089 km" above — Avg steps), `.near-miss-panel`, `.search-results-table`
+   (rows rendered 50 at a time with a "Show 50 more of N" button), and `.export-controls` (CSV/JSON).
    A single `AbortController`-scoped delegated click listener handles all actions. If a query was
    previously executed, `render()` repopulates the filter inputs from the retained filters and
    re-runs the query — so a re-render (e.g. after a record mutation) shows fresh results instead of
@@ -81,7 +85,7 @@ browser-only with no network calls.
   Overrides written via `records.overrideRecord(date, { effective_steps, proof_image_base64 })`
   (shared form; no `note` field — removed in ST-006).
 - **Tables**: `daily_records` (Dexie, read-only for the query, write-on-override). No `goal_history` table — dropped at DB_VERSION 4.
-- **UI Surface**: `#tab-search` panel — `.search-filters`, `.search-results-table`, `.search-summary`, `.near-miss-panel`, `.export-controls`; errors surfaced via `reporter.db()` → `#db-status`
+- **UI Surface**: `#tab-search` screen (pushed from Today) — `.search-filters`, `.search-results-table`, `.search-summary`, `.near-miss-panel`, `.export-controls`; errors surfaced via `reporter.db()` → `#db-status`
 
 ## Integrations
 - No external network calls. All data is read from local Dexie IndexedDB.

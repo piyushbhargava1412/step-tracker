@@ -41,14 +41,14 @@ confidence: high
   accepts external collaborators as parameters and returns a plain object of methods. This makes each
   module testable without global stubs. *Evidence (≥3)*: `createAuth(config, reporter, gsi)` in
   `src/auth.js`; `createStatusReporter(doc)` in `src/ui-status.js`; `createDb()` / `initDB(db, reporter)`
-  in `src/db.js`; `initTabs(barEl, doc)` / `switchTab(tabName, doc)` in `src/tabs.js`.
+  in `src/db.js`; `createNavigator(doc, { onEnter, today, scrollTo })` in `src/navigation.js`.
 - **Fail-open guard clause at function entry**: functions validate preconditions and return/throw early
   before doing work. *Evidence (≥3)*: `src/config.js` (throw if `VITE_CLIENT_ID` missing);
   `src/auth.js:requestToken()` (`if (!tokenClient) return`); `src/storage.js`
   (`if (!nav?.storage?.persist) return`); `src/ui-status.js` element-missing guards.
 - **Delegated event listener with AbortController cleanup**: a single listener on a container element
-  reads `event.target.closest('[data-tab]')` rather than attaching per-button listeners. Re-calling
-  the init function aborts the old controller to prevent accumulation. *Evidence*: `src/tabs.js:initTabs`,
+  reads `event.target.closest('[data-tab], [data-go], [data-back]')` rather than attaching per-button listeners. Re-calling
+  the bind function aborts the old controller to prevent accumulation. *Evidence*: `src/navigation.js:bind`,
   `src/calendar-ui.js:render()` (one controller per render cycle, aborted at top of next render).
 - **Pure engine / sole DOM-writer pair**: engine module imports no DOM and no Dexie symbols; a separate
   `-ui.js` module is the only file that touches the document. Established across all feature areas.
@@ -103,8 +103,8 @@ confidence: high
   *Evidence*: `index.html` (entry script tag); `src/main.js` import block at top of file.
 - **Module granularity**: One-concern-per-file enforced across `src/` — each module owns a single
   external surface or domain concept. *Evidence (≥3)*: `src/auth.js` (Google Identity only);
-  `src/db.js` (Dexie schema + open); `src/storage.js` (navigator.storage only); `src/tabs.js`
-  (tab nav only); `src/ui-status.js` (DOM status reporter only); `src/config.js` (env var validation).
+  `src/db.js` (Dexie schema + open); `src/storage.js` (navigator.storage only); `src/navigation.js`
+  (screen navigation only); `src/ui-status.js` (DOM status reporter only); `src/config.js` (env var validation).
 - **Composition root**: `src/main.js` is the sole wiring point — it imports all concrete modules,
   instantiates them in sequence, and binds event handlers. No other module knows about the others.
   *Evidence*: `src/main.js:bootstrap()` function.
@@ -118,15 +118,15 @@ confidence: high
 
 - **Symbol naming**: Tunable constants are `UPPER_SNAKE_CASE` (`CLIENT_ID`, `SCOPES`, `DB_NAME`,
   `DB_VERSION`); factory functions use `createXxx` (`createAuth`, `createDb`, `createStatusReporter`);
-  plain functions use `camelCase` (`initTabs`, `switchTab`, `requestPersistentStorage`).
+  plain functions use `camelCase` (`mondayOf`, `computeWeekHits`, `requestPersistentStorage`).
   *Evidence (≥3 each)*: `src/config.js:1` (constant); `src/auth.js:1` (SCOPES); `src/db.js:1-2`
   (DB_NAME, DB_VERSION); factories across `src/auth.js`, `src/db.js`, `src/ui-status.js`.
 - **DOM-id-driven wiring**: elements are addressed by fixed string ids via `getElementById`; ids use
-  `kebab-case` (`auth-btn`, `auth-status`, `db-status`, `tab-dashboard`, …). *Evidence (≥3)*:
+  `kebab-case` (`auth-btn`, `auth-status`, `db-status`, `tab-today`, …). *Evidence (≥3)*:
   `src/main.js:getElementById('auth-btn')`; `src/ui-status.js:getElementById('db-status')`
-  and `getElementById('auth-status')`; `src/tabs.js:getElementById('tab-'+tabName)`.
+  and `getElementById('auth-status')`; `src/navigation.js` (`#tab-<name>` screens, `#app-title`).
 - **Idiomatic constructs**: optional chaining for defensive reads (`src/storage.js:nav?.storage?.persist`);
-  data attributes for UI configuration (`data-tab="dashboard"` in `index.html`);
+  data attributes for UI configuration (`data-tab="today"`, `data-go="settings"` in `index.html`);
   template literals for status strings (`src/ui-status.js`).
 
 ## Error-Handling & Logging Conventions
@@ -169,7 +169,7 @@ confidence: high
 | Factory function + DI pattern                | `src/auth.js`          | `createAuth(config, reporter, gsi)` — canonical factory shape                  |
 | Composition root                             | `src/main.js`          | Wires all factories; fail-open bootstrap; `DOMContentLoaded` guard             |
 | Module mock in tests (class constructor)     | `src/db.test.js`       | `vi.mock('dexie', ...)` pattern for external class dependencies                |
-| Delegated listener + AbortController cleanup | `src/tabs.js`          | `initTabs(barEl, doc)` — event delegation + re-init safety                     |
+| Delegated listener + AbortController cleanup | `src/navigation.js`    | `createNavigator(doc).bind()` — event delegation + re-bind safety              |
 | Status reporter abstraction                  | `src/ui-status.js`     | `createStatusReporter(doc)` — DI seam keeping modules DOM-agnostic             |
 | Config injection contract                    | `.env.example`         | Gold-standard shape of `.env.local`; `VITE_CLIENT_ID` placeholder             |
 | Presentation shell + module entry            | `index.html`           | Tab-bar structure + `<script type="module" src="/src/main.js">`                |

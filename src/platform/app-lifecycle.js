@@ -26,3 +26,26 @@ export function onAppResume({ isNative, doc, app = App }, listener) {
     if (doc.visibilityState === 'visible') listener();
   });
 }
+
+/**
+ * The Android back button. Registering a listener replaces Capacitor's default
+ * (close the app), so the handler decides: it returns true when it went back a
+ * step (closed a sheet, left a screen) and false when there is nothing left —
+ * the app then exits, as Android users expect. A no-op in the browser.
+ *
+ * @param {{ isNative: boolean, app?: object }} deps  app: injected for tests.
+ * @param {() => boolean} handler
+ */
+export function onBackButton({ isNative, app = App }, handler) {
+  if (!isNative) return;
+  const fail = (err) => console.error('[app-lifecycle] back button listener failed', err);
+  try {
+    Promise.resolve(
+      app.addListener('backButton', () => {
+        if (!handler()) app.exitApp();
+      }),
+    ).catch(fail);
+  } catch (err) {
+    fail(err);
+  }
+}

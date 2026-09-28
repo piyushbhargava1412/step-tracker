@@ -67,7 +67,7 @@ export function createBackupUI(
     panel.className = 'backup-panel data-panel';
 
     const heading = doc.createElement('h2');
-    heading.textContent = '📄 Local JSON Files';
+    heading.textContent = 'File on this phone';
     panel.appendChild(heading);
 
     // Export section
@@ -75,7 +75,7 @@ export function createBackupUI(
     exportSection.className = 'backup-section data-panel__section';
 
     const exportHeading = doc.createElement('h3');
-    exportHeading.textContent = 'Export Backup';
+    exportHeading.textContent = 'Export a backup file';
     exportSection.appendChild(exportHeading);
 
     const exportDesc = doc.createElement('p');
@@ -85,7 +85,7 @@ export function createBackupUI(
     const exportBtn = doc.createElement('button');
     exportBtn.className = 'btn btn-primary';
     exportBtn.setAttribute('data-action', 'export-backup');
-    exportBtn.textContent = '⬇️ Export JSON Backup';
+    exportBtn.textContent = 'Export backup file';
     exportSection.appendChild(exportBtn);
 
     exportMetaEl = doc.createElement('p');
@@ -100,7 +100,7 @@ export function createBackupUI(
     restoreSection.className = 'backup-section data-panel__section';
 
     const restoreHeading = doc.createElement('h3');
-    restoreHeading.textContent = 'Restore from Local File';
+    restoreHeading.textContent = 'Restore from a file';
     restoreSection.appendChild(restoreHeading);
 
     const restoreDesc = doc.createElement('p');
@@ -112,12 +112,12 @@ export function createBackupUI(
 
     const warningBadge = doc.createElement('span');
     warningBadge.className = 'warning-badge';
-    warningBadge.textContent = '⚠️ Overwrites local database';
+    warningBadge.textContent = 'Replaces the data on this device';
     restoreActions.appendChild(warningBadge);
 
     const importLabel = doc.createElement('label');
     importLabel.className = 'btn btn-secondary backup-file-label';
-    importLabel.textContent = '📁 Choose Backup File';
+    importLabel.textContent = 'Choose backup file';
 
     const importInput = doc.createElement('input');
     importInput.type = 'file';

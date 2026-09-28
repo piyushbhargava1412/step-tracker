@@ -40,10 +40,10 @@ describe('challenge-ui.js source-text contract', () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a jsdom document with a #tab-dashboard element. */
+/** Build a jsdom document with the challenge screen and Today summary mounts. */
 function makeDoc({ hasDashboard = true } = {}) {
   const html = hasDashboard
-    ? '<html><body><div id="tab-dashboard"></div></body></html>'
+    ? '<html><body><div id="today-challenge"></div><div id="challenge-detail"></div></body></html>'
     : '<html><body></body></html>';
   return new JSDOM(html).window.document;
 }
@@ -91,7 +91,7 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 // Guard: missing #tab-dashboard
 // ---------------------------------------------------------------------------
-describe('render() — missing #tab-dashboard', () => {
+describe('render() — missing mounts', () => {
   it('warns and returns without throwing', async () => {
     const doc = makeDoc({ hasDashboard: false });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -118,13 +118,13 @@ describe('render() — mockup card, no challenge configured', () => {
     expect(doc.getElementById('challenge-card')).not.toBeNull();
   });
 
-  it('renders the header title "Active Group Challenge"', async () => {
+  it('renders the default title "Group challenge"', async () => {
     const doc = makeDoc();
     const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
     await ui.render();
     const title = doc.querySelector('.challenge-title');
     expect(title).not.toBeNull();
-    expect(title.textContent).toBe('Active Group Challenge');
+    expect(title.textContent).toBe('Group challenge');
   });
 
   it('renders "Not configured" range when no challenge exists', async () => {
@@ -328,7 +328,7 @@ describe('render() — mockup card, active challenge', () => {
     );
   });
 
-  it('does NOT render "Challenge Finished" badge when challenge is active', async () => {
+  it('does NOT render "Challenge finished" badge when challenge is active', async () => {
     const doc = makeDoc();
     // end_date in the future (relative test — use far future date)
     const futureChallenge = { ...ACTIVE_CHALLENGE, end_date: '2099-12-31' };
@@ -336,15 +336,15 @@ describe('render() — mockup card, active challenge', () => {
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
     const card = doc.getElementById('challenge-card');
-    expect(card.textContent).not.toContain('Challenge Finished');
+    expect(card.textContent).not.toContain('Challenge finished');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Completed challenge — "Challenge Finished" badge + latest day = end_date
+// Completed challenge — "Challenge finished" badge + latest day = end_date
 // ---------------------------------------------------------------------------
 describe('render() — completed challenge', () => {
-  it('renders "Challenge Finished" badge when end_date is in the past', async () => {
+  it('renders "Challenge finished" badge when end_date is in the past', async () => {
     const doc = makeDoc();
     const completedChallenge = {
       key: 'active_challenge',
@@ -357,7 +357,7 @@ describe('render() — completed challenge', () => {
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
     await ui.render();
     const card = doc.getElementById('challenge-card');
-    expect(card.textContent).toContain('Challenge Finished');
+    expect(card.textContent).toContain('Challenge finished');
   });
 
   it('shows the end_date steps as the "Latest Day" tile value', async () => {
@@ -640,7 +640,7 @@ describe('delegated Copy handler (data-action="copy-challenge")', () => {
     expect(text).toContain('Average Pace');
   });
 
-  it('shows "Copied to Clipboard!" badge for ~2s after successful copy', async () => {
+  it('shows a "Copied to clipboard" badge for ~2s after successful copy', async () => {
     const doc = makeDoc();
     const engine = makeChallengeEngine({ challenge: ACTIVE_CHALLENGE });
     const ui = createChallengeUI(doc, engine, makeDb(), makeReporter());
@@ -656,7 +656,7 @@ describe('delegated Copy handler (data-action="copy-challenge")', () => {
 
     const badge = doc.querySelector('.copied-badge');
     expect(badge).not.toBeNull();
-    expect(badge.textContent).toContain('Copied to Clipboard!');
+    expect(badge.textContent).toBe('Copied to clipboard');
 
     // After 2s timer fires, badge should be gone
     vi.advanceTimersByTime(2000);
@@ -680,5 +680,103 @@ describe('delegated Copy handler (data-action="copy-challenge")', () => {
     expect(reporter.db).toHaveBeenCalledWith('⚠️ Copy to clipboard failed');
     expect(errSpy).toHaveBeenCalledWith('[challenge]', expect.any(Error));
     errSpy.mockRestore();
+  });
+});
+// ---------------------------------------------------------------------------
+// Mobile redesign: Today summary card, challenge screen, share
+// ---------------------------------------------------------------------------
+describe('mobile redesign', () => {
+  const ACTIVE = {
+    key: 'active_challenge',
+    name: 'September step challenge',
+    start_date: '2020-01-01',
+    end_date: '2099-12-31',
+    created_at: '2020-01-01T00:00:00.000Z',
+  };
+
+  it('renders the full card into #challenge-detail', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.getElementById('challenge-detail').querySelector('#challenge-card')).not.toBeNull();
+  });
+
+  it('renders a Today summary card that opens the challenge screen', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    const summary = doc.querySelector('#today-challenge .challenge-summary');
+    expect(summary.tagName).toBe('BUTTON');
+    expect(summary.dataset.go).toBe('challenge');
+    expect(summary.querySelector('.challenge-summary__title').textContent).toBe('September step challenge');
+    expect(summary.querySelector('.challenge-summary__sub').textContent).toMatch(/^Day \d[\d,]* of [\d,]+ · avg [\d,]+ \/ day$/);
+    expect(summary.querySelector('.challenge-summary__bar-fill')).not.toBeNull();
+  });
+
+  it('without a challenge the summary invites setting one up', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine(), makeDb(), makeReporter());
+    await ui.render();
+    const summary = doc.querySelector('#today-challenge .challenge-summary');
+    expect(summary.querySelector('.challenge-summary__title').textContent).toBe('Group challenge');
+    expect(summary.querySelector('.challenge-summary__sub').textContent).toBe('Set up a step challenge with friends');
+  });
+
+  it('re-rendering keeps one summary', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    await ui.render();
+    expect(doc.querySelectorAll('.challenge-summary')).toHaveLength(1);
+  });
+
+  it('shows the update text it will share', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    const preview = doc.querySelector('.challenge-preview');
+    expect(preview.textContent).toContain('September step challenge Update');
+  });
+
+  it('Share hands the update text to the injected share function', async () => {
+    const doc = makeDoc();
+    const share = vi.fn().mockResolvedValue(undefined);
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter(), { share });
+    await ui.render();
+    doc.querySelector('[data-action="share-challenge"]').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(share).toHaveBeenCalledWith(expect.stringContaining('September step challenge Update'));
+  });
+
+  it('a failed share is reported, not thrown', async () => {
+    const doc = makeDoc();
+    const reporter = makeReporter();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const share = vi.fn().mockRejectedValue(new Error('cancelled'));
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), reporter, { share });
+    await ui.render();
+    doc.querySelector('[data-action="share-challenge"]').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Could not share the update');
+    errSpy.mockRestore();
+  });
+
+  it('has no Share button without a share function', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.querySelector('[data-action="share-challenge"]')).toBeNull();
+  });
+
+  it('the edit button is an icon button with an accessible name, and no emoji anywhere', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter(), { share: vi.fn() });
+    await ui.render();
+    const edit = doc.querySelector('[data-action="toggle-challenge-config"]');
+    expect(edit.getAttribute('aria-label')).toBe('Edit challenge');
+    expect(edit.querySelector('svg')).not.toBeNull();
+    const card = doc.getElementById('challenge-card');
+    const visibleText = [...card.childNodes].filter((n) => !n.classList?.contains('challenge-preview')).map((n) => n.textContent).join('');
+    expect(visibleText).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

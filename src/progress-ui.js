@@ -1,10 +1,12 @@
 /**
- * Thin render layer for the Today's Progress card.
- * Renders the card anatomy into #tab-dashboard in one of two states:
- *   - In-Progress (pct < 100): shows .remaining-hint
- *   - Goal Met (pct >= 100): shows .goal-met-badge, .progress-fill--full
+ * Today screen — progress panel render layer.
  *
- * Idempotent: removes any prior #progress-card before injecting a fresh one.
+ * Renders into #today-progress: the panel heading with the goal chip (the step
+ * goal selector), a progress ring holding today's steps / goal / percentage,
+ * and either "N steps to go" or "Goal met". Also fills the Distance tile
+ * (#tile-distance) of the panel's stat grid; streak-ui.js fills the others.
+ *
+ * Idempotent: each render replaces the mount's content.
  * Fail-open: render() never throws or rejects; failures log + render zero-state.
  *
  * Dependencies are injected — no direct document/Dexie imports.
@@ -13,111 +15,129 @@
 import { getTodayRecord, computeProgress } from './progress.js';
 import { STEP_GOAL_KM_HINTS, STEP_GOAL_OPTIONS } from './goal.js';
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const RING_SIZE = 220;
+const RING_RADIUS = 92;
+const RING_STROKE = 16;
+export const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';
+
+/** 8500 → "8.5k", 10000 → "10k". */
+function _compactThousands(steps) {
+  const thousands = steps / 1000;
+  return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}k`;
+}
+
+/** Goal chip option text: "Goal 10k · ~8 km". */
+export function _goalOptionLabel(steps) {
+  const km = STEP_GOAL_KM_HINTS[steps];
+  return km ? `Goal ${_compactThousands(steps)} · ~${km} km` : `Goal ${_compactThousands(steps)}`;
+}
+
 /**
- * Factory: Today's Progress card renderer.
- *
- * @param {Document} doc          - The DOM document (injected for testability)
- * @param {{ getActiveStepGoal: Function }} goal - Goal Commitment engine instance
- * @param {object} db             - Injected Dexie db handle
- * @param {{ db: Function }} reporter         - Status reporter (ui-status channel)
- * @param {Function} onGoalApplied - Optional callback invoked after successful goal apply (default no-op)
+ * @param {Document} doc
+ * @param {{ getActiveStepGoal: Function, setActiveStepGoal: Function }} goal
+ * @param {object} db
+ * @param {{ db: Function }} reporter
+ * @param {Function} [onGoalApplied]  invoked after a goal change is saved and re-rendered
  * @returns {{ render: Function }}
  */
 export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
-  /**
-   * Build the progress card element from progress data.
-   * DOM is built with createElement/createTextNode/textContent only.
-   *
-   * @param {{ steps, target_steps, pct, remaining_steps, goalMet }} progress
-   * @returns {HTMLElement}
-   */
-  function _buildCard(progress) {
-    const { steps, target_steps, pct, remaining_steps, goalMet } = progress;
+  function _el(tag, className, textContent) {
+    const node = doc.createElement(tag);
+    if (className) node.className = className;
+    if (textContent !== undefined) node.textContent = textContent;
+    return node;
+  }
 
-    const displayPct = goalMet ? 100 : pct;
+  function _svg(tag, attrs) {
+    const node = doc.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    return node;
+  }
 
-    const card = doc.createElement('div');
-    card.className = 'card';
-    card.id = 'progress-card';
+  function _buildHead(progress) {
+    const head = _el('div', 'today-head');
+    head.appendChild(_el('span', 'label', "Today's progress"));
 
-    // Card title row
-    const titleDiv = doc.createElement('div');
-    titleDiv.className = 'card-title';
+    const chip = _el('label', 'goal-chip');
+    const select = _el('select', 'goal-select');
+    select.id = 'goal-select';
+    select.setAttribute('aria-label', 'Daily step goal');
+    for (const steps of STEP_GOAL_OPTIONS) {
+      const option = _el('option', '', _goalOptionLabel(steps));
+      option.value = String(steps);
+      select.appendChild(option);
+    }
+    select.value = String(progress.target_steps);
+    select.addEventListener('change', (event) => _onGoalChange(event));
+    chip.appendChild(select);
+    head.appendChild(chip);
+    return head;
+  }
 
-    const titleLabel = doc.createElement('span');
-    titleLabel.textContent = "Today's Progress";
-    titleDiv.appendChild(titleLabel);
+  function _buildRing({ steps, target_steps, pct, goalMet }) {
+    const ring = _el('div', 'ring');
+    ring.setAttribute('role', 'progressbar');
+    ring.setAttribute('aria-label', "Today's steps toward your goal");
+    ring.setAttribute('aria-valuenow', String(pct));
+    ring.setAttribute('aria-valuemin', '0');
+    ring.setAttribute('aria-valuemax', '100');
 
-    const pctSpan = doc.createElement('span');
-    pctSpan.className = 'progress-pct';
-    pctSpan.textContent = `${displayPct}%`;
-    titleDiv.appendChild(pctSpan);
+    const center = RING_SIZE / 2;
+    const svg = _svg('svg', {
+      class: 'ring__svg',
+      width: RING_SIZE,
+      height: RING_SIZE,
+      viewBox: `0 0 ${RING_SIZE} ${RING_SIZE}`,
+      'aria-hidden': 'true',
+    });
+    svg.appendChild(_svg('circle', {
+      class: 'ring__track', cx: center, cy: center, r: RING_RADIUS, fill: 'none', 'stroke-width': RING_STROKE,
+    }));
+    const arc = (pct / 100) * RING_CIRCUMFERENCE;
+    svg.appendChild(_svg('circle', {
+      class: goalMet ? 'ring__fill ring__fill--full' : 'ring__fill',
+      cx: center,
+      cy: center,
+      r: RING_RADIUS,
+      fill: 'none',
+      'stroke-width': RING_STROKE,
+      'stroke-linecap': 'round',
+      'stroke-dasharray': `${arc.toFixed(1)} ${RING_CIRCUMFERENCE.toFixed(1)}`,
+      transform: `rotate(-90 ${center} ${center})`,
+    }));
+    ring.appendChild(svg);
 
-    card.appendChild(titleDiv);
-
-    // Metric row
-    const metricRow = doc.createElement('div');
-    metricRow.className = 'metric-row';
-
-    const metricValue = doc.createElement('div');
-    metricValue.className = 'metric-value';
-    metricValue.appendChild(
-      doc.createTextNode(`${steps.toLocaleString('en-US')} `)
+    const middle = _el('div', 'ring__center');
+    middle.append(
+      _el('span', 'ring__steps', steps.toLocaleString('en-US')),
+      _el('span', 'ring__goal', `of ${target_steps.toLocaleString('en-US')} steps`),
+      _el('span', 'ring__pct', `${pct}%`),
     );
+    ring.appendChild(middle);
+    return ring;
+  }
 
-    const metricUnit = doc.createElement('span');
-    metricUnit.className = 'metric-unit';
-    metricUnit.textContent = `/ ${target_steps.toLocaleString('en-US')} steps`;
-    metricValue.appendChild(metricUnit);
-
-    metricRow.appendChild(metricValue);
-
-    card.appendChild(metricRow);
-
-    // Progress track + fill
-    const track = doc.createElement('div');
-    track.className = 'progress-track';
-
-    const fill = doc.createElement('div');
-    fill.className = goalMet ? 'progress-fill progress-fill--full' : 'progress-fill';
-    fill.setAttribute('role', 'progressbar');
-    fill.setAttribute('aria-valuenow', String(displayPct));
-    fill.setAttribute('aria-valuemin', '0');
-    fill.setAttribute('aria-valuemax', '100');
-    if (!goalMet) {
-      fill.style.width = `${displayPct}%`;
-    }
-    track.appendChild(fill);
-    card.appendChild(track);
-
-    if (goalMet) {
-      // Goal Met badge
-      const badge = doc.createElement('div');
-      badge.className = 'goal-met-badge';
-      badge.textContent = '✅ Daily Commitment Met';
-      card.appendChild(badge);
-    } else {
-      // Remaining hint
-      const hint = doc.createElement('div');
-      hint.className = 'remaining-hint';
-      hint.textContent =
-        `⏱️ ${remaining_steps.toLocaleString('en-US')} steps remaining to fulfill daily target`;
-      card.appendChild(hint);
-    }
-
-    return card;
+  function _fillDistanceTile(distanceKm) {
+    const tile = doc.getElementById('tile-distance');
+    if (!tile) return;
+    tile.replaceChildren(
+      _el('span', 'stat-tile__label', 'Distance'),
+      _el('span', 'stat-tile__value', `${distanceKm.toFixed(1)} km`),
+      _el('span', 'stat-tile__sub', 'today'),
+    );
   }
 
   /**
-   * Render (or re-render) the Today's Progress card into #tab-dashboard.
-   * Never throws or rejects — fail-open.
-   *
+   * Render (or re-render) the progress panel. Never throws or rejects.
    * @returns {Promise<void>}
    */
   async function render() {
-    const dashboard = doc.getElementById('tab-dashboard');
-    if (!dashboard) {
-      console.warn('[progress]', 'Missing #tab-dashboard — skipping render');
+    const mount = doc.getElementById('today-progress');
+    if (!mount) {
+      console.warn('[progress]', 'Missing #today-progress — skipping render');
       return;
     }
 
@@ -131,75 +151,31 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     } catch (err) {
       console.error('[progress]', err);
       reporter.db('❌ Progress load failed');
-      // Zero-state fallback
       progress = computeProgress(null, null);
     }
 
-    // Idempotency: remove stale card and selector
-    doc.getElementById('progress-card')?.remove();
-    doc.getElementById('goal-selector')?.remove();
+    const status = progress.goalMet
+      ? _el('p', 'goal-met-badge', 'Goal met')
+      : _el('p', 'remaining-hint', `${progress.remaining_steps.toLocaleString('en-US')} steps to go`);
+    const error = _el('span', 'goal-error');
+    error.id = 'goal-error';
+    error.setAttribute('role', 'alert');
 
-    const card = _buildCard(progress);
-    dashboard.appendChild(card);
-
-    // The Active Lens selector lives in the menu bar (#active-lens) when the
-    // host shell provides that mount; fall back to the dashboard otherwise.
-    const selector = _buildSelector(progress);
-    const lensMount = doc.getElementById('active-lens');
-    const mount = lensMount || dashboard;
-    mount.appendChild(selector);
+    // A fresh <select> per render replaces the old one, so stale change
+    // listeners go with it.
+    mount.replaceChildren(_buildHead(progress), _buildRing(progress), status, error);
+    _fillDistanceTile(progress.distance_km);
   }
 
-  /**
-   * Build the goal selector element (a Step Target <select>) and attach its
-   * change listener.
-   *
-   * @param {{ target_steps: number }} progress - current render's resolved progress state
-   * @returns {HTMLElement}
-   */
-  function _buildSelector(progress) {
-    const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';
-
-    const container = doc.createElement('div');
-    container.className = 'goal-selector';
-    container.id = 'goal-selector';
-
-    const select = doc.createElement('select');
-    select.id = 'goal-select';
-    select.className = 'goal-select';
-
-    for (const steps of STEP_GOAL_OPTIONS) {
-      const option = doc.createElement('option');
-      option.value = String(steps);
-      const kmHint = STEP_GOAL_KM_HINTS[steps];
-      option.textContent = kmHint
-        ? `${steps.toLocaleString('en-US')} steps (~${kmHint}km)`
-        : `${steps.toLocaleString('en-US')} steps`;
-      select.appendChild(option);
+  async function _onGoalChange(event) {
+    try {
+      await goal.setActiveStepGoal(Number(event.target.value));
+      await render();
+      try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
+    } catch (_err) {
+      const errEl = doc.getElementById('goal-error');
+      if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
     }
-
-    select.value = String(progress.target_steps);
-    container.appendChild(select);
-
-    // Error span
-    const errorSpan = doc.createElement('span');
-    errorSpan.id = 'goal-error';
-    container.appendChild(errorSpan);
-
-    // Listener attached to the freshly-created <select> each render — the
-    // stale-container-replaced-on-re-render pattern kills stale listeners.
-    select.addEventListener('change', async (e) => {
-      try {
-        await goal.setActiveStepGoal(Number(e.target.value));
-        await render();
-        try { onGoalApplied(); } catch (err) { console.error('[progress]', err); }
-      } catch (_err) {
-        const errEl = doc.getElementById('goal-error');
-        if (errEl) errEl.textContent = GOAL_SAVE_ERROR;
-      }
-    });
-
-    return container;
   }
 
   return { render };

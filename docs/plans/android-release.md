@@ -10,6 +10,17 @@
 | Application ID | `com.piyushbhargava.steptracker` | Android keys the installed app **and its private storage** (the IndexedDB the app lives in) to it. Changing it = a new app with empty storage. Also the Play Store link and the Health Connect permission grant. |
 | Release signing key | alias `step-tracker` in `step-tracker-release.jks` | Every update must be signed with the same key. A lost key means the installed app can't be updated, only uninstalled — and uninstalling deletes its data. |
 
+## Versions
+
+`package.json` `version` and `android/app/build.gradle` `versionName` carry the same version (the
+Settings screen shows `package.json`'s). `versionCode` must go up with every APK you install over an
+older one — Android refuses a lower or equal code.
+
+| Version | versionCode | What |
+|---------|-------------|------|
+| 1.1 | 2 | Health Connect app (ST-017–ST-021) |
+| 0.2.0 | 3 | Mobile redesign (ST-025) — the owner chose to restart the version name at 0.2.0 |
+
 ## Prerequisites
 
 - **Android Studio** (includes the SDK at `~/Library/Android/sdk`).

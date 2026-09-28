@@ -267,7 +267,7 @@ describe('createSearchUI — behaviour', () => {
     expect(texts).toContain('3');
     expect(texts).toContain('60%');
     expect(texts).toContain('13.5 km');
-    expect(texts).toContain('8000');
+    expect(texts).toContain('8,000');
   });
 
   it('null matchPct rendered as — in summary', async () => {
@@ -507,12 +507,12 @@ describe('Task 14 — remove min-distance, add step-target', () => {
     expect(search.executeQuery).toHaveBeenCalledTimes(1);
   });
 
-  it('Cumulative Distance summary cell is still rendered', () => {
+  it('Distance summary cell is still rendered', () => {
     const doc = buildDoc(makeSearchTab());
     const { render } = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
     render();
     const summaryLabels = Array.from(doc.querySelectorAll('.summary-cell span:first-child')).map(s => s.textContent);
-    expect(summaryLabels).toContain('Cumulative Distance');
+    expect(summaryLabels).toContain('Distance');
   });
 
   it('effective-distance result column is still rendered per record', async () => {
@@ -819,3 +819,84 @@ describe('createSearchUI — Edit Day override from missed search results', () =
   });
 });
 
+
+describe('Search screen — mobile layout', () => {
+  it('orders filters, summary, near misses, results, export', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const ui = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    await ui.render();
+    const order = [...doc.getElementById('tab-search').children].map((el) =>
+      ['search-filters', 'search-summary', 'near-miss-panel', 'search-results-table', 'export-controls'].find((c) => el.classList.contains(c)));
+    expect(order).toEqual(['search-filters', 'search-summary', 'near-miss-panel', 'search-results-table', 'export-controls']);
+  });
+
+  it('filters are a collapsible panel that starts open and folds away after a search', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const ui = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    await ui.render();
+    const filters = doc.querySelector('.search-filters');
+    expect(filters.tagName).toBe('DETAILS');
+    expect(filters.querySelector('summary').textContent).toBe('Filters');
+    expect(filters.open).toBe(true);
+    await clickAction(doc, 'execute');
+    expect(filters.open).toBe(false);
+  });
+
+  it('uses sentence-case labels and numeric keyboards for step fields', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const ui = createSearchUI(doc, makeMockSearch(), makeMockExporter(), makeMockReporter());
+    await ui.render();
+    const labels = [...doc.querySelectorAll('.search-filters label > span')].map((s) => s.textContent);
+    expect(labels).toEqual(['From', 'To', 'Min steps', 'Max steps', 'Step target', 'Edited days', 'Goal outcome']);
+    expect(doc.querySelector('[data-field="min-steps"]').inputMode).toBe('numeric');
+  });
+});
+
+describe('Search screen — long result lists', () => {
+  const many = Array.from({ length: 120 }, (_, i) => makeRecord({ date: `2026-01-${String((i % 28) + 1).padStart(2, '0')}-${i}`, effective_steps: 5000 + i }));
+
+  async function runSearch(records) {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery.mockResolvedValue({ records, preFilterSet: records });
+    const ui = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    await ui.render();
+    await clickAction(doc, 'execute');
+    return doc;
+  }
+
+  it('shows the first 50 results and a Show more button', async () => {
+    const doc = await runSearch(many);
+    expect(doc.querySelectorAll('.search-results-table [data-row]')).toHaveLength(50);
+    expect(doc.querySelector('[data-action="show-more"]').textContent).toBe('Show 50 more of 70');
+  });
+
+  it('Show more adds the next page, and disappears at the end', async () => {
+    const doc = await runSearch(many);
+    await clickAction(doc, 'show-more');
+    expect(doc.querySelectorAll('.search-results-table [data-row]')).toHaveLength(100);
+    expect(doc.querySelector('[data-action="show-more"]').textContent).toBe('Show 20 more of 20');
+    await clickAction(doc, 'show-more');
+    expect(doc.querySelectorAll('.search-results-table [data-row]')).toHaveLength(120);
+    expect(doc.querySelector('[data-action="show-more"]')).toBeNull();
+  });
+
+  it('no Show more button for short lists', async () => {
+    const doc = await runSearch(many.slice(0, 10));
+    expect(doc.querySelector('[data-action="show-more"]')).toBeNull();
+  });
+});
+
+describe('Search summary — phone formatting', () => {
+  it('rounds large distances and groups thousands', async () => {
+    const doc = buildDoc(makeSearchTab());
+    const search = makeMockSearch();
+    search.executeQuery = vi.fn().mockResolvedValue({ records: [makeRecord()], preFilterSet: [makeRecord()] });
+    search.computeResultSummary = vi.fn().mockReturnValue({ count: 900, matchPct: 100, cumulativeDistanceKm: 7088.896, avgSteps: 10337 });
+    const ui = createSearchUI(doc, search, makeMockExporter(), makeMockReporter());
+    await ui.render();
+    await clickAction(doc, 'execute');
+    const texts = [...doc.querySelectorAll('.search-summary .value')].map((c) => c.textContent);
+    expect(texts).toEqual(['900', '100%', '7,089 km', '10,337']);
+  });
+});

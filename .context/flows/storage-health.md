@@ -13,12 +13,12 @@ Redefines what "protected" means for the app's local step data: instead of naggi
 an eviction-risk modal whenever `navigator.storage.persisted()` is false, the app now treats an
 enabled Google Drive Cloud Auto-Sync as an equally valid safety net. A pure protection-matrix
 (`src/storage-health.js`) combines the `drive_backup_enabled` setting with the browser's persisted-
-storage grant into a single `#db-status` header pill and a "💾 Storage & Data Health" panel
-(`src/storage-health-ui.js`) on the Backup tab. `navigator.storage.persist()` is requested silently
+storage grant into a single `#db-status` pill (Today's status line) and a "Storage protection" panel
+(`src/storage-health-ui.js`) on the Backup & restore screen. `navigator.storage.persist()` is requested silently
 (no prompt, no modal) behind three explicit user gestures — Sync Steps, Connect/Reconnect Google
 Account, and toggling Drive auto-backup — plus directly via the panel's own button. This flow
 replaces `src/storage-modal.js` (deleted), which previously opened an explanatory popup on badge
-click; clicking the badge now simply jumps to the Backup tab when unprotected.
+click; tapping the pill opens Backup & restore when unprotected.
 
 ## Entry Points
 - **Type**: App lifecycle (browser) — badge computed at bootstrap, after `settings` is ready
@@ -28,7 +28,7 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
 - **Type**: UI Event (browser) — `[data-action="request-storage-protection"]` click (Storage Health
   panel button) → directly requests `navigator.storage.persist()`, no modal
 - **Type**: UI Event (browser) — `#db-status` click, only when its text reads "⚠️ Backup Disabled"
-  → `switchTab('backup', doc)` (`src/tabs.js`); a no-op in any other badge state
+  → `screens.go('backup')` (`src/navigation.js`); a no-op in any other badge state
 - **File**: `src/storage-health.js` (pure matrix + orchestration), `src/storage-health-ui.js`
   (panel renderer), `src/drive-sync-ui.js` (toggle gesture + refresh-event dispatch), `src/main.js`
   (bootstrap wiring, gesture wiring, badge-click navigation), `src/storage.js` (unchanged — the
@@ -66,7 +66,7 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
    `[ 🛡️ Request Browser Storage Protection ]` button.
 5. The button calls `nav.storage.persist()` directly — **no confirmation modal** — and on a grant
    updates the Local Browser Storage row in place immediately; either way it then calls
-   `refreshStorageProtectionBadge` so the header pill never disagrees with the panel. All reads are
+   `refreshStorageProtectionBadge` so the status pill never disagrees with the panel. All reads are
    individually fail-open (a settings/Dexie error defaults the Drive row to "Disabled" and logs).
    No innerHTML; AbortController-scoped listeners so re-render never accumulates handlers.
 
@@ -82,7 +82,7 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
 ### Removed: the ST-012 persistent-storage guidance modal
 7. `src/storage-modal.js` (and its dedicated `#db-status`-click-opens-a-modal behavior) has been
    deleted. The badge is no longer a launcher for an explanatory popup — a click now either
-   navigates to the Backup tab (unprotected state) or does nothing (already-safe states). Storage
+   opens the Backup & restore screen (unprotected state) or does nothing (already-safe states). Storage
    protection is requested silently behind ordinary product gestures instead of being surfaced as a
    dedicated ask.
 
@@ -91,7 +91,7 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
   `src/settings.js`) and `settings.last_drive_sync` (via `getLastDriveSync()`) — no new persisted
   state introduced by this flow.
 - **Tables**: None written by this flow; `db.settings` reads only.
-- **UI Surface**: `#db-status` header pill (`src/ui-status.js`'s `reporter.db(text)`), the
+- **UI Surface**: `#db-status` pill in Today's status line (`src/ui-status.js`'s `reporter.db(text)`), the
   `#storage-health-controls` panel inside `#tab-backup`.
 - **Browser API**: `navigator.storage.persist()` (write/request) and `navigator.storage.persisted()`
   (read) — Storage API, no network.
@@ -122,11 +122,11 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
   success, manual backup success); `createDriveSyncUI(..., driveBackupPrefs, nav = navigator)`
 - `src/main.js` — bootstrap badge refresh (after `settings` is ready), gesture wiring on
   `#auth-btn`/`#sync-btn`, `storageHealthUI` mount + `data:storage-health:refresh` listener,
-  `#db-status` click → `switchTab('backup', doc)` guard
-- `src/tabs.js` — `switchTab(tabName, doc)` (unchanged; reused as the navigation target)
+  `#db-status` click → `screens.go('backup')` guard
+- `src/navigation.js` — `createNavigator(doc).go('backup')` (the navigation target; `tabs.js` was removed in ST-025)
 - `src/storage.js` — unchanged; `requestPersistentStorage` (bootstrap-time attempt) and
   `PERSISTED_TEXT` remain the single source of truth for that one badge string
-- `index.html` — `#storage-health-controls` (inside `#tab-backup`, above `.backup-grid`)
+- `index.html` — `#storage-health-controls` (first card inside `#tab-backup`)
 - `styles.css` — `.storage-health-panel`, `.storage-health-row`, `.storage-health-label`,
   `.storage-health-value`, `.storage-health-action`
 
@@ -142,12 +142,12 @@ click; clicking the badge now simply jumps to the Backup tab when unprotected.
 - `src/main.test.js` — "Storage Health wiring" describe block: bootstrap-time badge refresh call
   shape, panel mount + fail-open when the container is missing, refresh-event re-render,
   gesture-triggered persist calls on `#auth-btn`/`#sync-btn`, `#db-status` click navigation
-  (asserted against the mocked `switchTab`) gated on the exact badge text.
+  (asserted by the Backup & restore screen becoming visible) gated on the exact badge text.
 
 ## Notes
-- The header pill is deliberately **not** clickable in the two "safe" states (`Cloud Synced`,
+- The status pill is deliberately **not** clickable in the two "safe" states (`Cloud Synced`,
   `Storage Safe`) — only `Backup Disabled` responds to a click, mirroring the old modal's
-  "only opens when Unprotected" guard but redirecting to the Backup tab instead of a popup.
+  "only opens when Unprotected" guard but opening Backup & restore instead of a popup.
 - `src/storage.js`'s bootstrap-time `requestPersistentStorage` call is unchanged and still runs
   first; `refreshStorageProtectionBadge` runs immediately after (once `settings` exists) and
   overwrites the badge with the drive-aware text, so the two never race in a user-visible way.

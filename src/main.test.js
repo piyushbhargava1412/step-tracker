@@ -156,9 +156,18 @@ vi.mock('./auth.js', () => ({
   createAuth: vi.fn(() => mockAuthInstance)
 }))
 
-vi.mock('./tabs.js', () => ({
-  initTabs: vi.fn(),
-  switchTab: vi.fn()
+// Mobile redesign: navigation is real (it tolerates the sparse test DOM);
+// the Week view, onboarding and back button are mocked so their wiring can be asserted.
+const mockWeekUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
+vi.mock('./calendar-week-ui.js', () => ({
+  createCalendarWeekUI: vi.fn(() => mockWeekUIInstance)
+}))
+vi.mock('./week.js', () => ({
+  createWeek: vi.fn(() => ({ loadWeek: vi.fn(), buildZeroState: vi.fn() }))
+}))
+const mockOnboardingInstance = { start: vi.fn().mockResolvedValue(undefined), dismiss: vi.fn(), isOpen: vi.fn(() => false) }
+vi.mock('./onboarding-ui.js', () => ({
+  createOnboardingUI: vi.fn(() => mockOnboardingInstance)
 }))
 
 const mockStepSyncInstance = { sync: vi.fn(), canSync: vi.fn().mockResolvedValue(true) }
@@ -202,8 +211,8 @@ const { mockCapacitorApp } = vi.hoisted(() => ({
   mockCapacitorApp: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) },
 }))
 vi.mock('@capacitor/app', () => ({ App: mockCapacitorApp }))
-const { mockOnAppResume } = vi.hoisted(() => ({ mockOnAppResume: vi.fn() }))
-vi.mock('./platform/app-lifecycle.js', () => ({ onAppResume: mockOnAppResume }))
+const { mockOnAppResume, mockOnBackButton } = vi.hoisted(() => ({ mockOnAppResume: vi.fn(), mockOnBackButton: vi.fn() }))
+vi.mock('./platform/app-lifecycle.js', () => ({ onAppResume: mockOnAppResume, onBackButton: mockOnBackButton }))
 
 // ST-015 Task 9: settings + settings-ui mocks
 const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn(), getPrimaryDevice: vi.fn().mockResolvedValue(null), setPrimaryDevice: vi.fn() }
@@ -211,7 +220,7 @@ vi.mock('./settings.js', () => ({
   createSettings: vi.fn(() => mockSettingsInstance)
 }))
 
-const mockSettingsUIInstance = { render: vi.fn().mockResolvedValue(undefined), open: vi.fn(), close: vi.fn() }
+const mockSettingsUIInstance = { render: vi.fn().mockResolvedValue(undefined), open: vi.fn() }
 vi.mock('./settings-ui.js', () => ({
   createSettingsUI: vi.fn(() => mockSettingsUIInstance)
 }))
@@ -277,7 +286,8 @@ import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
-import { initTabs, switchTab } from './tabs.js'
+import { createCalendarWeekUI } from './calendar-week-ui.js'
+import { createOnboardingUI } from './onboarding-ui.js'
 import { createStepSync } from './steps.js'
 import { createFitStepSource } from './fit-step-source.js'
 import { createStreak } from './streak.js'
@@ -314,17 +324,46 @@ import { createOdysseyUI } from './odyssey-ui.js'
 import { bootstrap } from './main.js'
 
 // Helper: set up DOM and call bootstrap directly
-async function boot(storage) {
-  document.body.innerHTML = `
-    <button id="auth-btn">Connect</button>
-    <button id="sync-btn">Sync Steps</button>
-    <nav class="tab-bar"></nav>
-    <div id="db-status"></div>
-    <div id="auth-status"></div>
-    <span id="sync-status"></span>
+/** A small slice of the mobile shell: two tabs, Settings and Backup. */
+const SHELL_HTML = `
+    <button id="app-back" data-back hidden>Back</button>
+    <h1 id="app-title"></h1>
+    <span id="app-subtitle"></span>
+    <section id="tab-today" data-screen>
+      <button id="sync-btn" aria-label="Sync steps">Sync</button>
+      <div id="db-status"></div>
+      <div id="auth-status"></div>
+      <span id="sync-status"></span>
+      <span id="last-sync"></span>
+    </section>
+    <section id="tab-calendar" data-screen hidden>
+      <div id="calendar-view-switch">
+        <button data-calendar-view="week" aria-selected="false">Week</button>
+        <button data-calendar-view="month" aria-selected="true">Month</button>
+      </div>
+      <div id="calendar-month"></div>
+      <div id="calendar-week" hidden></div>
+    </section>
+    <section id="tab-settings" data-screen hidden>
+      <span id="step-source-name"></span>
+      <button id="auth-btn">Connect</button>
+      <p id="app-version"></p>
+    </section>
+    <section id="tab-backup" data-screen hidden></section>
+    <nav>
+      <button data-tab="today">Today</button>
+      <button data-tab="calendar">Calendar</button>
+      <button data-go="settings">Settings</button>
+    </nav>
+    <div id="ptr-indicator"></div>
   `
+
+async function boot(storage) {
+  document.body.innerHTML = SHELL_HTML
   await bootstrap(document, storage)
 }
+
+const visibleScreen = () => [...document.querySelectorAll('[data-screen]')].find((el) => !el.hidden)?.id
 
 // Minimal in-memory Storage substitute — the jsdom environment in this repo
 // does not expose a working localStorage global, and injection is the
@@ -371,9 +410,27 @@ describe('main.js — composition root bootstrap', () => {
     expect(mockAuthInstance.init).toHaveBeenCalledTimes(1)
   })
 
-  it('invokes initTabs exactly once on DOMContentLoaded', async () => {
+  it('wires navigation: tapping a bottom tab shows its screen', async () => {
     await boot()
-    expect(initTabs).toHaveBeenCalledTimes(1)
+    expect(visibleScreen()).toBe('tab-today')
+    document.querySelector('[data-tab="calendar"]').click()
+    expect(visibleScreen()).toBe('tab-calendar')
+  })
+
+  it('hands the Android back button to the navigator', async () => {
+    await boot()
+    expect(mockOnBackButton).toHaveBeenCalledWith({ isNative: false }, expect.any(Function))
+    document.querySelector('[data-go="settings"]').click()
+    const handler = mockOnBackButton.mock.calls[0][1]
+    expect(handler()).toBe(true)
+    expect(visibleScreen()).toBe('tab-today')
+    expect(handler()).toBe(false)
+  })
+
+  it('names the step source and shows the app version in Settings', async () => {
+    await boot()
+    expect(document.getElementById('step-source-name').textContent).toBe('Google Fit')
+    expect(document.getElementById('app-version').textContent).toMatch(/^Step Tracker v\d+\.\d+\.\d+$/)
   })
 
   it('invokes requestPersistentStorage after initDB resolves', async () => {
@@ -433,10 +490,11 @@ describe('main.js — composition root bootstrap', () => {
     expect(mockAuthInstance.init).toHaveBeenCalledTimes(1)
   })
 
-  it('when initDB rejects, initTabs is still invoked (fail-open)', async () => {
+  it('when initDB rejects, navigation still works (fail-open)', async () => {
     initDB.mockRejectedValue(new Error('DB fail'))
     await boot()
-    expect(initTabs).toHaveBeenCalledTimes(1)
+    document.querySelector('[data-tab="calendar"]').click()
+    expect(visibleScreen()).toBe('tab-calendar')
   })
 })
 
@@ -582,14 +640,15 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     mockChallengeUIInstance.render.mockResolvedValue(undefined)
     await mockOnTokenHandler()
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockOnboardingInstance.dismiss).toHaveBeenCalledTimes(1)
   })
 
   it('the onTokenReceived hook runs the sync before re-rendering (ordering)', async () => {
@@ -656,11 +715,11 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
   })
 
-  it('render() is called after initTabs (call-order enforced)', async () => {
+  it('render() runs once at bootstrap, before the welcome screen is considered', async () => {
     await boot()
-    const initTabsCallOrder = initTabs.mock.invocationCallOrder[0]
-    const renderCallOrder = mockProgressUIInstance.render.mock.invocationCallOrder[0]
-    expect(renderCallOrder).toBeGreaterThan(initTabsCallOrder)
+    expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockProgressUIInstance.render.mock.invocationCallOrder[0])
+      .toBeLessThan(mockOnboardingInstance.start.mock.invocationCallOrder[0])
   })
 
   it('bootstrap resolves even if progressUI.render() rejects (fail-open)', async () => {
@@ -925,7 +984,7 @@ describe('main.js — Task 12: calendar wiring', () => {
   })
 })
 
-describe('main.js — month-overview dashboard card wiring', () => {
+describe('main.js — Calendar month + week views', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
@@ -933,7 +992,7 @@ describe('main.js — month-overview dashboard card wiring', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
   })
 
@@ -941,58 +1000,53 @@ describe('main.js — month-overview dashboard card wiring', () => {
     document.body.innerHTML = ''
   })
 
-  it('createMonthOverview is invoked exactly once with (document, calendarInstance, mockReporter)', async () => {
+  it('createMonthOverview is invoked once with (document, calendarInstance, mockReporter) and handed to the calendar', async () => {
     await boot()
-    expect(createMonthOverview).toHaveBeenCalledTimes(1)
     expect(createMonthOverview).toHaveBeenCalledWith(document, mockCalendarInstance, mockReporter)
+    expect(createCalendarUI.mock.calls[0][6]).toBe(mockMonthOverviewInstance)
   })
 
-  it('monthOverview.render() is called exactly once on bootstrap', async () => {
+  it('main.js no longer renders a month overview on Today', async () => {
     await boot()
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockMonthOverviewInstance.render).not.toHaveBeenCalled()
   })
 
-  it('monthOverview.render() is called after calendarUI.render() on bootstrap', async () => {
+  it('the week view opens days through the calendar\'s day sheet', async () => {
+    mockCalendarUIInstance.openDay = vi.fn()
     await boot()
-    const calendarRenderOrder = mockCalendarUIInstance.render.mock.invocationCallOrder[0]
-    const monthRenderOrder = mockMonthOverviewInstance.render.mock.invocationCallOrder[0]
-    expect(monthRenderOrder).toBeGreaterThan(calendarRenderOrder)
+    const { onDayClick } = createCalendarWeekUI.mock.calls[0][3]
+    onDayClick({ date: '2026-09-21', record: null })
+    expect(mockCalendarUIInstance.openDay).toHaveBeenCalledWith({ date: '2026-09-21', record: null })
   })
 
-  it('clicking #sync-btn triggers monthOverview.render() after calendarUI.render()', async () => {
+  it('switching to Week renders the week view', async () => {
+    await boot()
+    mockWeekUIInstance.render.mockClear()
+    document.querySelector('[data-calendar-view="week"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
+    expect(document.getElementById('calendar-week').hidden).toBe(false)
+  })
+
+  it('a sync re-renders the week view after the month', async () => {
     await boot()
     vi.clearAllMocks()
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
-    mockProgressUIInstance.render.mockResolvedValue(undefined)
-    mockStreakUIInstance.render.mockResolvedValue(undefined)
-    mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
     document.getElementById('sync-btn').click()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
-      .toBeLessThan(mockMonthOverviewInstance.render.mock.invocationCallOrder[0])
+      .toBeLessThan(mockWeekUIInstance.render.mock.invocationCallOrder[0])
   })
 
-  it('sync-time month-overview render rejection is fail-open', async () => {
+  it('a failing week render after sync is fail-open', async () => {
     await boot()
-    mockStepSyncInstance.sync.mockResolvedValue(undefined)
-    mockProgressUIInstance.render.mockResolvedValue(undefined)
-    mockStreakUIInstance.render.mockResolvedValue(undefined)
-    mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockRejectedValueOnce(new Error('sync month render fail'))
+    mockWeekUIInstance.render.mockRejectedValueOnce(new Error('week fail'))
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     document.getElementById('sync-btn').click()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[main] monthOverview.render failed after sync, continuing',
-      expect.any(Error),
-    )
-  })
-
-  it('bootstrap resolves even if monthOverview.render() rejects on load (fail-open)', async () => {
-    mockMonthOverviewInstance.render.mockRejectedValue(new Error('month render fail'))
-    await expect(boot()).resolves.toBeUndefined()
+    expect(errorSpy).toHaveBeenCalledWith('[main] weekUI.render failed after sync, continuing', expect.any(Error))
+    expect(mockChallengeUIInstance.render).toHaveBeenCalled()
   })
 })
 
@@ -1009,6 +1063,7 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
       dispatchEvent: target.dispatchEvent.bind(target),
       getElementById: (id) => document.getElementById(id),
       querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
       createElement: (tag) => document.createElement(tag),
       createTextNode: (text) => document.createTextNode(text),
     }
@@ -1022,7 +1077,7 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     isolatedDoc = makeIsolatedDoc()
     document.body.innerHTML = `
@@ -1047,36 +1102,36 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     expect(callArgs[5]).toBeDefined() // processImage function
   })
 
-  it('data:records:mutated dispatch triggers progressUI.render, streakUI.render, calendarUI.render, monthOverview.render in order', async () => {
+  it('data:records:mutated dispatch triggers progressUI.render, streakUI.render, calendarUI.render, weekUI.render in order', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockProgressUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockStreakUIInstance.render.mock.invocationCallOrder[0])
     expect(mockStreakUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
-    expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockMonthOverviewInstance.render.mock.invocationCallOrder[0])
+    expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0]).toBeLessThan(mockWeekUIInstance.render.mock.invocationCallOrder[0])
   })
 
-  it('progressUI.render rejection inside mutation handler does not propagate (fail-open); streakUI, calendarUI and monthOverview still called', async () => {
+  it('progressUI.render rejection inside mutation handler does not propagate (fail-open); streakUI, calendarUI and weekUI still called', async () => {
     await bootstrap(isolatedDoc)
     vi.clearAllMocks()
     mockProgressUIInstance.render.mockRejectedValueOnce(new Error('progress fail'))
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: { date: '2026-08-11' } }))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
   })
 
   it('streakUI.render rejection inside mutation handler does not propagate; calendarUI still called', async () => {
@@ -1085,11 +1140,11 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockRejectedValueOnce(new Error('streak fail'))
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     isolatedDoc.dispatchEvent(new CustomEvent('data:records:mutated', { detail: '2026-08-11' }))
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1189,6 +1244,7 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
       dispatchEvent: target.dispatchEvent.bind(target),
       getElementById: (id) => document.getElementById(id),
       querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
       createElement: (tag) => document.createElement(tag),
       createTextNode: (text) => document.createTextNode(text),
     }
@@ -1201,7 +1257,7 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     isolatedDoc = makeIsolatedDoc()
     document.body.innerHTML = `
@@ -1219,56 +1275,56 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
     isolatedDoc = null
   })
 
-  it('invoking onGoalApplied calls streakUI.render, calendarUI.render, and monthOverview.render exactly once each', async () => {
+  it('invoking onGoalApplied calls streakUI.render, calendarUI.render, and weekUI.render exactly once each', async () => {
     await bootstrap(isolatedDoc)
     const onGoalApplied = createProgressUI.mock.calls[0][4]
     vi.clearAllMocks()
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     await onGoalApplied()
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
   })
 
-  it('streakUI.render rejection in onGoalApplied does not prevent calendarUI.render or monthOverview.render', async () => {
+  it('streakUI.render rejection in onGoalApplied does not prevent calendarUI.render or weekUI.render', async () => {
     await bootstrap(isolatedDoc)
     const onGoalApplied = createProgressUI.mock.calls[0][4]
     vi.clearAllMocks()
     mockStreakUIInstance.render.mockRejectedValueOnce(new Error('streak fail'))
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await onGoalApplied()
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
   })
 
-  it('calendarUI.render rejection in onGoalApplied does not prevent streakUI.render or monthOverview.render', async () => {
+  it('calendarUI.render rejection in onGoalApplied does not prevent streakUI.render or weekUI.render', async () => {
     await bootstrap(isolatedDoc)
     const onGoalApplied = createProgressUI.mock.calls[0][4]
     vi.clearAllMocks()
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockRejectedValueOnce(new Error('calendar fail'))
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await onGoalApplied()
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
   })
 
-  it('monthOverview.render rejection in onGoalApplied does not prevent streakUI.render or calendarUI.render', async () => {
+  it('weekUI.render rejection in onGoalApplied does not prevent streakUI.render or calendarUI.render', async () => {
     await bootstrap(isolatedDoc)
     const onGoalApplied = createProgressUI.mock.calls[0][4]
     vi.clearAllMocks()
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockRejectedValueOnce(new Error('month fail'))
+    mockWeekUIInstance.render.mockRejectedValueOnce(new Error('month fail'))
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await onGoalApplied()
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
@@ -1291,7 +1347,7 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
     vi.clearAllMocks()
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
-    mockMonthOverviewInstance.render.mockResolvedValue(undefined)
+    mockWeekUIInstance.render.mockResolvedValue(undefined)
     await onGoalApplied()
     // daily_records was not put/updated — we confirm no DB write by checking mocks
     // Since the actual db operations happen in other modules (not in main.js's callback),
@@ -1299,7 +1355,7 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
     // through the fact that only render() is called on each UI instance
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     // The mocked db object has no daily_records.put call
     expect(mockDb.daily_records).toBeUndefined()
   })
@@ -1331,7 +1387,8 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
         isolatedDoc2,
         mockChallengeInstance,
         mockDb,
-        mockReporter
+        mockReporter,
+        { share: null } // jsdom has no Web Share; the app passes the Android share sheet
       )
     })
 
@@ -1412,6 +1469,7 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
       dispatchEvent: target.dispatchEvent.bind(target),
       getElementById: (id) => document.getElementById(id),
       querySelector: (sel) => document.querySelector(sel),
+      querySelectorAll: (sel) => document.querySelectorAll(sel),
       createElement: (tag) => document.createElement(tag),
       createTextNode: (text) => document.createTextNode(text),
     }
@@ -1474,14 +1532,20 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
     )
   })
 
-  it('clicking #settings-btn calls settingsUI.open()', async () => {
-    await bootstrap(isolatedDoc)
-    const btn = document.getElementById('settings-btn')
-    btn.click()
+  it('opening the Settings screen calls settingsUI.open() each time', async () => {
+    // A fresh document: earlier tests' navigators stay bound to the shared one.
+    const freshDoc = document.implementation.createHTMLDocument('fresh')
+    freshDoc.body.innerHTML = SHELL_HTML
+    await bootstrap(freshDoc, makeStorage())
+    mockSettingsUIInstance.open.mockClear()
+    freshDoc.querySelector('[data-go="settings"]').click()
     expect(mockSettingsUIInstance.open).toHaveBeenCalledTimes(1)
+    freshDoc.querySelector('[data-tab="today"]').click()
+    freshDoc.querySelector('[data-go="settings"]').click()
+    expect(mockSettingsUIInstance.open).toHaveBeenCalledTimes(2)
   })
 
-  it('settingsUI.render() is called once at bootstrap before binding #settings-btn (Task 12)', async () => {
+  it('settingsUI.render() is called once at bootstrap (Task 12)', async () => {
     await bootstrap(isolatedDoc)
     expect(mockSettingsUIInstance.render).toHaveBeenCalledTimes(1)
   })
@@ -1509,7 +1573,7 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
   })
@@ -1530,9 +1594,9 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(errorSpy).toHaveBeenCalledWith('[main]', expect.any(Error))
+    expect(errorSpy).toHaveBeenCalledWith('[main] searchUI.render failed after mutation, continuing', expect.any(Error))
     errorSpy.mockRestore()
   })
 })
@@ -1725,7 +1789,7 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
     expect(mockProgressUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockStreakUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockCalendarUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(mockMonthOverviewInstance.render).toHaveBeenCalledTimes(1)
+    expect(mockWeekUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockChallengeUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockSearchUIInstance.render).toHaveBeenCalledTimes(1)
   })
@@ -1834,11 +1898,11 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     expect(backupPanel.querySelector('[data-action="import-backup"]')).not.toBeNull()
     expect(cloudPanel.querySelector('[data-action="backup-to-drive"]')).not.toBeNull()
     expect(cloudPanel.querySelector('[data-action="restore-from-drive"]')).not.toBeNull()
-    expect(backupPanel.textContent).toContain('Local JSON Files')
-    expect(backupPanel.textContent).toContain('Export Backup')
-    expect(backupPanel.textContent).toContain('Restore from Local File')
-    expect(cloudPanel.textContent).toContain('Google Drive Cloud Sync')
-    expect(cloudPanel.textContent).toContain('Back Up to Drive')
+    expect(backupPanel.textContent).toContain('File on this phone')
+    expect(backupPanel.textContent).toContain('Export a backup file')
+    expect(backupPanel.textContent).toContain('Restore from a file')
+    expect(cloudPanel.querySelector('h2').textContent).toBe('Google Drive')
+    expect(cloudPanel.textContent).toContain('Back up to Drive')
     expect(cloudPanel.textContent).toContain('Restore from Drive')
   })
 
@@ -1848,15 +1912,15 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
     await new Promise(resolve => setTimeout(resolve, 20))
     const backupPanel = document.getElementById('backup-controls')
     const cloudPanel = document.getElementById('cloud-controls')
-    expect(backupPanel.textContent).toContain('Local JSON Files')
-    expect(backupPanel.textContent).toContain('Export Backup')
-    expect(backupPanel.textContent).toContain('Restore from Local File')
-    expect(cloudPanel.textContent).toContain('Google Drive Cloud Sync')
-    expect(cloudPanel.textContent).toContain('Back Up to Drive')
+    expect(backupPanel.textContent).toContain('File on this phone')
+    expect(backupPanel.textContent).toContain('Export a backup file')
+    expect(backupPanel.textContent).toContain('Restore from a file')
+    expect(cloudPanel.querySelector('h2').textContent).toBe('Google Drive')
+    expect(cloudPanel.textContent).toContain('Back up to Drive')
     expect(cloudPanel.textContent).toContain('Restore from Drive')
     // No panel render may clear the other panel's output.
-    expect(backupPanel.textContent).not.toContain('Google Drive Cloud Sync')
-    expect(cloudPanel.textContent).not.toContain('Local JSON Files')
+    expect(backupPanel.textContent).not.toContain('Back up to Drive')
+    expect(cloudPanel.textContent).not.toContain('File on this phone')
   })
 })
 
@@ -1970,20 +2034,18 @@ describe('main.js — Storage Health wiring', () => {
     expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
   })
 
-  it('clicking #db-status when it reads "Backup Disabled" navigates to the Backup tab', async () => {
-    await bootstrap(isolatedDoc)
-    switchTab.mockClear()
+  it('clicking #db-status when it reads "Backup Disabled" opens Backup & restore', async () => {
+    await boot()
     document.getElementById('db-status').textContent = BACKUP_DISABLED_TEXT
     document.getElementById('db-status').click()
-    expect(switchTab).toHaveBeenCalledWith('backup', isolatedDoc)
+    expect(visibleScreen()).toBe('tab-backup')
   })
 
   it('clicking #db-status when it does NOT read "Backup Disabled" does nothing', async () => {
-    await bootstrap(isolatedDoc)
-    switchTab.mockClear()
+    await boot()
     document.getElementById('db-status').textContent = '☁️ Cloud Synced'
     document.getElementById('db-status').click()
-    expect(switchTab).not.toHaveBeenCalled()
+    expect(visibleScreen()).toBe('tab-today')
   })
 
   it('invokes createSwRegister exactly once with a nav and a config.prod field', async () => {
@@ -2157,7 +2219,7 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(mockGamificationUIInstance.render).toHaveBeenCalledTimes(1)
     expect(mockOdysseyUIInstance.render).toHaveBeenCalledTimes(1)
-    expect(errorSpy).toHaveBeenCalledWith('[main] analyticsUI.render failed, continuing', expect.any(Error))
+    expect(errorSpy).toHaveBeenCalledWith('[main] analyticsUI.render failed after sync, continuing', expect.any(Error))
     errorSpy.mockRestore()
   })
 
@@ -2268,6 +2330,13 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
     it('never registers a service worker', async () => {
       await boot(makeStorage())
       expect(createSwRegister.mock.calls[0][0].config.prod).toBe(false)
+    })
+
+    it('names Health Connect as the step source and hands the challenge the share sheet', async () => {
+      await boot(makeStorage())
+      expect(document.getElementById('step-source-name').textContent).toBe('Health Connect')
+      expect(createChallengeUI.mock.calls[0][4].share).toEqual(expect.any(Function))
+      expect(mockOnBackButton).toHaveBeenCalledWith({ isNative: true }, expect.any(Function))
     })
 
     it('treats app storage as always protected', async () => {
@@ -2455,5 +2524,61 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
     await settle()
 
     expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
+  })
+})
+
+describe('main.js — mobile redesign: welcome screen and pull-to-refresh', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsNativePlatform.mockReturnValue(false)
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockStepSyncInstance.canSync.mockResolvedValue(true)
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('creates the welcome screen with the connection, source name and storage, and starts it last', async () => {
+    const storage = makeStorage()
+    await boot(storage)
+    const deps = createOnboardingUI.mock.calls[0][1]
+    expect(createOnboardingUI.mock.calls[0][0]).toBe(document)
+    expect(deps.storage).toBe(storage)
+    expect(deps.sourceName).toBe('Google Fit')
+    expect(deps.connection.label).toBe('Connect Google Account')
+    expect(mockOnboardingInstance.start).toHaveBeenCalledTimes(1)
+    expect(mockOnboardingInstance.start.mock.invocationCallOrder[0])
+      .toBeGreaterThan(mockSearchUIInstance.render.mock.invocationCallOrder[0])
+  })
+
+  it('"Restore from a backup" on the welcome screen opens Backup & restore', async () => {
+    await boot(makeStorage())
+    createOnboardingUI.mock.calls[0][1].onRestore()
+    expect(visibleScreen()).toBe('tab-backup')
+  })
+
+  it('the welcome screen knows whether there is data', async () => {
+    const { createDb: mockCreateDb } = await import('./db.js')
+    mockCreateDb.mockReturnValueOnce({ daily_records: { count: vi.fn().mockResolvedValue(3) } })
+    await boot(makeStorage())
+    await expect(createOnboardingUI.mock.calls[0][1].hasData()).resolves.toBe(true)
+  })
+
+  it('pulling down on Today syncs', async () => {
+    await boot(makeStorage())
+    const touch = (type, y) => {
+      const event = new Event(type, { bubbles: true })
+      event.touches = type === 'touchend' ? [] : [{ clientY: y }]
+      document.dispatchEvent(event)
+    }
+    mockStepSyncInstance.sync.mockClear()
+    touch('touchstart', 0)
+    touch('touchmove', 400)
+    touch('touchend')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockStepSyncInstance.sync).toHaveBeenCalled()
   })
 })

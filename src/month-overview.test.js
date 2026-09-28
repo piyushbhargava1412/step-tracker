@@ -541,3 +541,55 @@ describe('Task 11 (ST-007a) — Hit Rate from activeStepGoal payload', () => {
     expect(doc15k.querySelector('.month-hit-rate').textContent).toBe('Hit Rate: 0%');
   });
 });
+
+describe('Calendar screen options: showTitle / showLegend', () => {
+  it('showTitle: false leaves out the title row (the Calendar has its own month selector)', async () => {
+    const doc = buildDoc();
+    const slot = doc.getElementById('dashboard-month');
+    await createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() })
+      .render({ slot, payload: monthPayload(), showTitle: false });
+    expect(slot.querySelector('.card-title')).toBeNull();
+    expect(slot.querySelector('#month-heatmap')).not.toBeNull();
+  });
+
+  it('keeps the title row by default', async () => {
+    const doc = buildDoc();
+    const slot = doc.getElementById('dashboard-month');
+    await createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() }).render({ slot, payload: monthPayload() });
+    expect(slot.querySelector('.card-title')).not.toBeNull();
+    expect(slot.querySelector('.heatmap-legend')).toBeNull();
+  });
+
+  it('showLegend: true explains goal hit, missed and edited days', async () => {
+    const doc = buildDoc();
+    const slot = doc.getElementById('dashboard-month');
+    await createMonthOverview(doc, makeEngine(monthPayload()), { db: vi.fn() })
+      .render({ slot, payload: monthPayload(), showLegend: true });
+    const items = [...slot.querySelectorAll('.heatmap-legend__item')].map((i) => i.textContent);
+    expect(items).toEqual(['Goal hit', 'Missed', 'Edited']);
+    expect(slot.querySelector('.heatmap-legend__swatch--met')).not.toBeNull();
+    expect(slot.querySelector('.heatmap-legend__swatch--missed')).not.toBeNull();
+    expect(slot.querySelector('.heatmap-legend__swatch--edited')).not.toBeNull();
+  });
+
+  it('interactive tiles carry an accessible name with the steps and outcome', async () => {
+    const doc = buildDoc();
+    const slot = doc.getElementById('dashboard-month');
+    const payload = monthPayload({ records: [MET_RECORD, MISSED_RECORD] });
+    await createMonthOverview(doc, makeEngine(payload), { db: vi.fn() })
+      .render({ slot, payload, onDayClick: vi.fn() });
+    expect(slot.querySelector('[data-date="2026-08-01"]').getAttribute('aria-label')).toBe('August 1: 10,000 steps, goal hit');
+    expect(slot.querySelector('[data-date="2026-08-02"]').getAttribute('aria-label')).toBe('August 2: 2,100 steps, missed');
+    expect(slot.querySelector('[data-date="2026-08-03"]').getAttribute('aria-label')).toBe('August 3: no data');
+  });
+});
+
+describe('_formatSteps — compact labels never round a miss up to the goal', () => {
+  it('truncates to one decimal', async () => {
+    const { _formatSteps } = await import('./month-overview.js');
+    expect(_formatSteps(9982)).toBe('9.9k');
+    expect(_formatSteps(10000)).toBe('10k');
+    expect(_formatSteps(11480)).toBe('11.4k');
+    expect(_formatSteps(999)).toBe('999');
+  });
+});

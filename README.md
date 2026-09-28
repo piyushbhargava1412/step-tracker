@@ -1,5 +1,25 @@
 # step-tracker
 
+A step streak tracker with no backend: an Android app (Health Connect) and a browser PWA (Google Fit).
+
+## App layout (v0.2.0)
+
+The app is laid out like a phone app (ST-025), in the same Deep Blue colours:
+
+- **Bottom tabs**: **Today**, **Calendar**, **Insights**, **Journey**.
+- **Today**: connection and sync status (tap the round arrow, or pull down, to sync), the progress
+  panel — a step ring with the goal chip, and six tiles: Distance, Strict streak, Lifetime,
+  99% tolerance, 95% tolerance, Best run — and the group challenge card. The magnifier opens
+  **Search**, the gear opens **Settings**.
+- **Calendar**: a **Week / Month** switch. Tap any day for the day sheet (hourly chart, correct steps,
+  proof photo).
+- **Insights**: Hall of fame, top days, weekday and time-of-day charts, monthly totals — for all
+  time or one year.
+- **Journey**: your level, trophies and the virtual expedition.
+- **Settings**: step-data connection, **Backup & restore** (Google Drive, backup files, storage
+  protection), home city, history start and the danger zone.
+- On Android the back button closes an open sheet first, then goes back a screen.
+
 ## Setup
 
 ### Prerequisites
@@ -105,12 +125,11 @@ The installed app launches full-screen from the home screen with its own icon.
 
 ## Offline Usage
 
-After the app has loaded successfully at least once, the app shell — Dashboard, Calendar, Search Lab, and Backup tabs plus tab navigation — works offline, and your synced records remain readable from local IndexedDB storage. What still needs a network connection:
+After the app has loaded successfully at least once, the app shell — every screen and the navigation — works offline, and your synced records remain readable from local IndexedDB storage. What still needs a network connection:
 
 - **Google sign-in**: the GSI bootstrap script is served stale-while-revalidate; signing in always requires connectivity
 - **Step sync and Drive sync**: Google Fit (`googleapis.com/fitness/*`) and Drive (`googleapis.com/drive/*`) REST calls always go straight to the network — tokens and sync data are never served from cache
 
-The **Spatial Map** tab is an empty placeholder panel in this version — no renderer exists, and it is out of scope for this story; its empty shell loads offline like the other tabs.
 
 ## Service Worker Updates
 
@@ -121,8 +140,8 @@ The service worker versioned caches update on next visit after a deploy (update-
 The same code also ships as an Android app (Capacitor). In the app, steps and distance come from
 **Health Connect** instead of Google Fit: tap **Connect Health Connect**, allow Steps and Distance
 (and access to past data), and the app syncs — automatically on every later launch, and again whenever you come back to it after 10 minutes or more. Exports and
-backups are saved to `Documents/Step Tracker/` on the phone. For Google Drive backup, open the
-Backup tab → **Connect Google Drive**; it uses the same Drive backup as the web app, so
+backups are saved to `Documents/Step Tracker/` on the phone. For Google Drive backup, open
+Settings › **Backup & restore** → **Connect Google Drive**; it uses the same Drive backup as the web app, so
 **Restore from Drive** brings your history across. Then tap **Make this the primary device**: from
 then on only the phone backs up to Drive automatically, and the web app asks before overwriting it.
 
@@ -151,7 +170,7 @@ The step-sync engine (`src/steps.js`) pulls daily step data from an injected `St
 - Distance is normalised from metres to kilometres; when Google Fit returns no distance data, distance falls back to `steps × 0.000762` km/step (`STEP_TO_KM`). Days with zero steps still produce a record (zero-filled).
 
 **History backfill:**
-- History is fetched back to the sync horizon set in ⚙️ Settings (default `2018-01-01`; changing it re-checks whether older days need fetching). On a first sync this spans years (~100 chunks at the default), so **the first sync can take several minutes**; the app shows a progress message in the sync status line and asks you to keep the tab open.
+- History is fetched back to the sync horizon set in Settings › Track history from (default `2018-01-01`; changing it re-checks whether older days need fetching). On a first sync this spans years (~100 chunks at the default), so **the first sync can take several minutes**; the app shows a progress message in the sync status line and asks you to keep the tab open.
 - Syncs run in a two-segment window model: an incremental window over the latest 3 stored days (always), plus a full-history backfill window when the backfill is not yet complete.
 - An interrupted backfill is fail-stop: already-persisted chunks are kept, and the next click resumes at the correct older date. A terminal error skips the latch write, so the persisted chunks stay put for the resume.
 - Once the backfill reaches the anchor, a one-time latch (`initial_backfill_complete` in the Dexie `settings` store) is written, so every future sync collapses to a single incremental request.
@@ -169,7 +188,7 @@ The step-sync engine (`src/steps.js`) pulls daily step data from an injected `St
 
 ## Goal Commitment & Today's Progress
 
-The Dashboard shows a **Today's Progress** card that measures your daily step count against a configurable step goal. Goal configuration and progress computation are handled client-side with no backend.
+The Today screen's **progress panel** measures your daily step count against a configurable step goal. Goal configuration and progress computation are handled client-side with no backend.
 
 ### Active Step Goal — Scalar Lens
 
@@ -186,28 +205,22 @@ The current goal is persisted as a single row in the Dexie `settings` store (pri
 
 ### Step Goal Presets
 
-Four step-count presets are available (`STEP_GOAL_OPTIONS = [5000, 7500, 10000, 15000]`). The default is `DEFAULT_STEP_GOAL = 10000`. Selecting a preset takes effect immediately and persists the new goal for all future loads. Distance-based goals are not supported.
+Four step-count presets are available from Today's goal chip (`STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]`). The default is `DEFAULT_STEP_GOAL = 10000`. Selecting a preset takes effect immediately and persists the new goal for all future loads. Distance-based goals are not supported.
 
 > **Why these tiers?** The tier ladder is the `STEP_GOAL_OPTIONS` enum verbatim — no km-to-steps conversion is applied. A converted ladder (e.g. `1312.33 × km`) can never produce a value equal to an enum member, so the preset would never describe an achievable goal; the rounding would also be an approximation of an approximation; and a threshold of 1,312 steps/day carries no practical signal.
 
 On first load, if no `active_step_goal` row exists, the app lazily writes the `10000`-step default and uses it immediately — no manual setup required.
 
-### Card States
+### Progress Ring States
 
-The Today's Progress card renders in one of two exclusive states based on the percentage `Math.min(100, Math.round(effective_steps / target_steps × 100))`:
+Today's progress ring fills to `Math.min(100, Math.round(effective_steps / target_steps × 100))`:
 
-**In-Progress** (`< 100%`):
-- Displays the current percentage, step count, and remaining steps.
-- A live progress bar fills to the current percentage (`width: <pct>%`, `role="progressbar"`).
-
-**Goal Met** (`≥ 100%`):
-- Displays `100%` and a `✅ Daily Commitment Met` badge.
-- The progress bar fills to 100% via the `.progress-fill--full` CSS class (no inline width).
-- The remaining counter is hidden.
+- **In progress** (`< 100%`): steps, "of 10,000 steps", the percentage and "N steps to go".
+- **Goal met** (`≥ 100%`): the ring closes in green and "Goal met" replaces the remaining count.
 
 ## Streak Engine
 
-The Dashboard calculates three tolerance streak metrics via `computeToleranceStreaks(records, stepGoal, today)` in `src/streak.js`. All three share a single evaluation lens: the live `active_step_goal` scalar applied uniformly to every historical day.
+Today's panel shows three tolerance streak metrics, calculated via `computeToleranceStreaks(records, stepGoal, today)` in `src/streak.js`. All three share a single evaluation lens: the live `active_step_goal` scalar applied uniformly to every historical day.
 
 ### Three-Metric Tolerance Engine
 
@@ -255,22 +268,20 @@ All evaluations use `>=`.
 
 `computeLifetimeCompliance(records, stepGoal)` returns `{ metDays, totalDays, pct }` — the fraction of all synced days that hit `effective_steps >= stepGoal`.
 
-### Active Streaks Card
+### Streak Tiles
 
-The Dashboard renders the results in the **Active Streaks** card (`#streak-card`, right column), mirroring the mockup:
+Five tiles in Today's progress panel show the results:
 
-- **Header**: "Active Streaks" title + a goal badge ("5k Goal", "7.5k Goal", "10k Goal", "15k Goal").
-- **Actual (100%)**: the headline `tolerance.actual` number above a full-width progress bar.
-- **Allowances**: two chips showing the `allowance95` and `allowance99` day counts.
-- **Best Runs**: the Hall of Fame top three as `#rank / days / year-span` rows (e.g. `#1  1,178 days  2021-2025`), titled "🏆 Best Runs at 10,000".
+- **Strict** — `tolerance.actual`, every day at 100% of the goal.
+- **99% tol** / **95% tol** — the tolerance streaks, with the misses each one used.
+- **Lifetime** — the share of all synced days on goal, e.g. "54%" and "488 of 900 days".
+- **Best run** — the longest strict run at the current goal, e.g. "11 days · at 10k · 2024".
 
-### Lifetime Compliance Banner
-
-A full-width banner above the dashboard grid shows lifetime goal compliance: `${metDays} / ${totalDays} Days (${pct}% Lifetime)`, e.g. `1,200 / 3,000 Days (40.0% Lifetime)`. Tier streaks are still computed by the engine but are **not** rendered in the card.
+Tier streaks are still computed by the engine but are not shown.
 
 ## Calendar
 
-The Calendar tab displays a monthly heatmap grid with daily step performance against the active step goal, enabling users to explore their historical progress and access per-day details.
+The Calendar tab has a **Week / Month** switch. Month shows a heatmap grid of daily step performance against the active step goal; Week shows the seven days as a bar chart (with the goal line) and a list, with Total, Daily avg and Goal hit (finished days only — today is in progress). Tapping a day in either opens the same day sheet.
 
 ### Navigating Months
 
@@ -320,14 +331,14 @@ For example:
 - A month with 15 synced days (of which 10 met target) renders Hit Rate as `67%`, not a lower ratio based on the full 31-day month.
 - A month with zero synced records renders all four metrics as `—` (em dash), indicating insufficient data.
 
-### Day Detail Drawer
+### Day Sheet
 
-Clicking any calendar tile (except future dates or padding) opens a side drawer showing detailed information for that day:
+Tapping any day (except future dates) opens a bottom sheet for that day: the steps in large type with a Goal hit / Missed goal / In progress chip, an hourly chart when the day has hourly data, and:
 
 **For a synced day:**
 - **Effective Steps** — the steps actually counted (after any override).
 - **Effective Distance** — the distance actually counted (after any override), in km.
-- **Synced (Google Fit)** — the original steps and distance reported by Google Fit.
+- **Synced steps** — the original steps reported by the step source (Health Connect or Google Fit).
 - **Verified Manual** — shown only if the day is marked as overridden; displays the user's corrected steps. Otherwise, renders `—`.
 - **Override note** — the user's explanatory text (e.g. "Phone was in pocket during phone call"). Shown only if overridden.
 - **Override status** — whether the day has a user correction (`Yes` or absent).
@@ -335,16 +346,16 @@ Clicking any calendar tile (except future dates or padding) opens a side drawer 
 **For an unsynced day (no record from Google Fit):**
 - The date header appears, but all metrics show `—`.
 - A placeholder message reads `No synced data for this date`.
-- The Edit / Override button is still present and active, allowing you to manually log the day.
+- The **Correct steps** button is still present and active, allowing you to manually log the day.
 
 **Dismissal:**
-- Click the close button (`×`) in the top-right of the drawer.
-- Click the semi-transparent overlay behind the drawer.
+- Tap the close button in the top-right of the sheet, or use the Android back button.
+- Tap the dimmed area behind the sheet.
 - Press `Escape` on your keyboard.
 
-Focus returns to the tile you clicked after dismissal. If the calendar re-renders (e.g. month navigation, sync), any open drawer closes automatically.
+Focus returns to the tile you clicked after dismissal. If the calendar re-renders (e.g. month navigation, sync), an open sheet closes automatically.
 
-Clicking **Edit / Override** opens the override form inline in the drawer.
+Tapping **Correct steps** opens the override form inline in the sheet.
 
 ## Manual Override
 
@@ -354,7 +365,7 @@ The **Manual Override** feature lets you correct any day's step and distance rec
 
 **Create or edit an override:**
 1. Open the Calendar tab and click any past day's tile to open the Day Detail Drawer.
-2. Click **Edit / Override** to reveal the override form.
+2. Tap **Correct steps** to reveal the override form.
 3. Fill in **Effective Steps** (required; integer ≥ 0).
 4. Optionally fill in **Effective Distance** (km; if left blank it is derived from steps: `effective_steps / 1312.33`).
 5. Enter a **Justification Note** (required, non-empty) — this is the audit trail for the correction.
@@ -362,7 +373,7 @@ The **Manual Override** feature lets you correct any day's step and distance rec
 7. Click **Save Override**. The progress card, streaks, and calendar heatmap update immediately without a page refresh.
 
 **Revert to synced data:**
-1. Open the drawer for an overridden day (shown with a `*` badge on the tile).
+1. Open the day sheet for an overridden day (shown with a `*` badge on the tile).
 2. Click **Revert to Synced**. Confirm the native browser prompt.
 3. The record returns to Google Fit values; the `*` badge disappears and all metrics recalculate.
 
@@ -391,9 +402,9 @@ Before storage the image is normalised:
 
 This bounds the Base64 string size while retaining sufficient detail for a proof screenshot. Accepted input types: `image/png`, `image/jpeg`, `image/webp`.
 
-## Search Lab
+## Search
 
-The Search Lab tab (`#tab-search`) provides a dynamic query builder over the local `daily_records` store. All filtering, aggregation, and export happens entirely client-side — no data leaves the browser.
+The Search screen (the magnifier on Today, `#tab-search`) provides a dynamic query builder over the local `daily_records` store. All filtering, aggregation, and export happens entirely client-side — no data leaves the browser.
 
 **Independence**: `createSearch(db)` receives only the Dexie database — no `goal` collaborator is injected. The panel manages its own step-target input (`stepTarget`) locally; this value drives both the `targetOutcome` filter and the Near-Miss Detector. The Min Distance filter has been removed (distance measurements are unreliable as a primary filter criterion; distance is still present in the records and exported, but not filterable). Retained distance *measurements* remain in the `effective_distance_km` field and all exports.
 
@@ -507,7 +518,7 @@ This migration is one-way: downgrading to a DB version that expects `goal_histor
 
 ## Group Challenge Tracker
 
-The Dashboard includes a **Group Challenge Tracker** widget (`#challenge-card`) for monitoring a team step challenge and sharing progress with a one-click clipboard copy.
+Today shows a **Group challenge** card that opens its own screen (`#challenge-card`) for monitoring a team step challenge and sharing progress — **Copy**, or **Share to group** through the Android share sheet.
 
 The widget is driven by two modules:
 - `src/challenge.js` — pure engine (no DOM): persistence, metric computation, and text formatting.

@@ -41,6 +41,8 @@ export function createProofLightbox(doc) {
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Full-size proof image');
+    // The Android back button closes it (navigation.js sends Escape to open overlays).
+    overlay.setAttribute('data-overlay', '');
 
     const frame = doc.createElement('div');
     frame.className = 'proof-lightbox__frame';

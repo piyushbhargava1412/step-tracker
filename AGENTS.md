@@ -33,8 +33,10 @@ Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
 | Testing conventions | [testing-patterns.md](.context/testing-patterns.md) |
 | Design & coding patterns | [design-and-coding-patterns.md](.context/design-and-coding-patterns.md) |
 | Commit convention signal | [repo_map.md#commit-convention](.context/repo_map.md#commit-convention) |
+| Mobile navigation: bottom tabs, screens, back button, pull-to-refresh, welcome screen | [flows/mobile-navigation.md](.context/flows/mobile-navigation.md) |
+| Mobile redesign scope & as-built (ST-025, v0.2.0) | [docs/slices/ST-025-mobile-redesign.md](docs/slices/ST-025-mobile-redesign.md) |
 | Search / filter / export flow | [flows/search-lab-export.md](.context/flows/search-lab-export.md) |
-| Analytics Lab dashboard flow | [flows/analytics-lab-dashboard.md](.context/flows/analytics-lab-dashboard.md) |
+| Insights (analytics) flow | [flows/analytics-lab-dashboard.md](.context/flows/analytics-lab-dashboard.md) |
 | Gamification levels & trophies flow | [flows/gamification-levels-trophies.md](.context/flows/gamification-levels-trophies.md) |
 | Odyssey virtual expedition flow | [flows/odyssey-virtual-expedition.md](.context/flows/odyssey-virtual-expedition.md) |
 | Settings, sync horizon, data prune / wipe flow | [flows/settings-data-management.md](.context/flows/settings-data-management.md) |
@@ -52,15 +54,16 @@ Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
 Each flow below is documented in its own file under `.context/flows/`. **Load only the flow
 relevant to your current task.**
 
+- [Mobile Navigation — Bottom Tabs, Screens, Back Button & Pull-to-Refresh](.context/flows/mobile-navigation.md)
 - [Google Account Connection](.context/flows/google-account-connection.md)
 - [Historical Step Sync](.context/flows/historical-step-sync.md)
 - [Streak Calculation Render](.context/flows/streak-calculation-render.md)
-- [Today's Progress Card & Goal Commitment](.context/flows/today-progress-goal.md)
-- [Calendar Heatmap Grid and Day Detail Drawer](.context/flows/calendar-heatmap.md)
-- [Search Lab — Filter & Export Daily Records](.context/flows/search-lab-export.md)
-- [Analytics Lab — Hall of Fame, Top Days, Distributions & Yearly Breakdown](.context/flows/analytics-lab-dashboard.md)
-- [Gamification — RPG Level & Trophy Case](.context/flows/gamification-levels-trophies.md)
-- [Odyssey — Virtual Expedition Progression Bar](.context/flows/odyssey-virtual-expedition.md)
+- [Today's Progress Panel & Goal Commitment](.context/flows/today-progress-goal.md)
+- [Calendar — Month Heatmap, Week View and Day Sheet](.context/flows/calendar-heatmap.md)
+- [Search — Filter & Export Daily Records](.context/flows/search-lab-export.md)
+- [Insights — Hall of Fame, Top Days, Distributions & Monthly Totals](.context/flows/analytics-lab-dashboard.md)
+- [Journey — RPG Level & Trophy Case](.context/flows/gamification-levels-trophies.md)
+- [Journey — Virtual Expedition Route](.context/flows/odyssey-virtual-expedition.md)
 - [Settings — Sync Horizon & Data Management](.context/flows/settings-data-management.md)
 - [Local Backup/Restore & Google Drive Cloud Sync](.context/flows/backup-and-cloud-sync.md)
 - [Storage Health — Protection Matrix, Silent Persist Gestures & Panel](.context/flows/storage-health.md)

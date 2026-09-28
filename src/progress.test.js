@@ -95,6 +95,7 @@ describe('computeProgress — happy path (step goal)', () => {
       pct: 32,
       remaining_steps: 6800,
       goalMet: false,
+      distance_km: 0,
     });
   });
 
@@ -117,16 +118,31 @@ describe('computeProgress — happy path (step goal)', () => {
 // computeProgress — return-shape contract
 // ---------------------------------------------------------------------------
 describe('computeProgress — return-shape contract', () => {
-  it('returns exactly the 5 step-lens keys — no distance fields', () => {
+  it('returns the step-lens keys plus today\'s walked distance — no goal-distance fields', () => {
     const result = computeProgress({ effective_steps: 4000, effective_distance_km: 3.05 }, 10000);
 
     expect(Object.keys(result).sort()).toStrictEqual(
-      ['goalMet', 'pct', 'remaining_steps', 'steps', 'target_steps']
+      ['distance_km', 'goalMet', 'pct', 'remaining_steps', 'steps', 'target_steps']
     );
-    expect(result).not.toHaveProperty('distance_km');
     expect(result).not.toHaveProperty('target_km');
     expect(result).not.toHaveProperty('remaining_km');
     expect(result).not.toHaveProperty('remaining_m');
+  });
+});
+
+describe('computeProgress — today\'s distance (Today screen Distance tile)', () => {
+  it('reports the record\'s effective distance', () => {
+    expect(computeProgress({ effective_steps: 7412, effective_distance_km: 5.648 }, 10000).distance_km).toBe(5.648);
+  });
+
+  it('is 0 without a record', () => {
+    expect(computeProgress(null, 10000).distance_km).toBe(0);
+  });
+
+  it('is 0 when the stored distance is missing or corrupt', () => {
+    expect(computeProgress({ effective_steps: 100 }, 10000).distance_km).toBe(0);
+    expect(computeProgress({ effective_steps: 100, effective_distance_km: NaN }, 10000).distance_km).toBe(0);
+    expect(computeProgress({ effective_steps: 100, effective_distance_km: -2 }, 10000).distance_km).toBe(0);
   });
 });
 
@@ -175,6 +191,7 @@ describe('computeProgress — absent record', () => {
       pct: 0,
       remaining_steps: 10000,
       goalMet: false,
+      distance_km: 0,
     });
   });
 
@@ -222,6 +239,7 @@ describe('computeProgress — corrupt stepGoal fails open', () => {
       pct: 0,
       remaining_steps: DEFAULT_STEP_GOAL,
       goalMet: false,
+      distance_km: 0,
     });
   });
 });

@@ -1,8 +1,10 @@
 /**
- * odyssey-ui.js — DOM renderer for the virtual expedition progression bar.
+ * odyssey-ui.js — DOM renderer for the virtual expedition route.
  *
  * Pairs with odyssey.js (pure engine). This module owns all DOM writes for
- * the odyssey section in #tab-lab (#lab-odyssey).
+ * the expedition card on the Journey screen (#lab-odyssey): the distance
+ * walked, then the route as a vertical list — home base, then each
+ * destination, the line into it filled as far as the user has walked.
  *
  * Architecture constraints:
  * - No Dexie imports; analytics data arrives via analyticsEngine.compute().
@@ -48,21 +50,30 @@ export function createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter) {
       const progress = odysseyEngine.computeOdysseyProgress(totalDistanceKm);
 
       const section = doc.createElement('section');
-      section.className = 'odyssey-section';
+      section.className = 'card odyssey-section';
 
       const h2 = doc.createElement('h2');
-      h2.textContent = '🗺️ Virtual Expedition';
+      h2.className = 'section-title';
+      h2.textContent = 'Virtual expedition';
       section.appendChild(h2);
+
+      const sub = doc.createElement('p');
+      sub.className = 'section-sub';
+      sub.textContent = 'From your home city · change it in Settings';
+      section.appendChild(sub);
 
       const distEl = doc.createElement('p');
       distEl.className = 'odyssey-distance';
-      distEl.textContent = `${Math.round(totalDistanceKm).toLocaleString()} km travelled`;
+      const km = doc.createElement('span');
+      km.className = 'odyssey-distance__km';
+      km.textContent = `${Math.round(totalDistanceKm).toLocaleString('en-US')} km`;
+      distEl.append(km, doc.createTextNode(' walked so far'));
       section.appendChild(distEl);
 
       section.appendChild(_buildProgressBar(progress));
 
       const activeLabel = progress.activeLeg
-        ? `Next stop: ${progress.activeLeg.destination} — ${Math.round(progress.remainingKm).toLocaleString()} km remaining`
+        ? `Next stop: ${progress.activeLeg.destination} — ${Math.round(progress.remainingKm).toLocaleString('en-US')} km remaining`
         : 'All destinations unlocked!';
       const legInfo = doc.createElement('p');
       legInfo.className = 'odyssey-leg-info';
@@ -82,88 +93,100 @@ export function createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter) {
   // ── Section builders ───────────────────────────────────────────────────────
 
   /**
-   * Builds the odyssey progression bar.
+   * Builds the route: home base, then one row per destination.
    *
    * @param {{ unlockedLegs: Array, activeLeg: Object|undefined, progressPct: number, remainingKm: number }} progress
    * @returns {HTMLElement}
    */
   function _buildProgressBar({ unlockedLegs, activeLeg, progressPct, remainingKm }) {
-    const bar = doc.createElement('div');
-    bar.className = 'odyssey-bar';
+    const route = doc.createElement('ol');
+    route.className = 'odyssey-bar odyssey-route';
+
+    const start = doc.createElement('li');
+    start.className = 'odyssey-stop odyssey-stop--start';
+    const startDot = doc.createElement('span');
+    startDot.className = 'odyssey-leg__dot';
+    start.appendChild(_wrapRail(null, startDot));
+    start.appendChild(_buildText('Home base', 'Start', '0 km'));
+    route.appendChild(start);
 
     const unlockedDestinations = new Set(unlockedLegs.map(l => l.destination));
-
     for (const milestone of MILESTONES) {
-      const leg = _buildLeg(milestone, unlockedDestinations, activeLeg, progressPct, remainingKm);
-      bar.appendChild(leg);
+      route.appendChild(_buildLeg(milestone, unlockedDestinations, activeLeg, progressPct, remainingKm));
     }
-
-    return bar;
+    return route;
   }
 
   /**
-   * Builds a single leg element.
-   *
-   * @param {{ destination: string, distanceKm: number }} milestone
-   * @param {Set<string>} unlockedDestinations
-   * @param {{ destination: string, distanceKm: number }|undefined} activeLeg
-   * @param {number} progressPct
-   * @param {number} remainingKm
-   * @returns {HTMLElement}
+   * One destination row: the line walked into it (filled to the progress),
+   * its dot, name, status and cumulative distance.
    */
   function _buildLeg(milestone, unlockedDestinations, activeLeg, progressPct, remainingKm) {
-    const leg = doc.createElement('div');
+    const leg = doc.createElement('li');
     leg.className = 'odyssey-leg';
 
     const isUnlocked = unlockedDestinations.has(milestone.destination);
     const isActive = activeLeg !== undefined && activeLeg.destination === milestone.destination;
-
-    let state;
-    if (isUnlocked) {
-      state = 'unlocked';
-      leg.style.width = '100%';
-    } else if (isActive) {
-      state = 'active';
-      leg.style.width = `${progressPct}%`;
-    } else {
-      state = 'locked';
-    }
-
+    const state = isUnlocked ? 'unlocked' : isActive ? 'active' : 'locked';
     leg.setAttribute('data-state', state);
 
-    // Track: the colored/glowing segment of the path, with a marker badge
-    // (flag for a reached destination, plane for the one in transit) riding
-    // its trailing edge.
-    const track = doc.createElement('div');
-    track.className = 'odyssey-leg-track';
+    const line = doc.createElement('span');
+    line.className = 'odyssey-leg__line';
+    const fill = doc.createElement('span');
+    fill.className = 'odyssey-leg__progress';
+    fill.style.height = isUnlocked ? '100%' : isActive ? `${Math.round(progressPct)}%` : '0%';
+    line.appendChild(fill);
 
-    const marker = doc.createElement('span');
-    marker.className = 'odyssey-leg-marker';
-    marker.textContent = isUnlocked ? '🏁' : isActive ? '✈️' : '';
-    track.appendChild(marker);
-    leg.appendChild(track);
+    const dot = doc.createElement('span');
+    dot.className = 'odyssey-leg__dot';
+    leg.appendChild(_wrapRail(line, dot));
 
-    // Label: destination name + distance, rendered below the track — this
-    // used to sit *inside* the 14px track with overflow:hidden, so it was
-    // always clipped away and invisible. It now renders in normal flow.
-    const label = doc.createElement('span');
-    label.className = 'odyssey-leg-label';
-    let labelText = `${milestone.destination} (${milestone.distanceKm} km)`;
-    if (isActive) {
-      labelText += ` — ${Math.round(remainingKm)} km remaining`;
-    }
-    label.textContent = labelText;
-    leg.appendChild(label);
-
+    const status = isUnlocked
+      ? 'Reached'
+      : isActive
+        ? `${Math.round(remainingKm).toLocaleString('en-US')} km to go`
+        : 'Ahead';
+    leg.appendChild(_buildText(milestone.destination, status, `${milestone.distanceKm.toLocaleString('en-US')} km`));
+    if (isActive) leg.setAttribute('aria-current', 'step');
     return leg;
+  }
+
+  function _wrapRail(line, dot) {
+    const rail = doc.createElement('span');
+    rail.className = 'odyssey-leg__rail';
+    rail.setAttribute('aria-hidden', 'true');
+    if (line) rail.appendChild(line);
+    rail.appendChild(dot);
+    return rail;
+  }
+
+  function _buildText(name, status, distance) {
+    const text = doc.createElement('span');
+    text.className = 'odyssey-leg-label';
+    const nameEl = doc.createElement('span');
+    nameEl.className = 'odyssey-leg__name';
+    nameEl.textContent = name;
+    const statusEl = doc.createElement('span');
+    statusEl.className = 'odyssey-leg__status';
+    statusEl.textContent = status;
+    const kmEl = doc.createElement('span');
+    kmEl.className = 'odyssey-leg__km';
+    kmEl.textContent = distance;
+    text.append(nameEl, statusEl);
+    const wrap = doc.createDocumentFragment();
+    const row = doc.createElement('span');
+    row.className = 'odyssey-leg__body';
+    row.append(text, kmEl);
+    wrap.appendChild(row);
+    return wrap;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /**
    * Resolves the odyssey container.
-   * Prefers #lab-odyssey inside #tab-lab.
-   * Falls back to #tab-lab directly.
+   * Prefers #lab-odyssey on the Journey screen.
+   * Falls back to #tab-journey directly.
    * Returns null only when neither is found.
    *
    * @returns {HTMLElement|null}
@@ -172,7 +195,7 @@ export function createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter) {
     const existing = doc.getElementById('lab-odyssey');
     if (existing) return existing;
 
-    return doc.querySelector('#tab-lab');
+    return doc.querySelector('#tab-journey');
   }
 
   return { render };

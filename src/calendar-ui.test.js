@@ -318,15 +318,15 @@ describe('render() — summary', async () => {
     expect(values[2].textContent).toBe('100%');
   });
 
-  it('caption reads "August 2026" for (2026, 7)', async () => {
+  it('summary is three tiles — no caption (the month selector names the month)', async () => {
     const doc = buildDoc(getBaseHTML());
     const engine = makeMockEngine(makeSamplePayload());
-    const reporter = makeMockReporter();
-    const { render } = createCalendarUI(doc, null, engine, reporter);
+    const { render } = createCalendarUI(doc, null, engine, makeMockReporter());
     await render();
 
-    const caption = doc.querySelector('#calendar-summary .caption');
-    expect(caption.textContent).toBe('August 2026');
+    expect(doc.querySelector('#calendar-summary .caption')).toBeNull();
+    const labels = [...doc.querySelectorAll('#calendar-summary .summary-tile__label')].map((l) => l.textContent);
+    expect(labels).toEqual(['Total', 'Daily avg', 'Hit rate']);
   });
 
   it('re-rendering twice → exactly one summary element', async () => {
@@ -447,7 +447,7 @@ describe('render() — drawer', async () => {
     expect(h2.textContent).toBe('August 8, 2026');
   });
 
-  it('Effective Steps row shows record.effective_steps', async () => {
+  it('Counted steps row shows record.effective_steps', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     const engine = makeMockEngine(payload);
@@ -459,11 +459,11 @@ describe('render() — drawer', async () => {
     tile.click();
 
     const rows = doc.querySelectorAll('#day-drawer .metric-row');
-    const stepsRow = Array.from(rows).find(r => r.querySelector('span').textContent === 'Effective Steps');
-    expect(stepsRow.querySelector('.value').textContent).toBe('5000');
+    const stepsRow = Array.from(rows).find(r => r.querySelector('span').textContent === 'Counted steps');
+    expect(stepsRow.querySelector('.value').textContent).toBe('5,000');
   });
 
-  it('drawer has no Effective Distance row; Synced (Google Fit) shows steps only', async () => {
+  it('drawer has no Effective Distance row; Synced steps shows the source value', async () => {
     const doc = buildDoc(getBaseHTML());
     const payload = makeSamplePayload();
     const engine = makeMockEngine(payload);
@@ -478,8 +478,8 @@ describe('render() — drawer', async () => {
     const labels = Array.from(rows).map(r => r.querySelector('span').textContent);
     expect(labels).not.toContain('Effective Distance');
 
-    const syncedRow = rows && Array.from(rows).find(r => r.querySelector('span').textContent === 'Synced (Google Fit)');
-    expect(syncedRow.querySelector('.value').textContent).toBe('4800');
+    const syncedRow = rows && Array.from(rows).find(r => r.querySelector('span').textContent === 'Synced steps');
+    expect(syncedRow.querySelector('.value').textContent).toBe('4,800');
   });
 
   it('zero-state drawer has no Effective Distance row', async () => {
@@ -1489,5 +1489,103 @@ describe('Task 11 (ST-007a) — activeGoalKm removed from src/**', () => {
       }
     }
     scanDir(srcDir);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mobile redesign: Month view mount, day sheet, openDay for the Week view
+// ---------------------------------------------------------------------------
+describe('mobile redesign', () => {
+  function redesignHTML() {
+    return `
+      <section id="tab-calendar">
+        <div id="calendar-month"></div>
+        <div id="calendar-week" hidden></div>
+        <div class="drawer-overlay" hidden></div>
+        <aside id="day-drawer" role="dialog" aria-modal="true" aria-labelledby="day-drawer-title" data-overlay hidden></aside>
+      </section>`;
+  }
+
+  it('renders the month into #calendar-month when the screen has it', async () => {
+    const doc = buildDoc(redesignHTML());
+    const { render } = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    await render();
+    const month = doc.getElementById('calendar-month');
+    expect(month.querySelector('#calendar-nav')).not.toBeNull();
+    expect(month.querySelector('#calendar-summary')).not.toBeNull();
+    expect(doc.getElementById('calendar-week').children).toHaveLength(0);
+  });
+
+  it('month arrows are icon buttons with accessible names', async () => {
+    const doc = buildDoc(redesignHTML());
+    const { render } = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    await render();
+    const prev = doc.querySelector('[data-nav="prev"]');
+    expect(prev.getAttribute('aria-label')).toBe('Previous month');
+    expect(prev.querySelector('svg')).not.toBeNull();
+    expect(doc.querySelector('[data-nav="next"]').getAttribute('aria-label')).toBe('Next month');
+    expect(doc.querySelector('[data-month-select]').getAttribute('aria-label')).toBe('Month');
+  });
+
+  it('openDay() opens the sheet for a day handed over by the Week view', async () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    ui.openDay({
+      date: '2026-09-17',
+      record: { effective_steps: 5118, original_steps: 5118 },
+      classification: { state: 1, isOverridden: false },
+    });
+    const drawer = doc.getElementById('day-drawer');
+    expect(drawer.hidden).toBe(false);
+    expect(drawer.querySelector('#day-drawer-title').textContent).toBe('September 17, 2026');
+    expect(drawer.querySelector('.day-headline__steps').textContent).toBe('5,118');
+    expect(drawer.querySelector('.day-chip').textContent).toBe('Missed goal');
+  });
+
+  it('today below the goal reads as in progress, not missed', () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    const today = new Date().toLocaleDateString('en-CA');
+    ui.openDay({ date: today, record: { effective_steps: 5000, original_steps: 5000 }, classification: { state: 1 } });
+    const chip = doc.querySelector('.day-chip');
+    expect(chip.textContent).toBe('In progress');
+    expect(chip.classList.contains('day-chip--today')).toBe(true);
+  });
+
+  it('openDay() ignores a missing day', () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    ui.openDay(null);
+    expect(doc.getElementById('day-drawer').hidden).toBe(true);
+  });
+
+  it('the sheet shows an hourly chart when the day has an hourly breakdown', async () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    const hourly = Array.from({ length: 24 }, (_, h) => (h === 18 ? 720 : h > 7 && h < 22 ? 200 : 0));
+    ui.openDay({ date: '2026-09-17', record: { effective_steps: 3520, original_steps: 3520, hourly_steps: hourly } });
+    const bars = doc.querySelectorAll('#day-drawer .day-hourly__bar');
+    expect(bars).toHaveLength(24);
+    expect(bars[18].style.height).toBe('100%');
+    expect(bars[2].classList.contains('day-hourly__bar--empty')).toBe(true);
+    expect(doc.querySelector('.day-hourly__bars').getAttribute('aria-label')).toBe('Steps by hour; busiest hour starts at 18:00');
+  });
+
+  it('no hourly chart without an hourly breakdown', async () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    ui.openDay({ date: '2026-09-17', record: { effective_steps: 10, original_steps: 10, hourly_steps: null } });
+    expect(doc.querySelector('.day-hourly')).toBeNull();
+    ui.openDay({ date: '2026-09-17', record: { effective_steps: 0, original_steps: 0, hourly_steps: new Array(24).fill(0) } });
+    expect(doc.querySelector('.day-hourly')).toBeNull();
+  });
+
+  it('the close button is labelled and the sheet has no emoji', async () => {
+    const doc = buildDoc(redesignHTML());
+    const ui = createCalendarUI(doc, null, makeMockEngine(makeSamplePayload()), makeMockReporter());
+    ui.openDay({ date: '2026-09-17', record: { effective_steps: 12000, original_steps: 12000 }, classification: { state: 2 } });
+    expect(doc.querySelector('#day-drawer .close-btn').getAttribute('aria-label')).toBe('Close');
+    expect(doc.querySelector('.day-chip').textContent).toBe('Goal hit');
+    expect(doc.getElementById('day-drawer').textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

@@ -9,13 +9,14 @@ confidence: medium
 -->
 
 ## Overview
-A dedicated "💾 Backup" tab (`#tab-backup`) lets the user export/import a full local JSON backup of
-the Dexie database (`src/backup.js` engine + `src/backup-ui.js` renderer), and separately back up to
-/ restore from the user's own Google Drive `appDataFolder` (`src/drive-sync.js` gateway +
-`src/drive-sync-ui.js` renderer). The panel renders as a responsive 2-column grid (`.backup-grid`) —
-"📄 Local JSON Files" on the left, "☁️ Google Drive Cloud Sync" on the right, stacking to one column
-below 1024px — with each column's destructive restore action paired with an amber
-"⚠️ Overwrites local database" guardrail badge. A background hook in the step-sync engine also fires
+The **Backup & restore** screen (`#tab-backup`, pushed from Settings since ST-025) lets the user
+export/import a full local JSON backup of the Dexie database (`src/backup.js` engine +
+`src/backup-ui.js` renderer), and separately back up to / restore from the user's own Google Drive
+`appDataFolder` (`src/drive-sync.js` gateway + `src/drive-sync-ui.js` renderer). The screen stacks
+three cards, each rendering its own heading: "Storage protection" (storage-health panel), "Google
+Drive", and "File on this phone" — with each destructive restore action paired with an amber
+"Replaces the data on this device" guardrail badge. It is also reachable from the welcome screen's
+"Restore from a backup" and from the "Backup Disabled" status pill. A background hook in the step-sync engine also fires
 an automatic, silent post-sync push to Drive (opt-out via a persisted toggle), and a second hook in
 that same engine consumes `driveSync.pull()` / `backup.restoreBackup()` on the opposite end: when a
 sync starts against an empty local `daily_records` table, it restores the account's existing Drive
@@ -104,7 +105,7 @@ never misreads an already-active Google account as brand new. Google Drive acces
    `navigator.storage.persist()` with no UI feedback, then refreshes the `#db-status` header badge);
    a failed toggle write skips both the persist request and the event below. Both a successful toggle
    write and a successful manual backup dispatch `data:storage-health:refresh` on `doc` so the
-   separately-mounted Storage Health panel (`src/storage-health-ui.js`, on the same Backup tab) picks
+   separately-mounted Storage Health panel (`src/storage-health-ui.js`, on the same Backup & restore screen) picks
    up the new Drive state without the two modules holding a direct reference to each other; see
    `.context/flows/storage-health.md`.
 

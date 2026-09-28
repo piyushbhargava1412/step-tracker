@@ -146,22 +146,36 @@ describe('createGamificationUI', () => {
     expect(doc.querySelector('script')).toBeNull();
   });
 
-  it('trophy definitions include correct emoji, title, and description', async () => {
+  it('trophy cards carry an icon, title, description and earned / locked state — no emoji', async () => {
     await ui.render();
     const container = doc.getElementById('lab-gamification');
     const text = container.textContent;
-    expect(text).toContain('🏆');
     expect(text).toContain('Centurion');
     expect(text).toContain('Walk 100,000+ steps in a single ISO week');
-    expect(text).toContain('🦸');
     expect(text).toContain('Marathoner');
     expect(text).toContain('Walk 55,000+ steps in a single day');
-    expect(text).toContain('🔥');
     expect(text).toContain('Unstoppable');
     expect(text).toContain('Maintain a 30-day step streak');
-    expect(text).toContain('🦉');
     expect(text).toContain('Night Owl');
     expect(text).toContain('Walk 2,000+ steps across midnight (11 PM–3 AM)');
+    expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
+    for (const card of container.querySelectorAll('.trophy-card')) {
+      expect(card.querySelector('.trophy-card__icon svg')).not.toBeNull();
+    }
+    const states = [...container.querySelectorAll('.trophy-card__state')].map((s) => s.textContent);
+    expect(states).toEqual(['Earned', 'Locked', 'Locked', 'Earned']);
+  });
+
+  it('the Trophies heading counts the earned ones', async () => {
+    await ui.render();
+    expect(doc.querySelector('.section-head .section-title').textContent).toBe('Trophies');
+    expect(doc.querySelector('.section-head__meta').textContent).toBe('2 of 4 earned');
+  });
+
+  it('the level badge names the level for screen readers', async () => {
+    await ui.render();
+    expect(doc.querySelector('.rpg-level-badge').getAttribute('aria-label')).toBe('Level 6');
+    expect(doc.querySelector('.rpg-level-card__status').textContent).toBe('Level 6 · next at 360 XP');
   });
 
   // ── Edge Case: MAX level ──────────────────────────────────────────────────
@@ -277,14 +291,14 @@ describe('createGamificationUI', () => {
   // ── Fallback container ────────────────────────────────────────────────────
 
   it('render() creates fallback container when #lab-gamification is missing', async () => {
-    document.body.innerHTML = '<div id="tab-lab"></div>';
+    document.body.innerHTML = '<div id="tab-journey"></div>';
     ui = createGamificationUI(doc, engine, reporter);
     await ui.render();
-    const tabLab = doc.getElementById('tab-lab');
+    const tabLab = doc.getElementById('tab-journey');
     expect(tabLab.querySelector('.rpg-level-card')).not.toBeNull();
   });
 
-  it('render() does not throw when both #tab-lab and #lab-gamification are missing', async () => {
+  it('render() does not throw when both #tab-journey and #lab-gamification are missing', async () => {
     document.body.innerHTML = '';
     ui = createGamificationUI(doc, engine, reporter);
     await expect(ui.render()).resolves.not.toThrow();

@@ -9,15 +9,15 @@ confidence: high (unit-tested; verified on a Pixel 9 emulator, Android 17, real 
 ## Overview
 Inside the Capacitor Android app, steps and distance come from **Health Connect** instead of the
 Google Fit REST API. The same web code runs in the app's WebView; `src/platform/*` decides per
-platform. The header button reads **Connect Health Connect**, requests Health Connect read access
+platform. The Connect button (Settings › Connections, and the first-launch welcome screen) reads **Connect Health Connect**, requests Health Connect read access
 (steps, distance and history), and every sync reads hourly aggregates through
 `@capgo/capacitor-health`. No Google sign-in is involved in syncing steps (Drive backup in the app
 arrives with ST-020).
 
 ## Entry Points
 - **Type**: UI event + automatic at launch
-- **Path**: `#auth-btn` click → `connection.connect()`; bootstrap → `connection.restore()`;
-  `connection.onConnected(syncTrigger.run)` auto-syncs after either succeeds; `#sync-btn` → `syncTrigger.run()`;
+- **Path**: `#auth-btn` / `#onboarding-connect` click → `connection.connect()`; bootstrap → `connection.restore()`;
+  `connection.onConnected(...)` dismisses the welcome screen and auto-syncs after either succeeds; `#sync-btn` or pull-to-refresh → `syncTrigger.run()`;
   app resume (`src/platform/app-lifecycle.js`, Capacitor `resume`) → `syncTrigger.runIfStale()` (ST-021: only when
   connected and ≥ 10 min since the last sync started — `src/sync-trigger.js`)
 - **Files**: `src/main.js` (wiring), `src/platform/capabilities.js`, `src/platform/step-source.js`,
@@ -71,7 +71,7 @@ arrives with ST-020).
   phone/watch/apps); the app shows the same totals as the Health Connect app. A source not on the
   list is excluded.
 - Without history access Health Connect only returns ~30 days before the grant; zero-filled days
-  beyond that are stored as 0. Restore a Fit-era backup file (Backup tab) to keep older history —
+  beyond that are stored as 0. Restore a Fit-era backup file (Settings › Backup & restore) to keep older history —
   restore overwrites the same days.
 - The pre-sync empty-DB Drive recovery runs with `pull({ silent: true })`, so no Google token (the
   normal state in the app until ST-020) never overwrites the connection status.
@@ -79,6 +79,8 @@ arrives with ST-020).
 ## Integrations
 - `@capgo/capacitor-health` 8.x → Android Health Connect (`androidx.health.connect:connect-client`)
 - `@capacitor/app-launcher` → Play Store link; `@capacitor/filesystem` → exports
+- `@capacitor/app` → `resume` (ST-021) and `backButton` (ST-025: `onBackButton` hands it to the navigator; at the root the app exits)
+- `@capacitor/share` → the Group challenge update's "Share to group" (Android share sheet, ST-025)
 
 ## Tests
 - `src/health-connect-step-source.test.js` (contract, readiness, hourly→daily grouping, zero-fill,

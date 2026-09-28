@@ -1,6 +1,10 @@
 // main.js — composition root
 // Wires all concrete modules together and bootstraps the application.
 
+import '@fontsource-variable/manrope'
+import '@fontsource/jetbrains-mono/500.css'
+import '@fontsource/jetbrains-mono/700.css'
+
 import { CLIENT_ID } from './config.js'
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
@@ -9,7 +13,7 @@ import { selectAuth } from './platform/auth.js'
 import { createGoogleDriveConnection } from './platform/native/google-drive-connection.js'
 import { createPrimaryDevice } from './primary-device.js'
 import { createSyncTrigger } from './sync-trigger.js'
-import { onAppResume } from './platform/app-lifecycle.js'
+import { onAppResume, onBackButton } from './platform/app-lifecycle.js'
 import { createStepSync } from './steps.js'
 import { Health } from '@capgo/capacitor-health'
 import { AppLauncher } from '@capacitor/app-launcher'
@@ -17,13 +21,17 @@ import { isNativePlatform } from './platform/capabilities.js'
 import { createFileSaver } from './platform/files.js'
 import { selectStorageManager } from './platform/storage-manager.js'
 import { selectStepSource, connectLabelFor } from './platform/step-source.js'
-import { initTabs } from './tabs.js'
+import { createNavigator } from './navigation.js'
+import { createPullToRefresh } from './pull-to-refresh.js'
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
 import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
 import { createCalendarUI } from './calendar-ui.js'
+import { createWeek } from './week.js'
+import { createCalendarWeekUI } from './calendar-week-ui.js'
+import { initCalendarViewSwitch } from './calendar-view-switch.js'
 import { createMonthOverview } from './month-overview.js'
 import { createRecords } from './records.js'
 import { processImage } from './image-processor.js'
@@ -39,7 +47,8 @@ import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
-import { switchTab } from './tabs.js'
+import { selectShare } from './platform/share.js'
+import { createOnboardingUI } from './onboarding-ui.js'
 import { createProofLightbox } from './override-form.js'
 import {
   refreshStorageProtectionBadge,
@@ -56,6 +65,28 @@ import { createOdysseyUI } from './odyssey-ui.js'
 import { computeOdysseyProgress } from './odyssey.js'
 
 const MS_PER_DAY = 86_400_000
+
+/** "0.2.0" — injected by Vite from package.json (vite.config.js `define`). */
+const APP_VERSION = typeof __APP_VERSION__ === 'undefined' ? '' : __APP_VERSION__
+
+/**
+ * Render each view in turn; a view that throws or rejects is logged and the
+ * rest still render (fail-open).
+ *
+ * @param {Array<[string, { render: Function }|null|undefined]>} views  [name, view]
+ * @param {string} [context]  e.g. "sync" → "[main] calendarUI.render failed after sync, continuing"
+ * @returns {Promise<void>}
+ */
+export async function _renderViews(views, context) {
+  const suffix = context ? ` after ${context}` : ''
+  for (const [name, view] of views) {
+    try {
+      await view?.render?.()
+    } catch (err) {
+      console.error(`[main] ${name}.render failed${suffix}, continuing`, err)
+    }
+  }
+}
 
 
 /**
@@ -120,7 +151,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // 6. Step sync engine — created after backup/driveSync (see below) so collaborators can be injected.
 
-  // 6a. Goal + progress UI + streak engine (wired after db is ready)
+  // 6a. Engines + views (wired after db is ready)
   const goal = createGoal(db)
   const streak = createStreak(db, goal)
   const streakUI = createStreakUI(doc, streak, reporter)
@@ -131,12 +162,15 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const exporter = createExporter(fileSaver)
   const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
+  const weekUI = createCalendarWeekUI(doc, createWeek(db, goal), reporter, {
+    onDayClick: (day) => calendarUI.openDay(day),
+  })
   const challenge = createChallenge(db)
-  const challengeUI = createChallengeUI(doc, challenge, db, reporter)
+  const challengeUI = createChallengeUI(doc, challenge, db, reporter, { share: selectShare({ isNative }) })
   const settings = createSettings(db)
   const settingsUI = createSettingsUI(doc, settings, reporter, createConfirmAdapter(window))
 
-  // ST-009: Lab tab — analytics, gamification, odyssey engines + UI factories
+  // Insights (analytics) and Journey (gamification + odyssey)
   const proofLightbox = createProofLightbox(doc)
   const analyticsEngine = createAnalytics(db)
   const analyticsUI = createAnalyticsUI(doc, analyticsEngine, reporter, proofLightbox)
@@ -190,8 +224,8 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createPrimaryDevice failed, continuing', err)
   }
   // ST-020: in the app, Google sign-in (for Drive) lives in the Drive panel —
-  // the header button is Health Connect's. In the browser the header button
-  // already covers Google.
+  // the Settings connect button is Health Connect's. In the browser that
+  // button already covers Google.
   const driveConnection = isNative ? createGoogleDriveConnection({ auth, storage }) : null
   try {
     driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, storageManager, {
@@ -203,8 +237,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
 
-  // Storage & Data Health panel (fail-open) — replaces the old nagging
-  // persistence modal with a plain status panel + direct-action button.
+  // Storage protection panel (fail-open) — a plain status panel + direct-action button.
   let storageHealthUI = null
   try {
     storageHealthUI = createStorageHealthUI(doc, settings, reporter, storageManager)
@@ -238,63 +271,48 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   })
   const stepSync = createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings, primaryDevice)
 
-  // Mount backup + cloud + storage-health panels into their own containers so
-  // no render clears another's output (each render() wipes its container first).
+  // Backup & restore screen: the three panels mount into their own
+  // containers so no render clears another's output (each render() wipes its
+  // container first). Wrapped as views so the shared refresh helper can render them.
   const backupControls = doc.getElementById('backup-controls')
   const cloudControls = doc.getElementById('cloud-controls')
   const storageHealthControls = doc.getElementById('storage-health-controls')
-  if (backupControls) {
-    try { backupUI?.render?.(backupControls) } catch (err) { console.error('[main] backupUI.render failed, continuing', err) }
-  }
-  if (cloudControls) {
-    try { driveSyncUI?.render?.(cloudControls) } catch (err) { console.error('[main] driveSyncUI.render failed, continuing', err) }
-  }
-  if (storageHealthControls) {
-    try { await storageHealthUI?.render?.(storageHealthControls) } catch (err) { console.error('[main] storageHealthUI.render failed, continuing', err) }
-  }
+  const backupView = { render: () => backupControls && backupUI?.render?.(backupControls) }
+  const cloudView = { render: () => cloudControls && driveSyncUI?.render?.(cloudControls) }
+  const storageHealthView = { render: () => storageHealthControls && storageHealthUI?.render?.(storageHealthControls) }
+  await _renderViews([['backupUI', backupView], ['driveSyncUI', cloudView], ['storageHealthUI', storageHealthView]])
 
-  // The Storage Health panel and the cloud-sync toggle live in separate
-  // modules/mount points; drive-sync-ui.js dispatches this event rather than
-  // holding a direct reference so a Drive-state change (toggle, manual push)
-  // still refreshes the panel's Drive row.
-  doc.addEventListener('data:storage-health:refresh', async () => {
-    if (!storageHealthControls) return
-    try {
-      await storageHealthUI?.render?.(storageHealthControls)
-    } catch (err) {
-      console.error('[main] storageHealthUI.render failed after refresh event, continuing', err)
-    }
-  })
-  doc.addEventListener('data:drive-sync:refresh', async () => {
-    if (!cloudControls) return
-    try {
-      await driveSyncUI?.render?.(cloudControls)
-    } catch (err) {
-      console.error('[main] driveSyncUI.render failed after refresh event, continuing', err)
-    }
-  })
-  const progressUI = createProgressUI(doc, goal, db, reporter, async () => {
-    try {
-      await streakUI.render()
-    } catch (err) {
-      console.error('[main] streakUI.render failed after goal change, continuing', err)
-    }
-    try {
-      await calendarUI.render()
-    } catch (err) {
-      console.error('[main] calendarUI.render failed after goal change, continuing', err)
-    }
-    try {
-      await monthOverview.render()
-    } catch (err) {
-      console.error('[main] monthOverview.render failed after goal change, continuing', err)
-    }
-  })
+  // The Storage protection panel and the cloud-sync toggle live in separate
+  // modules/mount points; drive-sync-ui.js dispatches these events rather
+  // than holding a direct reference.
+  doc.addEventListener('data:storage-health:refresh', () =>
+    _renderViews([['storageHealthUI', storageHealthView]], 'refresh event'))
+  doc.addEventListener('data:drive-sync:refresh', () =>
+    _renderViews([['driveSyncUI', cloudView]], 'refresh event'))
 
-  // 7. Bind auth button: Google sign-in in the browser, Health Connect access
-  // in the Android app (the platform connection decides). Connect/Reconnect is
-  // a storage-protection-relevant user gesture: silently request persistence
-  // alongside it (fire-and-forget — never blocks or delays the connect flow).
+  // A goal change re-scores streaks and the calendar.
+  const progressUI = createProgressUI(doc, goal, db, reporter, () =>
+    _renderViews([['streakUI', streakUI], ['calendarUI', calendarUI], ['weekUI', weekUI]], 'goal change'))
+
+  // Views that show step data, in screen order; re-rendered after every sync.
+  const dataViews = () => [
+    ['progressUI', progressUI],
+    ['streakUI', streakUI],
+    ['calendarUI', calendarUI],
+    ['weekUI', weekUI],
+    ['challengeUI', challengeUI],
+    ['analyticsUI', analyticsUI],
+    ['gamificationUI', gamificationUI],
+    ['odysseyUI', odysseyUI],
+  ]
+
+  // 7. Connect button (Settings › Connections): Google sign-in in the
+  // browser, Health Connect access in the Android app (the platform
+  // connection decides). Connect is a storage-protection-relevant user
+  // gesture: silently request persistence alongside it (fire-and-forget).
+  const sourceName = isNative ? 'Health Connect' : 'Google Fit'
+  const sourceNameEl = doc.getElementById('step-source-name')
+  if (sourceNameEl) sourceNameEl.textContent = sourceName
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
     authBtn.textContent = connection.label
@@ -310,45 +328,15 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // 7a. Shared post-sync re-render pipeline (SF-12: re-render after each sync).
   // Every sync goes through `syncTrigger` (below) so the app knows when it
-  // last synced — the sync button, the auto-sync-on-connect hook and the
-  // resume hook converge on the same refresh.
+  // last synced — the sync button, pull-to-refresh, the auto-sync-on-connect
+  // hook and the resume hook converge on the same refresh.
   const runSyncPipeline = async () => {
     await stepSync.sync()
-    progressUI.render()
+    await _renderViews(dataViews(), 'sync')
     try {
-      await streakUI.render()
+      await _renderLastSyncLabel(db, doc)
     } catch (err) {
-      console.error('[main] streakUI.render failed after sync, continuing', err)
-    }
-    try {
-      await calendarUI.render()
-    } catch (err) {
-      console.error('[main] calendarUI.render failed after sync, continuing', err)
-    }
-    try {
-      await monthOverview.render()
-    } catch (err) {
-      console.error('[main] monthOverview.render failed after sync, continuing', err)
-    }
-    try {
-      await challengeUI.render()
-    } catch (err) {
-      console.error('[main] challengeUI.render failed after sync, continuing', err)
-    }
-    try {
-      await analyticsUI.render()
-    } catch (err) {
-      console.error('[main] analyticsUI.render failed, continuing', err)
-    }
-    try {
-      await gamificationUI.render()
-    } catch (err) {
-      console.error('[main] gamificationUI.render failed, continuing', err)
-    }
-    try {
-      await odysseyUI.render()
-    } catch (err) {
-      console.error('[main] odysseyUI.render failed, continuing', err)
+      console.error('[main] last-sync label update failed, continuing', err)
     }
   }
 
@@ -357,10 +345,35 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     canSync: () => stepSync.canSync(),
   })
 
+  // 7'. Navigation: bottom tabs, pushed screens, the app-bar back arrow and
+  // the Android back button. Settings loads its stored values each time it opens.
+  const screens = createNavigator(doc, {
+    onEnter: {
+      settings: () => {
+        Promise.resolve(settingsUI.open()).catch((err) => console.error('[main] settingsUI.open failed, continuing', err))
+      },
+    },
+  })
+  screens.bind()
+  onBackButton({ isNative }, () => screens.back())
+
+  // 7''. First launch: a welcome screen until the user connects, restores a
+  // backup or skips. The connection keeps one onConnected listener, so this
+  // hook both closes the welcome screen and syncs.
+  const onboarding = createOnboardingUI(doc, {
+    storage,
+    connection,
+    sourceName,
+    hasData: async () => (await db.daily_records.count()) > 0,
+    onRestore: () => screens.go('backup'),
+  })
+
   // 7b. Auto-sync the moment a connection succeeds — from the first connect
-  // click or a silent restore at startup — so the user never has to hit Sync
-  // Steps twice.
-  connection.onConnected(syncTrigger.run)
+  // click or a silent restore at startup — so the user never has to sync twice.
+  connection.onConnected(() => {
+    onboarding.dismiss()
+    return syncTrigger.run()
+  })
 
   // 7b'. ST-021: sync again when the app comes back to the foreground (Android
   // keeps the app in memory, so reopening it is a resume, not a fresh start;
@@ -389,178 +402,75 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     })
   }
 
-  // 8. Render settings modal interior at bootstrap (before wiring the button)
+  // 8. Settings screen: its data panel is built once; the version line below it.
   try {
     await settingsUI.render()
   } catch (err) {
     console.error('[main] settingsUI.render failed, continuing', err)
   }
+  const versionEl = doc.getElementById('app-version')
+  if (versionEl && APP_VERSION) versionEl.textContent = `Step Tracker v${APP_VERSION}`
 
-  // 8. Bind settings button
-  const settingsBtn = doc.getElementById('settings-btn')
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', () => settingsUI.open())
-  }
-
-  // 8. Bind sync button (SF-12: re-render after each sync click). Sync Steps
+  // 8. Sync: the button in Today's status line and pull-to-refresh. Syncing
   // is a storage-protection-relevant user gesture: silently request
-  // navigator.storage.persist() alongside it (fire-and-forget, never delays
-  // or blocks the sync pipeline).
-  const syncBtn = doc.getElementById('sync-btn')
-  if (syncBtn) {
-    syncBtn.addEventListener('click', () => {
-      requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
-        console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
-      })
-      syncTrigger.run()
+  // navigator.storage.persist() alongside it (fire-and-forget).
+  const requestSync = () => {
+    requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
+      console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
+    })
+    return syncTrigger.run()
+  }
+  doc.getElementById('sync-btn')?.addEventListener('click', () => { requestSync() })
+  const ptrIndicator = doc.getElementById('ptr-indicator')
+  if (ptrIndicator) {
+    createPullToRefresh(doc, {
+      indicator: ptrIndicator,
+      onRefresh: requestSync,
+      isEnabled: () => screens.current() === 'today' && !onboarding.isOpen(),
     })
   }
 
-  // 8a. Register data:records:mutated listener for override recalculation (fail-open)
-  doc.addEventListener('data:records:mutated', async () => {
-    try {
-      progressUI.render()
-    } catch (err) {
-      console.error('[main] progressUI.render failed after mutation, continuing', err)
-    }
-    try {
-      await streakUI.render()
-    } catch (err) {
-      console.error('[main] streakUI.render failed after mutation, continuing', err)
-    }
-    try {
-      await calendarUI.render()
-    } catch (err) {
-      console.error('[main] calendarUI.render failed after mutation, continuing', err)
-    }
-    try {
-      await monthOverview.render()
-    } catch (err) {
-      console.error('[main] monthOverview.render failed after mutation, continuing', err)
-    }
-    try {
-      await challengeUI.render()
-    } catch (err) {
-      console.error('[main] challengeUI.render failed after mutation, continuing', err)
-    }
-    try {
-      await analyticsUI.render()
-    } catch (err) {
-      console.error('[main] analyticsUI.render failed, continuing', err)
-    }
-    try {
-      await gamificationUI.render()
-    } catch (err) {
-      console.error('[main] gamificationUI.render failed, continuing', err)
-    }
-    try {
-      await odysseyUI.render()
-    } catch (err) {
-      console.error('[main] odysseyUI.render failed, continuing', err)
-    }
-    try {
-      await searchUI.render()
-    } catch (err) {
-      console.error('[main]', err)
-    }
-    if (backupControls) {
-      try {
-        backupUI?.render?.(backupControls)
-      } catch (err) {
-        console.error('[main] backupUI.render failed after mutation, continuing', err)
-      }
-    }
-    if (cloudControls) {
-      try {
-        driveSyncUI?.render?.(cloudControls)
-      } catch (err) {
-        console.error('[main] driveSyncUI.render failed after mutation, continuing', err)
-      }
-    }
-  })
+  // 8a. A record changed (day override, revert, prune, wipe, restore, home
+  // city): refresh every view that shows records (fail-open).
+  doc.addEventListener('data:records:mutated', () =>
+    _renderViews([
+      ...dataViews(),
+      ['searchUI', searchUI],
+      ['backupUI', backupView],
+      ['driveSyncUI', cloudView],
+    ], 'mutation'))
 
-  // 8b. Populate the header "Sync: …" label from the newest record (fail-open)
+  // 8b. Populate Today's "Sync: …" label from the newest record (fail-open)
   try {
     await _renderLastSyncLabel(db, doc)
   } catch (err) {
     console.error('[main] last-sync label update failed, continuing', err)
   }
 
-  // 9. Init tab navigation
-  const tabBar = doc.querySelector('.tab-bar')
-  if (tabBar) {
-    initTabs(tabBar, doc)
-  }
+  // 9. Calendar Week / Month switch — the week renders when first shown.
+  initCalendarViewSwitch(doc, {
+    onChange: (view) => {
+      if (view === 'week') _renderViews([['weekUI', weekUI]])
+    },
+  })
 
   // 9a. #db-status pill: when it reads "Backup Disabled" (unbacked-up state),
-  // clicking it jumps straight to the Backup tab instead of popping up a
-  // modal — the badge is otherwise informational and not clickable.
+  // tapping it opens Backup & restore; otherwise it is informational.
   const dbStatusEl = doc.getElementById('db-status')
   if (dbStatusEl) {
     dbStatusEl.addEventListener('click', () => {
       if (dbStatusEl.textContent === BACKUP_DISABLED_TEXT) {
-        switchTab('backup', doc)
+        screens.go('backup')
       }
     })
   }
 
-  // 10. Render Today's Progress card on page load (fail-open)
+  // 10. First render of every screen (fail-open), then the welcome screen.
+  await _renderViews([...dataViews(), ['searchUI', searchUI]])
   try {
-    await progressUI.render()
+    await onboarding.start()
   } catch (err) {
-    console.error('[main] progressUI.render failed, continuing', err)
-  }
-
-  // 11. Render streak card on page load (SF-10, fail-open)
-  try {
-    await streakUI.render()
-  } catch (err) {
-    console.error('[main] streakUI.render failed, continuing', err)
-  }
-
-  // 12. Render calendar on page load (SF-7, fail-open)
-  try {
-    await calendarUI.render()
-  } catch (err) {
-    console.error('[main] calendarUI.render failed, continuing', err)
-  }
-
-  // 13. Render current-month overview on page load (mockup dashboard, fail-open)
-  try {
-    await monthOverview.render()
-  } catch (err) {
-    console.error('[main] monthOverview.render failed, continuing', err)
-  }
-
-  // 14. Render search UI on page load (fail-open)
-  try {
-    await searchUI.render()
-  } catch (err) {
-    console.error('[main] searchUI.render failed, continuing', err)
-  }
-
-  // 15. Render challenge card on page load (fail-open)
-  try {
-    await challengeUI.render()
-  } catch (err) {
-    console.error('[main] challengeUI.render failed, continuing', err)
-  }
-
-  // 16. Render Lab tab panels on page load (fail-open)
-  try {
-    await analyticsUI.render()
-  } catch (err) {
-    console.error('[main] analyticsUI.render failed, continuing', err)
-  }
-  try {
-    await gamificationUI.render()
-  } catch (err) {
-    console.error('[main] gamificationUI.render failed, continuing', err)
-  }
-  try {
-    await odysseyUI.render()
-  } catch (err) {
-    console.error('[main] odysseyUI.render failed, continuing', err)
+    console.error('[main] onboarding.start failed, continuing', err)
   }
 }
 

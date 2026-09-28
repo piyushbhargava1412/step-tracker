@@ -2,7 +2,8 @@
  * gamification-ui.js — DOM renderer for the RPG level card and trophy case.
  *
  * Pairs with gamification.js (pure engine). This module owns all DOM writes for
- * the gamification section in #tab-lab (#lab-gamification).
+ * the gamification section on the Journey screen (#lab-gamification): the
+ * level card, then the trophy case with an earned count.
  *
  * Architecture constraints:
  * - No Dexie imports; all data arrives via engine.compute().
@@ -11,35 +12,39 @@
  * - replaceChildren() for idempotent re-renders.
  * - Fail-open: errors from engine are caught, reporter.db() notified.
  *
- * SF-1:  Pure CSS <div> bars only — no SVG, no charting library.
+ * SF-1:  Pure CSS <div> bars only — no charting library (icons are inline SVG).
  * SF-11: Level cap at 50 with "(MAX)" suffix; progress bar clamped to 100%.
  * SF-13: render() catch → console.error + reporter.db + error <p>.
  */
 
+import { createIcon } from './icons.js';
+
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+const MAX_LEVEL = 50;
 
 const TROPHY_DEFINITIONS = [
   {
     key: 'centurion',
-    emoji: '🏆',
+    icon: 'trophy',
     title: 'Centurion',
     description: 'Walk 100,000+ steps in a single ISO week',
   },
   {
     key: 'marathoner',
-    emoji: '🦸',
+    icon: 'shoe',
     title: 'Marathoner',
     description: 'Walk 55,000+ steps in a single day',
   },
   {
     key: 'unstoppable',
-    emoji: '🔥',
+    icon: 'flame',
     title: 'Unstoppable',
     description: 'Maintain a 30-day step streak',
   },
   {
     key: 'nightOwl',
-    emoji: '🦉',
+    icon: 'moon',
     title: 'Night Owl',
     description: 'Walk 2,000+ steps across midnight (11 PM–3 AM)',
   },
@@ -78,11 +83,8 @@ export function createGamificationUI(doc, engine, reporter) {
       const section = doc.createElement('section');
       section.className = 'gamification-section';
 
-      const h2 = doc.createElement('h2');
-      h2.textContent = '⚔️ RPG Progress';
-      section.appendChild(h2);
-
       section.appendChild(_buildLevelCard(result));
+      section.appendChild(_buildTrophyHeader(result.achievements));
       section.appendChild(_buildTrophyGrid(result.achievements));
 
       container.replaceChildren(section);
@@ -105,27 +107,65 @@ export function createGamificationUI(doc, engine, reporter) {
    */
   function _buildLevelCard({ xp, level, levelLabel }) {
     const card = doc.createElement('div');
-    card.className = 'rpg-level-card';
+    card.className = 'card rpg-level-card';
 
-    // Level number
-    const levelNum = doc.createElement('p');
-    levelNum.textContent = `Level ${level}`;
-    card.appendChild(levelNum);
+    const head = doc.createElement('div');
+    head.className = 'rpg-level-card__head';
 
+    const badge = doc.createElement('div');
+    badge.className = 'rpg-level-badge';
+    const badgeCaption = doc.createElement('span');
+    badgeCaption.className = 'rpg-level-badge__caption';
+    badgeCaption.textContent = 'LVL';
+    const badgeNumber = doc.createElement('span');
+    badgeNumber.className = 'rpg-level-badge__number';
+    badgeNumber.textContent = String(level);
+    badge.append(badgeCaption, badgeNumber);
+    badge.setAttribute('aria-label', `Level ${level}`);
+
+    const titles = doc.createElement('div');
+    titles.className = 'rpg-level-card__titles';
     // Rank label (includes "(MAX)" suffix when applicable)
     const rankLabel = doc.createElement('h2');
+    rankLabel.className = 'rpg-level-card__rank';
     rankLabel.textContent = levelLabel;
-    card.appendChild(rankLabel);
+    const status = doc.createElement('p');
+    status.className = 'rpg-level-card__status';
+    status.textContent = level >= MAX_LEVEL ? 'Max rank reached' : `Level ${level} · next at ${(10 * level ** 2).toLocaleString('en-US')} XP`;
+    titles.append(rankLabel, status);
 
-    // XP total
-    const xpEl = doc.createElement('p');
-    xpEl.textContent = `${xp} XP`;
-    card.appendChild(xpEl);
+    head.append(badge, titles);
+    card.appendChild(head);
 
     // Progress bar
     card.appendChild(_buildProgressBar(xp, level));
 
+    // XP total
+    const xpEl = doc.createElement('p');
+    xpEl.className = 'rpg-level-card__xp';
+    xpEl.textContent = `${Number(xp).toLocaleString('en-US')} XP · 1 XP per 100 steps`;
+    card.appendChild(xpEl);
+
     return card;
+  }
+
+  /**
+   * "Trophies" heading with the earned count.
+   * @param {object} achievements
+   * @returns {HTMLElement}
+   */
+  function _buildTrophyHeader(achievements) {
+    const header = doc.createElement('div');
+    header.className = 'section-head';
+    const title = doc.createElement('h2');
+    title.className = 'section-title';
+    title.textContent = 'Trophies';
+    const count = doc.createElement('span');
+    count.className = 'section-head__meta';
+    const earned = TROPHY_DEFINITIONS.filter((def) => achievements?.[def.key]).length;
+    count.textContent = `${earned} of ${TROPHY_DEFINITIONS.length} earned`;
+    header.append(title, count);
+    return header;
   }
 
   /**
@@ -193,7 +233,7 @@ export function createGamificationUI(doc, engine, reporter) {
   /**
    * Builds a single trophy card tile.
    *
-   * @param {{ key: string, emoji: string, title: string, description: string }} def
+   * @param {{ key: string, icon: string, title: string, description: string }} def
    * @param {boolean} unlocked
    * @returns {HTMLElement}
    */
@@ -201,17 +241,25 @@ export function createGamificationUI(doc, engine, reporter) {
     const card = doc.createElement('div');
     card.className = unlocked ? 'trophy-card' : 'trophy-card trophy-card--locked';
 
-    const emojiEl = doc.createElement('span');
-    emojiEl.textContent = def.emoji;
-    card.appendChild(emojiEl);
+    const iconEl = doc.createElement('span');
+    iconEl.className = 'trophy-card__icon';
+    iconEl.appendChild(createIcon(doc, def.icon, { size: 22 }));
+    card.appendChild(iconEl);
 
     const titleEl = doc.createElement('h3');
+    titleEl.className = 'trophy-card__title';
     titleEl.textContent = def.title;
     card.appendChild(titleEl);
 
     const descEl = doc.createElement('p');
+    descEl.className = 'trophy-card__desc';
     descEl.textContent = def.description;
     card.appendChild(descEl);
+
+    const state = doc.createElement('span');
+    state.className = unlocked ? 'trophy-card__state trophy-card__state--earned' : 'trophy-card__state';
+    state.textContent = unlocked ? 'Earned' : 'Locked';
+    card.appendChild(state);
 
     return card;
   }
@@ -220,9 +268,9 @@ export function createGamificationUI(doc, engine, reporter) {
 
   /**
    * Resolves the gamification container.
-   * Prefers #lab-gamification inside #tab-lab.
-   * Falls back to creating a div inside #tab-lab.
-   * Returns null only when #tab-lab is also absent.
+   * Prefers #lab-gamification on the Journey screen.
+   * Falls back to creating a div inside #tab-journey.
+   * Returns null only when #tab-journey is also absent.
    *
    * @returns {HTMLElement|null}
    */
@@ -230,7 +278,7 @@ export function createGamificationUI(doc, engine, reporter) {
     const existing = doc.getElementById('lab-gamification');
     if (existing) return existing;
 
-    const tabLab = doc.getElementById('tab-lab');
+    const tabLab = doc.getElementById('tab-journey');
     if (!tabLab) return null;
 
     // Create a fallback container

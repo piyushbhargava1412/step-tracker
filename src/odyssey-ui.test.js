@@ -13,7 +13,7 @@ import { createOdysseyUI } from './odyssey-ui.js';
 
 function makeDoc() {
   document.body.innerHTML = `
-    <div id="tab-lab">
+    <div id="tab-journey">
       <div id="lab-odyssey"></div>
     </div>
   `;
@@ -37,7 +37,7 @@ function makeReporter() {
 describe('createOdysseyUI', () => {
   // ── All-locked state ───────────────────────────────────────────────────────
 
-  it('zero-distance state: first leg (Goa) is active at 0% width, remaining 5 legs are locked', async () => {
+  it('zero-distance state: first leg (Goa) is active at 0%, remaining 5 legs are locked', async () => {
     const doc = makeDoc();
     // At 0 km, no milestones unlocked, Goa is active leg
     const odysseyEngine = {
@@ -65,7 +65,7 @@ describe('createOdysseyUI', () => {
     expect(states.slice(1).every(s => s === 'locked')).toBe(true);
   });
 
-  it('zero-distance state: active leg has style.width of 0%', async () => {
+  it('zero-distance state: the line into the active leg is empty', async () => {
     const doc = makeDoc();
     const odysseyEngine = {
       computeOdysseyProgress: vi.fn().mockReturnValue({
@@ -83,7 +83,7 @@ describe('createOdysseyUI', () => {
 
     const legs = doc.querySelectorAll('.odyssey-leg');
     expect(legs[0].getAttribute('data-state')).toBe('active');
-    expect(legs[0].style.width).toBe('0%');
+    expect(legs[0].querySelector('.odyssey-leg__progress').style.height).toBe('0%');
   });
 
   // ── Partially-unlocked state ───────────────────────────────────────────────
@@ -115,7 +115,7 @@ describe('createOdysseyUI', () => {
     expect(legs[5].getAttribute('data-state')).toBe('locked');
   });
 
-  it('active leg style.width reflects progressPct from engine', async () => {
+  it('the line into the active leg is filled to progressPct', async () => {
     const doc = makeDoc();
     const odysseyEngine = {
       computeOdysseyProgress: vi.fn().mockReturnValue({
@@ -133,7 +133,8 @@ describe('createOdysseyUI', () => {
 
     const activeLeg = doc.querySelector('.odyssey-leg[data-state="active"]');
     expect(activeLeg).not.toBeNull();
-    expect(activeLeg.style.width).toBe('50%');
+    expect(activeLeg.querySelector('.odyssey-leg__progress').style.height).toBe('50%');
+    expect(activeLeg.getAttribute('aria-current')).toBe('step');
   });
 
   it('active leg textContent includes remaining km indicator', async () => {
@@ -262,5 +263,28 @@ describe('createOdysseyUI', () => {
     await ui.render();
 
     expect(odysseyEngine.computeOdysseyProgress).toHaveBeenCalledWith(195);
+  });
+});
+
+describe('odyssey route — mobile layout', () => {
+  it('starts at home base, lists every destination with its distance, and has no emoji', async () => {
+    const doc = makeDoc();
+    const odysseyEngine = {
+      computeOdysseyProgress: vi.fn().mockReturnValue({
+        unlockedLegs: MILESTONES.slice(0, 4),
+        activeLeg: MILESTONES[4],
+        progressPct: 87,
+        remainingKm: 611,
+      }),
+    };
+    const ui = createOdysseyUI(doc, odysseyEngine, makeAnalyticsEngine(7089), makeReporter());
+    await ui.render();
+    const names = [...doc.querySelectorAll('.odyssey-route .odyssey-leg__name')].map((n) => n.textContent);
+    expect(names).toEqual(['Home base', 'Goa', 'Mumbai', 'New Delhi', 'Dubai', 'London', 'New York']);
+    const statuses = [...doc.querySelectorAll('.odyssey-leg .odyssey-leg__status')].map((n) => n.textContent);
+    expect(statuses).toEqual(['Reached', 'Reached', 'Reached', 'Reached', '611 km to go', 'Ahead']);
+    expect(doc.querySelector('.odyssey-distance__km').textContent).toBe('7,089 km');
+    expect(doc.querySelector('.odyssey-section .section-title').textContent).toBe('Virtual expedition');
+    expect(doc.querySelector('.odyssey-section').textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

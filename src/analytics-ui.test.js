@@ -1,434 +1,220 @@
 /**
- * analytics-ui.test.js — TDD tests for the Analytics UI renderer.
- *
- * All tests use a mock engine that returns controlled data; real Dexie is
- * never imported here.
+ * analytics-ui.test.js — the Insights screen renderer.
+ * A mock engine returns controlled data; real Dexie is never imported.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { createAnalyticsUI } from './analytics-ui.js';
-import * as analyticsModule from './analytics.js';
+import { computeInsights, extractYears, computeYearlyMonthlyComparison } from './analytics.js';
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+const source = fs.readFileSync(path.resolve(__dirname, 'analytics-ui.js'), 'utf8');
 
-const YEAR = 2025;
-
-/**
- * Builds a minimal daily_record fixture.
- */
-function makeRecord(date, steps, distKm = 5, screenshotProof = null, hourly = null) {
-  return {
-    date,
-    effective_steps: steps,
-    effective_distance_km: distKm,
-    screenshot_proof: screenshotProof,
-    hourly_steps: hourly,
-  };
+function makeRecord(date, steps, distKm = steps / 1300, screenshotProof = null, hourly = null) {
+  return { date, effective_steps: steps, effective_distance_km: distKm, screenshot_proof: screenshotProof, hourly_steps: hourly };
 }
+
+const HOURLY = Array.from({ length: 24 }, (_, h) => (h === 18 ? 900 : h > 6 && h < 23 ? 300 : 0));
 
 const RECORDS = [
-  makeRecord(`${YEAR}-01-15`, 12000, 9.0, 'img1.png', Array(24).fill(500)),
-  makeRecord(`${YEAR}-02-20`, 15000, 11.5, null, Array(24).fill(625)),
-  makeRecord(`${YEAR}-03-10`, 8000, 6.0, null, Array(24).fill(333)),
-  makeRecord(`${YEAR}-04-05`, 20000, 15.0, 'img4.png', Array(24).fill(833)),
-  makeRecord(`${YEAR}-05-22`, 11000, 8.5, null, Array(24).fill(458)),
+  makeRecord('2025-05-05', 17971, 13.69, 'img1.png', HOURLY),
+  makeRecord('2025-01-20', 17919, 13.65, null, HOURLY),
+  makeRecord('2026-05-19', 17910, 13.65, 'img3.png', HOURLY),
+  makeRecord('2026-03-02', 8000, 6.1, null, HOURLY),
+  makeRecord('2026-03-03', 11000, 8.4, null, HOURLY),
+  makeRecord('2024-06-19', 17880, 13.63, null, HOURLY),
 ];
 
-function makeLifetimeMetrics(records) {
-  const totalSteps = records.reduce((s, r) => s + r.effective_steps, 0);
-  const totalDistanceKm = records.reduce((s, r) => s + r.effective_distance_km, 0);
-  const dailyAverage = Math.round(totalSteps / records.length);
-  return { totalSteps, totalDistanceKm, dailyAverage, longestStreak: 5 };
-}
-
-function makeTopRecords(records) {
-  return [...records].sort((a, b) => b.effective_steps - a.effective_steps).slice(0, 5);
-}
-
-function makeDayOfWeek() {
-  return {
-    averages: [9000, 11000, 8500, 10000, 12000, 15000, 7000],
-    powerDay: 5,
-    lazyDay: 6,
-  };
-}
-
-function makeHourly(value = 100) {
-  return Array(24).fill(value);
-}
-
-function makeYearlyMonthly(year, records) {
-  return Array.from({ length: 12 }, (_, m) => {
-    const prefix = `${year}-${String(m + 1).padStart(2, '0')}`;
-    const rows = records.filter(r => r.date.startsWith(prefix));
-    return {
-      month: m,
-      total: rows.reduce((s, r) => s + r.effective_steps, 0),
-      dayCount: rows.length,
-    };
-  });
-}
-
-function makeEngineResult(records, year = YEAR) {
+/** A result shaped like createAnalytics().compute(). */
+function makeEngineResult(records = RECORDS, activeStepGoal = 10000) {
   return {
     records,
-    lifetimeMetrics: makeLifetimeMetrics(records),
-    topRecords: makeTopRecords(records),
-    dayOfWeek: makeDayOfWeek(),
-    hourly: makeHourly(),
-    yearlyMonthly: makeYearlyMonthly(year, records),
+    ...computeInsights(records, activeStepGoal),
+    yearlyMonthly: computeYearlyMonthlyComparison(records, new Date().getFullYear()),
+    activeStepGoal,
+    years: extractYears(records),
   };
 }
 
-// ── Test helpers ──────────────────────────────────────────────────────────────
-
-function makeEngine(result) {
-  return { compute: vi.fn().mockResolvedValue(result) };
-}
-
-function makeReporter() {
-  return { db: vi.fn(), auth: vi.fn() };
-}
+const makeEngine = (result = makeEngineResult()) => ({ compute: vi.fn().mockResolvedValue(result) });
+const makeReporter = () => ({ db: vi.fn() });
 
 function makeDoc() {
-  document.body.innerHTML = `
-    <section id="tab-lab">
-      <div id="lab-analytics"></div>
-      <div id="lab-gamification"></div>
-      <div id="lab-odyssey"></div>
-    </section>`;
-  return document;
+  const doc = document.implementation.createHTMLDocument('test');
+  doc.body.innerHTML = '<section id="tab-insights"><div id="lab-analytics"></div></section>';
+  return doc;
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+const texts = (root, selector) => [...root.querySelectorAll(selector)].map((el) => el.textContent);
 
-describe('createAnalyticsUI', () => {
+afterEach(() => vi.restoreAllMocks());
+
+describe('analytics-ui.js — source', () => {
+  it('uses no innerHTML', () => {
+    expect(source).not.toMatch(/innerHTML/);
+  });
+});
+
+describe('Insights — sections', () => {
   let doc;
-  let reporter;
-
-  beforeEach(() => {
+  beforeEach(async () => {
     doc = makeDoc();
-    reporter = makeReporter();
+    await createAnalyticsUI(doc, makeEngine(), makeReporter()).render();
   });
 
-  // ── Happy path: Hall of Fame ──────────────────────────────────────────────
-
-  it('render() populates Hall of Fame tiles with correct lifetime metric values', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const tiles = [...panel.querySelectorAll('.hof-tile')];
-    expect(tiles.length).toBeGreaterThan(0);
-
-    const allValues = tiles.map(t => t.querySelector('.hof-tile__value')?.textContent ?? '').join('|');
-    expect(allValues).toContain(Math.round(result.lifetimeMetrics.totalSteps).toLocaleString());
-    expect(allValues).toContain(`${result.lifetimeMetrics.longestStreak} days`);
+  it('renders the range switch then five titled sections, without emoji', () => {
+    expect(doc.querySelector('#lab-analytics > .insights-range')).not.toBeNull();
+    expect(texts(doc, '#lab-analytics .section-title')).toEqual(['Hall of fame', 'Top days', 'By weekday', 'Time of day', 'Monthly totals']);
+    expect(doc.getElementById('lab-analytics').textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  // ── Happy path: Top-5 table ───────────────────────────────────────────────
+  it('Hall of fame: four tiles', () => {
+    const labels = texts(doc, '.hof-tile__label');
+    expect(labels).toEqual(['Total steps', 'Distance', 'Daily average', 'Longest streak']);
+    const values = texts(doc, '.hof-tile__value');
+    expect(values[0]).toBe('90,680');
+    expect(values[1]).toBe('69 km');
+    expect(values[3]).toMatch(/^\d+ days?$/);
+  });
 
-  it('render() builds Top-5 <table> with correct Date, Steps, Distance rows', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const rows = [...panel.querySelectorAll('table tbody tr')];
-
+  it('Top days: a ranked list, best first, with steps and distance', () => {
+    const rows = doc.querySelectorAll('.rank-list__item');
     expect(rows).toHaveLength(5);
-
-    // First row should have date of highest-steps record
-    const topRecord = result.topRecords[0];
-    const firstRowText = rows[0].textContent;
-    expect(firstRowText).toContain(topRecord.date);
-    expect(firstRowText).toContain(String(topRecord.effective_steps));
+    expect(rows[0].querySelector('.rank-list__rank').textContent).toBe('1');
+    expect(rows[0].querySelector('.rank-list__date').textContent).toBe('5 May 2025');
+    expect(rows[0].querySelector('.rank-list__steps').textContent).toBe('17,971');
+    expect(rows[0].querySelector('.rank-list__km').textContent).toBe('13.7 km');
   });
 
-  // ── Happy path: proof button ──────────────────────────────────────────────
+  it('By weekday: names the strongest and quietest days and highlights them', () => {
+    expect(doc.querySelector('.analytics-weekday .section-sub').textContent).toMatch(/^\w+day is your strongest day · \w+day your quietest$/);
+    expect(doc.querySelectorAll('.analytics-weekday .bar-chart__col')).toHaveLength(7);
+    expect(doc.querySelectorAll('.analytics-weekday .bar-chart__bar--peak')).toHaveLength(1);
+  });
 
-  it('renders proof <button data-action="open-proof"> when proofLightbox provided and record has screenshot_proof', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
+  it('Time of day: 24 bars, the busiest hour named and highlighted, sparse tick labels', () => {
+    expect(doc.querySelectorAll('.analytics-hourly .bar-chart__col')).toHaveLength(24);
+    expect(doc.querySelector('.analytics-hourly .section-sub').textContent).toBe('Most steps land around 6 pm');
+    expect(doc.querySelector('.analytics-hourly .bar-chart__col:nth-child(19) .bar-chart__bar').classList.contains('bar-chart__bar--peak')).toBe(true);
+    expect(texts(doc, '.analytics-hourly .chart-ticks span')).toEqual(['12a', '6a', '12p', '6p', '11p']);
+    expect(doc.querySelectorAll('.analytics-hourly .bar-chart__value')).toHaveLength(0);
+  });
+
+  it('Monthly totals: horizontal bars with a year picker', () => {
+    const select = doc.querySelector('.analytics-yearly select[data-action="change-year"]');
+    expect([...select.options].map((o) => o.value)).toEqual(['2026', '2025', '2024']);
+    expect(select.getAttribute('aria-label')).toBe('Year');
+    expect(doc.querySelectorAll('.analytics-yearly .hbar')).toHaveLength(12);
+  });
+});
+
+describe('Insights — range switch', () => {
+  it('offers All time and each year with data, All time selected', async () => {
+    const doc = makeDoc();
+    await createAnalyticsUI(doc, makeEngine(), makeReporter()).render();
+    const options = [...doc.querySelectorAll('.insights-range [data-range]')];
+    expect(options.map((o) => o.textContent)).toEqual(['All time', '2026', '2025', '2024']);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
+    expect(doc.querySelector('.insights-range').getAttribute('role')).toBe('tablist');
+  });
+
+  it('picking a year limits every section to that year', async () => {
+    const doc = makeDoc();
+    const engine = makeEngine();
+    await createAnalyticsUI(doc, engine, makeReporter()).render();
+    doc.querySelector('[data-range="2026"]').click();
+
+    expect(doc.querySelector('[data-range="2026"]').getAttribute('aria-selected')).toBe('true');
+    expect(doc.querySelector('.hof-tile__value').textContent).toBe('36,910');
+    expect(texts(doc, '.rank-list__date')).toEqual(['19 May 2026', '3 Mar 2026', '2 Mar 2026']);
+    expect(doc.querySelector('.analytics-yearly select')).toBeNull();
+    expect(doc.querySelector('.analytics-yearly .section-sub').textContent).toBe('2026');
+    expect(engine.compute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the chosen year across re-renders, and falls back to All time when it has no data any more', async () => {
+    const doc = makeDoc();
+    const engine = makeEngine();
+    const ui = createAnalyticsUI(doc, engine, makeReporter());
+    await ui.render();
+    doc.querySelector('[data-range="2025"]').click();
+    await ui.render();
+    expect(doc.querySelector('[data-range="2025"]').getAttribute('aria-selected')).toBe('true');
+
+    engine.compute.mockResolvedValue(makeEngineResult(RECORDS.filter((r) => !r.date.startsWith('2025'))));
+    await ui.render();
+    expect(doc.querySelector('[data-range="all"]').getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('Insights — proof photos', () => {
+  it('shows a labelled proof button for records with proof, when a lightbox is provided', async () => {
+    const doc = makeDoc();
     const proofLightbox = { open: vi.fn() };
-    const ui = createAnalyticsUI(doc, engine, reporter, proofLightbox);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const proofButtons = [...panel.querySelectorAll('[data-action="open-proof"]')];
-
-    // RECORDS has 2 records with screenshot_proof
-    expect(proofButtons.length).toBe(2);
-    proofButtons.forEach(btn => {
-      expect(btn.dataset.date).toBeTruthy();
-    });
+    await createAnalyticsUI(doc, makeEngine(), makeReporter(), proofLightbox).render();
+    const buttons = doc.querySelectorAll('[data-action="open-proof"]');
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].getAttribute('aria-label')).toBe('View proof for 5 May 2025');
+    buttons[0].click();
+    expect(proofLightbox.open).toHaveBeenCalledWith(expect.objectContaining({ date: '2025-05-05' }));
   });
 
-  // ── Edge case: no proof button when proofLightbox is null ─────────────────
-
-  it('does not render proof button when proofLightbox is null even if record has screenshot_proof', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter, null);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const proofButtons = panel.querySelectorAll('[data-action="open-proof"]');
-    expect(proofButtons).toHaveLength(0);
+  it('no proof buttons without a lightbox', async () => {
+    const doc = makeDoc();
+    await createAnalyticsUI(doc, makeEngine(), makeReporter(), null).render();
+    expect(doc.querySelectorAll('[data-action="open-proof"]')).toHaveLength(0);
   });
+});
 
-  // ── Edge case: no proof button when record lacks screenshot_proof ─────────
-
-  it('does not render proof button for record without screenshot_proof even with proofLightbox', async () => {
-    const recordsNoProof = [
-      makeRecord(`${YEAR}-01-15`, 12000, 9.0, null),
-      makeRecord(`${YEAR}-02-20`, 15000, 11.5, null),
-    ];
-    const result = makeEngineResult(recordsNoProof);
-    const engine = makeEngine(result);
-    const proofLightbox = { open: vi.fn() };
-    const ui = createAnalyticsUI(doc, engine, reporter, proofLightbox);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const proofButtons = panel.querySelectorAll('[data-action="open-proof"]');
-    expect(proofButtons).toHaveLength(0);
-  });
-
-  // ── Happy path: year selector ─────────────────────────────────────────────
-
-  it('year selector <select> contains option for each unique year in records, sorted descending', async () => {
-    const multiYearRecords = [
-      makeRecord('2024-06-10', 10000),
-      makeRecord('2025-01-15', 12000),
-      makeRecord('2025-03-20', 8000),
-      makeRecord('2023-11-05', 9000),
-    ];
-    const result = makeEngineResult(multiYearRecords, YEAR);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const select = panel.querySelector('select[data-action="change-year"]');
-    expect(select).not.toBeNull();
-
-    const options = [...select.querySelectorAll('option')].map(o => o.value);
-    expect(options).toEqual(['2025', '2024', '2023']); // descending
-  });
-
-  // ── Happy path: year selector change triggers monthly chart re-render ─────
-
-  it('changing year selector triggers re-render of monthly chart section with correct year data', async () => {
-    const multiYearRecords = [
-      makeRecord('2024-06-10', 9999, 7.5),
-      makeRecord('2025-01-15', 12000, 9.0),
-    ];
-    const result = makeEngineResult(multiYearRecords, 2025);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const select = panel.querySelector('select[data-action="change-year"]');
-    expect(select).not.toBeNull();
-
-    // Count hall of fame dts before change
-    const dtsBefore = panel.querySelectorAll('dt').length;
-
-    // Dispatch change event for year 2024
+describe('Insights — edge cases', () => {
+  it('year picker changes the monthly chart only', async () => {
+    const doc = makeDoc();
+    await createAnalyticsUI(doc, makeEngine(), makeReporter()).render();
+    const before = doc.querySelector('.hof-tile__value').textContent;
+    const select = doc.querySelector('.analytics-yearly select');
     select.value = '2024';
     select.dispatchEvent(new Event('change', { bubbles: true }));
-
-    // Hall of Fame should remain unchanged (same number of dts)
-    const dtsAfter = panel.querySelectorAll('dt').length;
-    expect(dtsAfter).toBe(dtsBefore);
+    const bars = [...doc.querySelectorAll('.analytics-yearly .hbar__fill')].map((b) => b.style.width);
+    expect(bars[5]).toBe('100%'); // June 2024 is the only month
+    expect(doc.querySelector('.hof-tile__value').textContent).toBe(before);
   });
 
-  // ── Edge case: empty records ──────────────────────────────────────────────
+  it('empty records → a helpful message', async () => {
+    const doc = makeDoc();
+    await createAnalyticsUI(doc, makeEngine(makeEngineResult([])), makeReporter()).render();
+    expect(doc.getElementById('lab-analytics').textContent).toBe('No step data found. Sync your steps to see analytics here.');
+  });
 
-  it('renders a descriptive <p> when engine returns empty records (not blank panel)', async () => {
-    const result = makeEngineResult([]);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
+  it('no hourly data → a message instead of the chart', async () => {
+    const doc = makeDoc();
+    const records = RECORDS.map((r) => ({ ...r, hourly_steps: null }));
+    await createAnalyticsUI(doc, makeEngine(makeEngineResult(records)), makeReporter()).render();
+    expect(doc.querySelector('.analytics-hourly').textContent).toContain('Hourly data will appear after your next sync');
+  });
 
+  it('a failed compute is reported and shown', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const doc = makeDoc();
+    const reporter = makeReporter();
+    await createAnalyticsUI(doc, { compute: vi.fn().mockRejectedValue(new Error('x')) }, reporter).render();
+    expect(reporter.db).toHaveBeenCalledWith('⚠️ Could not render Analytics');
+    expect(doc.getElementById('lab-analytics').textContent).toBe('Analytics could not be loaded. Please try again.');
+  });
+
+  it('re-rendering replaces content', async () => {
+    const doc = makeDoc();
+    const ui = createAnalyticsUI(doc, makeEngine(), makeReporter());
     await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const p = panel.querySelector('p');
-    expect(p).not.toBeNull();
-    expect(p.textContent.length).toBeGreaterThan(5);
-  });
-
-  // ── Edge case: all-zero hourly distribution ───────────────────────────────
-
-  it('renders "Hourly data will appear after your next sync" when all hourly values are zero', async () => {
-    const result = makeEngineResult(RECORDS);
-    result.hourly = Array(24).fill(0);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
     await ui.render();
-
-    const panel = doc.getElementById('tab-lab');
-    const text = panel.textContent;
-    expect(text).toContain('Hourly data will appear after your next sync');
+    expect(doc.querySelectorAll('.insights-range')).toHaveLength(1);
+    expect(doc.querySelectorAll('.analytics-hall-of-fame')).toHaveLength(1);
   });
 
-  // ── Error case: engine.compute() throws ──────────────────────────────────
-
-  it('calls reporter.db with error message and injects error <p> when engine.compute() throws', async () => {
-    const engine = { compute: vi.fn().mockRejectedValue(new Error('DB down')) };
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    expect(reporter.db).toHaveBeenCalledWith(expect.stringContaining('⚠️'));
-    const panel = doc.getElementById('tab-lab');
-    const p = panel.querySelector('p');
-    expect(p).not.toBeNull();
+  it('warns without the mount', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const doc = document.implementation.createHTMLDocument('t');
+    await createAnalyticsUI(doc, makeEngine(), makeReporter()).render();
+    expect(warn).toHaveBeenCalledWith('[analytics-ui]', expect.any(String));
   });
-
-  // ── Happy path: idempotent re-render ─────────────────────────────────────
-
-  it('calling render() twice does not accumulate duplicate nodes in #tab-lab', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-    const countAfterFirst = doc.getElementById('tab-lab').children.length;
-
-    await ui.render();
-    const countAfterSecond = doc.getElementById('tab-lab').children.length;
-
-    expect(countAfterSecond).toBe(countAfterFirst);
-  });
-
-  // ── Happy path: AbortController — listener fires exactly once ────────────
-
-  it('AbortController: second render() calls abort() on the first controller', async () => {
-    // Spy on AbortController.prototype.abort to verify the prior controller is actually
-    // aborted when render() is called a second time. This is the real guard against
-    // listener-accumulation: { signal } on each addEventListener means abort() removes
-    // the listener from its element. Without controller.abort(), orphaned listeners
-    // survive in memory even after their section is detached from the DOM.
-    const abortSpy = vi.spyOn(AbortController.prototype, 'abort');
-
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render(); // creates controller_1; abort not yet called
-    const abortCallsAfterFirstRender = abortSpy.mock.calls.length;
-    expect(abortCallsAfterFirstRender).toBe(0); // first render has nothing to abort
-
-    await ui.render(); // must call controller_1.abort() before creating controller_2
-    expect(abortSpy).toHaveBeenCalledTimes(abortCallsAfterFirstRender + 1);
-
-    // Also verify the change handler still fires and uses computeYearlyMonthlyComparison
-    const yearSpy = vi.spyOn(analyticsModule, 'computeYearlyMonthlyComparison');
-    const panel = doc.getElementById('tab-lab');
-    const select = panel.querySelector('select[data-action="change-year"]');
-    expect(select).not.toBeNull();
-    select.value = select.options[0]?.value ?? select.value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(yearSpy).toHaveBeenCalledTimes(1);
-
-    abortSpy.mockRestore();
-    yearSpy.mockRestore();
-  });
-
-  // ── Bug-fix: render() must target #lab-analytics, NOT #tab-lab ──────────
-
-  it('render() with valid data injects sections into #lab-analytics, not directly into #tab-lab', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const labAnalytics = doc.getElementById('lab-analytics');
-    expect(labAnalytics).not.toBeNull();
-    expect(labAnalytics.children.length).toBeGreaterThan(0);
-
-    // #tab-lab should still have its original skeleton containers as direct children
-    const tabLab = doc.getElementById('tab-lab');
-    expect(tabLab.querySelector('#lab-gamification')).not.toBeNull();
-    expect(tabLab.querySelector('#lab-odyssey')).not.toBeNull();
-  });
-
-  it('render() does NOT destroy #lab-gamification or #lab-odyssey containers', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    expect(doc.getElementById('lab-gamification')).not.toBeNull();
-    expect(doc.getElementById('lab-odyssey')).not.toBeNull();
-  });
-
-  it('render() does not trigger empty-state when engine returns non-empty records', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const labAnalytics = doc.getElementById('lab-analytics');
-    // Should have section elements, no empty-state <p> at the container level
-    const sections = labAnalytics.querySelectorAll('section');
-    expect(sections.length).toBeGreaterThan(0);
-    // Empty state message should NOT be present
-    expect(labAnalytics.textContent).not.toContain('No step data found');
-  });
-
-  it('mock engine result includes records key matching real engine contract', () => {
-    // Regression: the mock must supply the same shape the real engine returns.
-    // If the real engine omits records, cachedRecords is always [] and no analytics render.
-    const result = makeEngineResult(RECORDS);
-    expect(result).toHaveProperty('records');
-    expect(result.records).toEqual(RECORDS);
-  });
-
-  // ── Task 14: CSS class fix — HoF <dl> carries hof-grid ──────────────────
-
-  it('Hall of Fame <dl> carries class hof-grid after render() with non-empty records', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('lab-analytics');
-    const grid = panel.querySelector('.hof-grid');
-    expect(grid).not.toBeNull();
-    expect(grid.querySelectorAll('.hof-tile').length).toBe(4);
-  });
-
-  // ── Task 14: _buildTop5Table panel param removed — existing table tests still pass ──
-
-  it('Top-5 table still renders correctly after panel param removal from _buildTop5Table', async () => {
-    const result = makeEngineResult(RECORDS);
-    const engine = makeEngine(result);
-    const ui = createAnalyticsUI(doc, engine, reporter);
-
-    await ui.render();
-
-    const panel = doc.getElementById('lab-analytics');
-    const rows = [...panel.querySelectorAll('table tbody tr')];
-    expect(rows).toHaveLength(5);
-  });
-
 });

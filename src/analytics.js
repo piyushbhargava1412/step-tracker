@@ -202,6 +202,42 @@ export function computeYearlyMonthlyComparison(records, year) {
   return months;
 }
 
+/**
+ * The Insights screen's figures for a range: every record (year omitted) or
+ * one calendar year.
+ *
+ * @param {Array<{ date: string }>} records
+ * @param {number} activeStepGoal
+ * @param {number} [year]
+ * @returns {{ lifetimeMetrics, topRecords, dayOfWeek, hourly }}
+ */
+export function computeInsights(records, activeStepGoal, year) {
+  const all = Array.isArray(records) ? records : [];
+  const scoped = Number.isInteger(year)
+    ? all.filter((r) => typeof r.date === 'string' && r.date.startsWith(`${year}-`))
+    : all;
+  return {
+    lifetimeMetrics: computeLifetimeMetrics(scoped, activeStepGoal),
+    topRecords: computeTopRecords(scoped),
+    dayOfWeek: computeDayOfWeekDistribution(scoped),
+    hourly: computeHourlyDistribution(scoped),
+  };
+}
+
+/**
+ * Years that have records, newest first.
+ * @param {Array<{ date: string }>} records
+ * @returns {number[]}
+ */
+export function extractYears(records) {
+  const years = new Set();
+  for (const r of Array.isArray(records) ? records : []) {
+    const y = typeof r.date === 'string' ? parseInt(r.date.slice(0, 4), 10) : NaN;
+    if (Number.isFinite(y)) years.add(y);
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 /**
@@ -235,7 +271,9 @@ export function createAnalytics(db) {
       const hourly = computeHourlyDistribution(records);
       const yearlyMonthly = computeYearlyMonthlyComparison(records, currentYear);
 
-      return { records, lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly };
+      const years = extractYears(records);
+
+      return { records, lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly, activeStepGoal, years };
     } catch (err) {
       console.error('[analytics]', err);
       throw err;

@@ -12,6 +12,7 @@ import {
   computeDayOfWeekDistribution,
   computeHourlyDistribution,
   computeYearlyMonthlyComparison,
+  computeInsights,
   createAnalytics,
 } from './analytics.js';
 
@@ -456,5 +457,46 @@ describe('analytics.js module boundary', () => {
     expect(typeof mod.computeHourlyDistribution).toBe('function');
     expect(typeof mod.computeYearlyMonthlyComparison).toBe('function');
     expect(typeof mod.createAnalytics).toBe('function');
+  });
+});
+
+describe('computeInsights — Insights range (All time / a year)', () => {
+  const rec = (date, steps, km = steps / 1300) => ({ date, effective_steps: steps, effective_distance_km: km });
+  const RECS = [
+    rec('2025-06-02', 20000),
+    rec('2025-06-03', 4000),
+    rec('2026-03-02', 12000),
+    rec('2026-03-03', 11000),
+  ];
+
+  it('without a year, covers every record', () => {
+    const insights = computeInsights(RECS, 10000);
+    expect(insights.lifetimeMetrics.totalSteps).toBe(47000);
+    expect(insights.topRecords[0].date).toBe('2025-06-02');
+  });
+
+  it('with a year, covers only that year', () => {
+    const insights = computeInsights(RECS, 10000, 2026);
+    expect(insights.lifetimeMetrics.totalSteps).toBe(23000);
+    expect(insights.lifetimeMetrics.longestStreak).toBe(2);
+    expect(insights.topRecords.map((r) => r.date)).toEqual(['2026-03-02', '2026-03-03']);
+    expect(insights.dayOfWeek.averages[0]).toBe(12000); // Monday 2 Mar 2026
+    expect(insights.hourly).toHaveLength(24);
+  });
+
+  it('a year without records gives empty results', () => {
+    const insights = computeInsights(RECS, 10000, 2019);
+    expect(insights.lifetimeMetrics.totalSteps).toBe(0);
+    expect(insights.topRecords).toEqual([]);
+  });
+
+  it('compute() also reports the active goal and the years with data', async () => {
+    const db = {
+      daily_records: { toArray: vi.fn().mockResolvedValue(RECS) },
+      settings: { get: vi.fn().mockResolvedValue({ key: 'active_step_goal', value: 8500 }) },
+    };
+    const result = await createAnalytics(db).compute();
+    expect(result.activeStepGoal).toBe(8500);
+    expect(result.years).toEqual([2026, 2025]);
   });
 });
