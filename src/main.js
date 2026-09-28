@@ -8,6 +8,8 @@ import { requestPersistentStorage } from './storage.js'
 import { selectAuth } from './platform/auth.js'
 import { createGoogleDriveConnection } from './platform/native/google-drive-connection.js'
 import { createPrimaryDevice } from './primary-device.js'
+import { createSyncTrigger } from './sync-trigger.js'
+import { onAppResume } from './platform/app-lifecycle.js'
 import { createStepSync } from './steps.js'
 import { Health } from '@capgo/capacitor-health'
 import { AppLauncher } from '@capacitor/app-launcher'
@@ -307,9 +309,10 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
 
   // 7a. Shared post-sync re-render pipeline (SF-12: re-render after each sync).
-  // Used by the sync button and by the auto-sync-on-connect hook below, so a
-  // freshly-obtained token and a manual click converge on the same refresh.
-  const runSync = async () => {
+  // Every sync goes through `syncTrigger` (below) so the app knows when it
+  // last synced — the sync button, the auto-sync-on-connect hook and the
+  // resume hook converge on the same refresh.
+  const runSyncPipeline = async () => {
     await stepSync.sync()
     progressUI.render()
     try {
@@ -349,10 +352,23 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     }
   }
 
+  const syncTrigger = createSyncTrigger({
+    sync: runSyncPipeline,
+    canSync: () => stepSync.canSync(),
+  })
+
   // 7b. Auto-sync the moment a connection succeeds — from the first connect
   // click or a silent restore at startup — so the user never has to hit Sync
   // Steps twice.
-  connection.onConnected(runSync)
+  connection.onConnected(syncTrigger.run)
+
+  // 7b'. ST-021: sync again when the app comes back to the foreground (Android
+  // keeps the app in memory, so reopening it is a resume, not a fresh start;
+  // a browser tab counts when it becomes visible). Throttled by a cooldown and
+  // silent when the source is not connected.
+  onAppResume({ isNative, doc }, () => {
+    syncTrigger.runIfStale()
+  })
 
   // 7c. Restore the connection at startup without UI: a silent Google token
   // when the user connected before (web), or Health Connect access that was
@@ -396,7 +412,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
         console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
       })
-      runSync()
+      syncTrigger.run()
     })
   }
 

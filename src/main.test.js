@@ -161,7 +161,7 @@ vi.mock('./tabs.js', () => ({
   switchTab: vi.fn()
 }))
 
-const mockStepSyncInstance = { sync: vi.fn() }
+const mockStepSyncInstance = { sync: vi.fn(), canSync: vi.fn().mockResolvedValue(true) }
 vi.mock('./steps.js', () => ({
   createStepSync: vi.fn(() => mockStepSyncInstance)
 }))
@@ -198,6 +198,12 @@ const { mockSocialLogin } = vi.hoisted(() => ({
   },
 }))
 vi.mock('@capgo/capacitor-social-login', () => ({ SocialLogin: mockSocialLogin }))
+const { mockCapacitorApp } = vi.hoisted(() => ({
+  mockCapacitorApp: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) },
+}))
+vi.mock('@capacitor/app', () => ({ App: mockCapacitorApp }))
+const { mockOnAppResume } = vi.hoisted(() => ({ mockOnAppResume: vi.fn() }))
+vi.mock('./platform/app-lifecycle.js', () => ({ onAppResume: mockOnAppResume }))
 
 // ST-015 Task 9: settings + settings-ui mocks
 const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn(), getPrimaryDevice: vi.fn().mockResolvedValue(null), setPrimaryDevice: vi.fn() }
@@ -2373,5 +2379,81 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
       await Promise.resolve()
       expect(mockSocialLogin.refresh).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('main.js — ST-021 sync when the app comes back to the foreground', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockSwRegistrar.register.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockStepSyncInstance.canSync.mockResolvedValue(true)
+    mockHealth.isAvailable.mockResolvedValue({ available: true })
+    mockHealth.checkAuthorization.mockResolvedValue({ readAuthorized: [] })
+  })
+
+  afterEach(() => {
+    mockIsNativePlatform.mockReturnValue(false)
+    document.body.innerHTML = ''
+  })
+
+  /** The resume handler registered by the most recent bootstrap. */
+  const resume = () => mockOnAppResume.mock.calls.at(-1)[1]()
+  const settle = async () => { for (let i = 0; i < 6; i += 1) await Promise.resolve() }
+
+  it('registers one resume handler, for the browser, with the shared document', async () => {
+    await boot(makeStorage())
+    expect(mockOnAppResume).toHaveBeenCalledTimes(1)
+    expect(mockOnAppResume.mock.calls[0][0]).toEqual({ isNative: false, doc: document })
+  })
+
+  it('registers it for the Android app in the app', async () => {
+    mockIsNativePlatform.mockReturnValue(true)
+    await boot(makeStorage())
+    expect(mockOnAppResume.mock.calls[0][0]).toEqual({ isNative: true, doc: document })
+  })
+
+  it('a resume syncs when connected', async () => {
+    await boot(makeStorage())
+
+    resume()
+
+    await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
+    expect(mockStepSyncInstance.canSync).toHaveBeenCalled()
+  })
+
+  it('does not sync again on a quick second resume (cooldown)', async () => {
+    await boot(makeStorage())
+
+    resume()
+    await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
+    resume()
+    await settle()
+
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('a manual Sync Steps also starts the cooldown', async () => {
+    await boot(makeStorage())
+    document.getElementById('sync-btn').click()
+    await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
+
+    resume()
+    await settle()
+
+    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays silent on resume when the step source is not connected', async () => {
+    mockStepSyncInstance.canSync.mockResolvedValue(false)
+    await boot(makeStorage())
+
+    resume()
+    await vi.waitFor(() => expect(mockStepSyncInstance.canSync).toHaveBeenCalled())
+    await settle()
+
+    expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
   })
 })
