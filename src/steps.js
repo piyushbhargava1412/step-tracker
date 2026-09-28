@@ -535,7 +535,7 @@ export function _checkSourceReady(source) {
   *                             upload is skipped so it can never overwrite
   *                             that device's Drive backup. Null (legacy call
   *                             sites) uploads as before.
- * @returns {{ sync: Function }}
+ * @returns {{ sync: Function, canSync: Function }}
  */
 export function createStepSync(source, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null, primaryDevice = null) {
   assertStepSource(source);
@@ -767,5 +767,16 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
     }
   }
 
-  return { sync };
+  /**
+   * Whether a sync could start now (the source is connected), answered
+   * silently — no status message, no fetch. Used to decide whether a resume
+   * should sync (ST-021).
+   *
+   * @returns {Promise<boolean>}
+   */
+  async function canSync() {
+    return _checkSourceReady(source);
+  }
+
+  return { sync, canSync };
 }

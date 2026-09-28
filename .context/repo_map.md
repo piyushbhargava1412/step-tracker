@@ -41,7 +41,7 @@
   - `@capacitor/filesystem` (Android exports to `Documents/Step Tracker/`), `@capacitor/app-launcher` (Health Connect Play Store link)
 
 ## Dependency Managers
-- `npm` via `package.json` (Vite 8, Vitest 4, Dexie 4, @vitest/coverage-v8, jsdom; Capacitor 8 core/android/cli, @capacitor/filesystem, @capacitor/app-launcher, @capgo/capacitor-health, @capgo/capacitor-social-login)
+- `npm` via `package.json` (Vite 8, Vitest 4, Dexie 4, @vitest/coverage-v8, jsdom; Capacitor 8 core/android/cli, @capacitor/filesystem, @capacitor/app-launcher, @capgo/capacitor-health, @capgo/capacitor-social-login, @capacitor/app)
 - Gradle 8.14 (wrapper) for `android/`, daemon on JDK 21
 
 ## Entry Surfaces
@@ -69,6 +69,7 @@
 - Composition root / bootstrap: `src/main.js` (resolves `isNative` first, then the platform storage manager, file saver, and `{ source, connection }` via `selectStepSource`)
 - Platform layer (ST-018/019): `src/platform/capabilities.js` (`isNativePlatform`), `files.js` (`createFileSaver` → web download / native Documents), `storage-manager.js` (`selectStorageManager` — browser `navigator` or always-persisted in the app), `step-source.js` (`selectStepSource` → Fit + Google connection on web, Health Connect + Health Connect connection in the app; `connectLabelFor`), `web/google-fit-connection.js` (connect / silent restore via the `google_connected` flag), `native/health-connect-connection.js` (permission request incl. history, Play Store link, restore-at-launch)
 - Google auth per platform (ST-020): `src/platform/auth.js` (`selectAuth` — web `createAuth` or native), `src/platform/native/google-auth.js` (`createNativeGoogleAuth`, Drive-only, lazy SocialLogin plugin), `src/platform/google-connection.js` (shared connect/restore/flag logic used by the web header and the app's Drive panel), `src/platform/native/google-drive-connection.js`
+- Sync trigger & app lifecycle (ST-021): `src/sync-trigger.js` (`createSyncTrigger` — `run()` / `runIfStale()` with a 10-min cooldown and silent readiness check via `stepSync.canSync()`), `src/platform/app-lifecycle.js` (`onAppResume` — Capacitor `resume` / `visibilitychange`)
 - Primary device (ST-020): `src/primary-device.js` (`createPrimaryDevice` — `deviceId`, `otherPrimary({ localOnly })` fail-closed, `status()`, `makeThisPrimary()`); settings `getPrimaryDevice`/`setPrimaryDevice` (`PRIMARY_DEVICE_KEY`); `drive-sync.readPrimaryDevice()` + `appProperties` on upload
 - Health Connect step source (ST-019): `src/health-connect-step-source.js` (`createHealthConnectStepSource(health, reporter)` — hourly `queryAggregated` sums grouped by local date, zero-fill, best-effort distance, `permission-denied` → `FAILURE_AUTH_EXPIRED`, other errors → `FAILURE_SOURCE_ERROR`)
 - Auth/token state management: `src/auth.js` (`createAuth` factory — `init`, `requestToken(options)` where `{ prompt: '' }` is a silent restore, `getAccessToken`, `onTokenReceived`)

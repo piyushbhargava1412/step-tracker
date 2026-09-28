@@ -3466,3 +3466,18 @@ describe('ST-020: post-sync Drive upload respects the primary device', () => {
     await vi.waitFor(() => expect(driveSync.push).toHaveBeenCalledTimes(1));
   });
 });
+
+describe('ST-021: stepSync.canSync()', () => {
+  const base = { label: 'X', notReadyMessage: '🔑 x', accessLostMessage: 'x', fetchDays: vi.fn() };
+  const reporter = { sync: vi.fn() };
+
+  it('answers the source readiness without syncing or writing any status', async () => {
+    const ready = createStepSync({ ...base, isReady: () => true }, makeStatefulDb(), reporter, document);
+    const notReady = createStepSync({ ...base, isReady: async () => false }, makeStatefulDb(), reporter, document);
+
+    await expect(ready.canSync()).resolves.toBe(true);
+    await expect(notReady.canSync()).resolves.toBe(false);
+    expect(reporter.sync).not.toHaveBeenCalled();
+    expect(base.fetchDays).not.toHaveBeenCalled();
+  });
+});
