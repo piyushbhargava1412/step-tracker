@@ -34,7 +34,9 @@ mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 
 ### Save Anchor Date (auto-save on change)
 3. User changes the date input → `change` event on `[data-field="anchor-date"]` → calls
-   `settings.setSyncAnchorDate(date)` to persist the anchor immediately, then
+   `settings.setSyncAnchorDate(date)` to persist the anchor immediately (it first deletes the
+   `initial_backfill_complete` latch so the next sync re-evaluates the backfill against the new
+   anchor; a failed delete is logged, rethrown, and the anchor is not written), then
    `settings.countRecordsBefore(date)` → updates the impact preview ("X record(s) found prior to
    YYYY-MM-DD") and the prune-button label ("🗑️ Prune Data Before Jan 1, 2018"). There is no
    separate Save button — the anchor saves on every date change.

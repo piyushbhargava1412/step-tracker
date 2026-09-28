@@ -5,6 +5,13 @@ export const HOME_BASE_CITY_KEY = 'home_base_city';
 export const SYNC_ANCHOR_KEY = 'sync_anchor_date';
 export const DEFAULT_SYNC_ANCHOR = '2018-01-01';
 
+/**
+ * Key latching a completed full-history backfill (read by the sync engine).
+ * Cleared whenever the sync anchor changes so the engine re-evaluates whether
+ * days before the new anchor still need fetching.
+ */
+export const BACKFILL_COMPLETE_KEY = 'initial_backfill_complete';
+
 /** Key gating the post-sync background Drive auto-upload (Task 27). */
 export const DRIVE_BACKUP_ENABLED_KEY = 'drive_backup_enabled';
 
@@ -48,8 +55,22 @@ export function createSettings(db) {
     }
   }
 
+  /**
+   * Persist a new sync anchor. The backfill latch is cleared *first*: a
+   * latch left over from an older, later anchor would otherwise suppress the
+   * backfill for days the user just asked to include. Clearing is always safe
+   * — the engine only adds a backfill window when older days are missing — and
+   * doing it before the write means a failed write can only cost one
+   * redundant, idempotent check, never a skipped backfill.
+   */
   async function setSyncAnchorDate(date) {
     assertValidDate(date, 'setSyncAnchorDate');
+    try {
+      await db.settings.delete(BACKFILL_COMPLETE_KEY);
+    } catch (err) {
+      console.error('[settings]', err);
+      throw err;
+    }
     await db.settings.put({ key: SYNC_ANCHOR_KEY, value: date, updated_at: new Date().toISOString() });
   }
 
@@ -189,7 +210,7 @@ export function createSettings(db) {
       throw err;
     }
     try {
-      await db.settings.delete('initial_backfill_complete');
+      await db.settings.delete(BACKFILL_COMPLETE_KEY);
     } catch (err) {
       console.error('[settings]', err);
       throw err;

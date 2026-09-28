@@ -130,7 +130,7 @@ never misreads an already-active Google account as brand new. Google Drive acces
     "🔄 Restore from Drive" button). Because the envelope's `settings` rows include the
     `initial_backfill_complete` latch, the very next step (`_determineSyncWindows`) then treats the
     account as already backfilled and runs a normal incremental sync instead of the multi-minute
-    full-history fetch back to 2013 — see `.context/flows/historical-step-sync.md` (step 2) for the
+    full-history fetch back to the sync anchor — see `.context/flows/historical-step-sync.md` (step 2) for the
     window-resolution detail. Fully fail-open and symmetric with the Task 28 push hook: a non-empty
     local DB skips the check entirely (no `pull()` call), a `null`/`undefined` `pull()` result (no
     Drive backup exists yet) skips the restore, and a rejected `pull()` or `restoreBackup()` (e.g. a

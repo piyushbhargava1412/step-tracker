@@ -166,6 +166,11 @@ vi.mock('./steps.js', () => ({
   createStepSync: vi.fn(() => mockStepSyncInstance)
 }))
 
+const mockFitStepSource = { label: 'Google Fit' }
+vi.mock('./fit-step-source.js', () => ({
+  createFitStepSource: vi.fn(() => mockFitStepSource)
+}))
+
 // ST-015 Task 9: settings + settings-ui mocks
 const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn() }
 vi.mock('./settings.js', () => ({
@@ -240,6 +245,7 @@ import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { initTabs, switchTab } from './tabs.js'
 import { createStepSync } from './steps.js'
+import { createFitStepSource } from './fit-step-source.js'
 import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
@@ -437,10 +443,16 @@ describe('main.js — Task 11 step sync wiring', () => {
     expect(createStepSync).toHaveBeenCalledTimes(1)
   })
 
-  it('createStepSync receives auth, db, the shared reporter and the shared doc as the fourth argument', async () => {
+  it('composes the Google Fit StepSource from the shared auth and reporter', async () => {
+    await boot()
+    expect(createFitStepSource).toHaveBeenCalledTimes(1)
+    expect(createFitStepSource).toHaveBeenCalledWith(mockAuthInstance, mockReporter)
+  })
+
+  it('createStepSync receives the Fit StepSource, db, the shared reporter and the shared doc as the fourth argument', async () => {
     await boot()
     expect(createStepSync).toHaveBeenCalledWith(
-      mockAuthInstance,
+      mockFitStepSource,
       mockDb,
       mockReporter,
       document,

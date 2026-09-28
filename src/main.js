@@ -7,6 +7,7 @@ import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { createStepSync } from './steps.js'
+import { createFitStepSource } from './fit-step-source.js'
 import { initTabs } from './tabs.js'
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
@@ -190,7 +191,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
-  const stepSync = createStepSync(auth, db, reporter, doc, driveSync, backup, settings)
+  const stepSync = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, settings)
 
   // Mount backup + cloud + storage-health panels into their own containers so
   // no render clears another's output (each render() wipes its container first).
