@@ -44,8 +44,11 @@ progress panel (ST-025).
    failure. The render consumes `{ tolerance, hallOfFame, lifetime, activeStepGoal }`.
 
 ## Render Layout
-`_buildTiles(result)` (exported) maps the compute result onto the tile slots in index.html; each tile
-is `.stat-tile__label` / `.stat-tile__value` / `.stat-tile__sub`:
+`_buildTiles(result)` (exported) maps the compute result onto the tile slots in index.html as
+`{ label, num, unit?, sub, good? }`; `fillStatTile` (`src/stat-tile.js`, shared with `progress-ui.js`)
+writes `.stat-tile__label` / `.stat-tile__value` (`.stat-tile__num` + optional `.stat-tile__unit`,
+e.g. "1,910" + "days") / `.stat-tile__sub`. The value is a wrapping flex row, so on a narrow tile or a
+large system font size the unit drops under the number instead of overflowing the card:
 - `#tile-strict` (amber `.stat-tile--hot`) — "Strict" · `tolerance.actual` days · "every day at 100%"
 - `#tile-lifetime` — "Lifetime" · rounded `lifetime.pct`% · "488 of 900 days"
 - `#tile-tol99` / `#tile-tol95` — "99% tol" / "95% tol" · allowance days · "N misses used"
@@ -68,6 +71,7 @@ A missing slot is skipped. `#tile-distance` belongs to `progress-ui.js`. Tier ch
 ## Scope
 - `src/streak.js` — pure calculations and Dexie read orchestration; exports `ALLOWANCE_WINDOW_95`, `ALLOWANCE_WINDOW_99`, `NEAR_MISS_RATIO`, `computeToleranceStreaks`
 - `src/streak-ui.js` — the five streak tiles; renders `tolerance`, `hallOfFame`, `lifetime`, `activeStepGoal`
+- `src/stat-tile.js` — `fillStatTile`, the shared tile content builder (number + unit split)
 - `src/main.js` — lifecycle wiring and post-sync / post-goal-change rendering
 - `src/goal.js`, `src/db.js` — goal engine (step scalar) and schema
 - `styles.css` — `.stat-tile`, `.stat-tile--hot`, `.stat-tile__*`

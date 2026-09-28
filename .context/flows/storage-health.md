@@ -13,9 +13,9 @@ Redefines what "protected" means for the app's local step data: instead of naggi
 an eviction-risk modal whenever `navigator.storage.persisted()` is false, the app now treats an
 enabled Google Drive Cloud Auto-Sync as an equally valid safety net. A pure protection-matrix
 (`src/storage-health.js`) combines the `drive_backup_enabled` setting with the browser's persisted-
-storage grant into a single `#db-status` pill (Today's status line) and a "Storage protection" panel
+storage grant into a single `#db-status` pill (Today's status line — the `.status-pills` group, which wraps to a second line rather than truncating) and a "Storage protection" panel
 (`src/storage-health-ui.js`) on the Backup & restore screen. `navigator.storage.persist()` is requested silently
-(no prompt, no modal) behind three explicit user gestures — Sync Steps, Connect/Reconnect Google
+(no prompt, no modal) behind three explicit user gestures — Sync (`#sync-btn`), Connect/Reconnect Google
 Account, and toggling Drive auto-backup — plus directly via the panel's own button. This flow
 replaces `src/storage-modal.js` (deleted), which previously opened an explanatory popup on badge
 click; tapping the pill opens Backup & restore when unprotected.

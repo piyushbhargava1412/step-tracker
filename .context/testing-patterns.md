@@ -23,7 +23,8 @@ Test files (co-located with source): `src/auth.test.js`, `src/config.test.js`, `
 `src/storage.test.js`, `src/tabs.test.js`, `src/ui-status.test.js`, `src/main.test.js`,
 `src/steps.test.js`, `src/index.test.js`, `src/sanity.test.js`, `src/styles.test.js`,
 `src/docs.test.js`, `src/goal.test.js`, `src/progress.test.js`, `src/progress-ui.test.js`,
-`src/streak.test.js`, `src/streak-ui.test.js`, `src/date-utils.test.js`, `src/units.test.js`,
+`src/streak.test.js`, `src/streak-ui.test.js`, `src/stat-tile.test.js`, `src/fit-text.test.js`,
+`src/date-utils.test.js`, `src/units.test.js`,
 `src/calendar.test.js`, `src/calendar-ui.test.js`, `src/records.test.js`,
 `src/image-processor.test.js`, `src/search.test.js`, `src/search-ui.test.js`,
 `src/exporter.test.js`, `src/settings.test.js`, `src/settings-ui.test.js`, `src/confirm.test.js`.

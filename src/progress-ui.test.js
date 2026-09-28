@@ -110,6 +110,8 @@ describe('in progress (7,412 of 10,000 steps)', () => {
     expect(text(tile, '.stat-tile__label')).toBe('Distance');
     expect(text(tile, '.stat-tile__value')).toBe('5.6 km');
     expect(text(tile, '.stat-tile__sub')).toBe('today');
+    expect(text(tile, '.stat-tile__num')).toBe('5.6');
+    expect(text(tile, '.stat-tile__unit')).toBe('km');
   });
 
   it('uses no emoji', async () => {

@@ -452,11 +452,11 @@ export async function _readOldestStoredLabel(db) {
 export async function _renderSyncErrorMessage({ error, i, total, persistedDays, db, source }) {
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_AUTH_EXPIRED) {
     const oldestLabel = (await _readOldestStoredLabel(db)) ?? 'the beginning';
-    return `🔑 ${source.accessLostMessage}, then click Sync Steps to continue (history synced back to ${oldestLabel}).`;
+    return `🔑 ${source.accessLostMessage}, then sync again to continue (history synced back to ${oldestLabel}).`;
   }
 
   const at = `chunk ${i}/${total}`;
-  const resume = `${persistedDays} days saved; click Sync Steps to resume.`;
+  const resume = `${persistedDays} days saved; sync again to resume.`;
 
   if (error.name === SYNC_ERROR_NAME && error.kind === FAILURE_RETRY_EXHAUSTED) {
     return `❌ Sync stopped at ${at} — ${source.label} returned ${error.status} twice. ${resume}`;
@@ -585,11 +585,13 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
       return;
     }
 
-    // 3. Button busy state — owned here, unwound in `finally`.
+    // 3. Button busy state — owned here, unwound in `finally`. The button is
+    //    an icon; `is-syncing` spins it, so its content is never touched.
     const syncBtn = doc?.getElementById?.('sync-btn');
     if (syncBtn) {
       syncBtn.disabled = true;
-      syncBtn.textContent = 'Syncing…';
+      syncBtn.classList.add('is-syncing');
+      syncBtn.setAttribute('aria-busy', 'true');
     }
 
     // Fail-stop accounting consumed by the catch: how many days landed before
@@ -682,7 +684,7 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
         );
       } else if (backfillRan && oldestMs != null) {
         reporter.sync(
-          `✅ Synced ${dayCount} days — history now goes back to ${_formatLocalDate(oldestMs)}; click Sync Steps again to continue the backfill.`
+          `✅ Synced ${dayCount} days — history now goes back to ${_formatLocalDate(oldestMs)}; sync again to continue the backfill.`
         );
       } else {
         reporter.sync(
@@ -761,7 +763,8 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
       //    #sync-status exactly as the last reporter.sync() wrote it.
       if (syncBtn) {
         syncBtn.disabled = false;
-        syncBtn.textContent = 'Sync Steps';
+        syncBtn.classList.remove('is-syncing');
+        syncBtn.setAttribute('aria-busy', 'false');
       }
       isSyncing = false;
     }

@@ -55,3 +55,12 @@ The PWA became an Android app in ST-017–ST-021, but it still looked and naviga
 * Insights' "All time" uses the engine's figures; a year recomputes from the cached records with `computeInsights()` (no extra database read).
 * The onboarding screen shows only while there is no data and it was never dismissed (`localStorage.onboarding_done`); the connection's single `onConnected` listener, owned by main.js, dismisses it and syncs.
 * Verified in a 390 × 844 browser viewport against seeded data (every screen); on-device testing on the owner's emulator is the next step before tagging v0.2.0.
+
+## On-device polish (after the first release build)
+
+The owner's phone (system font size ≈1.25×, which the Android WebView applies) showed Today overflowing:
+
+* **Stat tiles** — values are a number plus a unit in separate spans ([stat-tile.js](../../src/stat-tile.js), shared by progress-ui and streak-ui); the value is a wrapping flex row, so "1,910 days" drops "days" under the number instead of spilling out of the card.
+* **Ring** — the step count is padded inside the ring and shrunk to fit by [fit-text.js](../../src/fit-text.js) (`ResizeObserver` on the ring centre, scale via the `--fit` custom property so the WebView's text zoom applies once).
+* **Status line** — the connection, last-sync and storage statuses sit in a wrapping `.status-pills` group beside the sync button, so they show in full on a second line instead of truncating ("Conn…").
+* **Sync button** — stays the refresh icon (`title`/`aria-label` "Sync steps"); the sync engine no longer overwrote it with "Syncing…"/"Sync Steps" text. Busy state is `.is-syncing` (spinning icon; no spin under reduced motion) + `aria-busy`. Resume hints now say "sync again".

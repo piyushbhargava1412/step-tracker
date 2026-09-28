@@ -87,7 +87,7 @@ npm run build
 - Legacy configuration files (`config.local.js`, `config.example.js`) have been retired — the successor flow is `cp .env.example .env.local` and setting `VITE_CLIENT_ID` there; no other configuration file is read
 
 ### Google Account Connection & Session
-- Click **Connect Google Account** once to authorize; the moment a token arrives the app **auto-syncs** — no separate Sync Steps click is needed.
+- Click **Connect Google Account** once to authorize; the moment a token arrives the app **auto-syncs** — no separate Sync tap is needed.
 - The connection survives a **page refresh**: a boolean `google_connected` flag is stored in `localStorage` (never the token itself), and on the next load the app asks Google Identity Services for a fresh token silently (`prompt: ''`). When that succeeds, the auto-sync runs again; if Google's session has expired, you simply click Connect once more.
 - Limitation: the in-browser token flow has no refresh token, so the silent restore depends on Google's session cookie. A normal refresh keeps it alive; a fully closed/reopened browser or a long gap may require one reconnect click.
 
@@ -160,7 +160,7 @@ Roadmap: [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connec
 
 ## Step Sync
 
-The step-sync engine (`src/steps.js`) pulls daily step data from an injected `StepSource` (`src/step-source.js`); today that is the Google Fit source (`src/fit-step-source.js`), the sole gateway to the Google Fit REST API. Clicking the **Sync Steps** button (`#sync-btn`) triggers `createStepSync(createFitStepSource(auth, reporter), db, reporter, doc).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
+The step-sync engine (`src/steps.js`) pulls daily step data from an injected `StepSource` (`src/step-source.js`); today that is the Google Fit source (`src/fit-step-source.js`), the sole gateway to the Google Fit REST API. Tapping the Sync button (`#sync-btn`, the refresh icon on Today) triggers `createStepSync(createFitStepSource(auth, reporter), db, reporter, doc).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
 
 **Request shape:**
 - Each chunk is a `POST` to `https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate` with `Authorization: Bearer <token>` (the token is re-read from `auth.getAccessToken()` on every attempt and is never logged, cached, or persisted) and `Content-Type: application/json`.

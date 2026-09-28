@@ -109,6 +109,22 @@ describe('streak tiles', () => {
     expect(tile(doc, 'tile-lifetime')).toMatchObject({ value: '0%', sub: '0 of 0 days' });
   });
 
+  it('splits each value into a number and a unit, so a narrow tile wraps the unit instead of overflowing', async () => {
+    const doc = await renderWith({ ...RESULT, tolerance: { ...RESULT.tolerance, allowance99: 1910 } });
+    const value = doc.querySelector('#tile-tol99 .stat-tile__value');
+    expect(value.querySelector('.stat-tile__num').textContent).toBe('1,910');
+    expect(value.querySelector('.stat-tile__unit').textContent).toBe('days');
+    expect(value.textContent).toBe('1,910 days');
+  });
+
+  it('a unitless value (a percentage, or no run yet) has no unit part', async () => {
+    const doc = await renderWith(ZERO_RESULT);
+    expect(doc.querySelector('#tile-lifetime .stat-tile__num').textContent).toBe('0%');
+    expect(doc.querySelector('#tile-lifetime .stat-tile__unit')).toBeNull();
+    expect(doc.querySelector('#tile-best .stat-tile__num').textContent).toBe('—');
+    expect(doc.querySelector('#tile-best .stat-tile__unit')).toBeNull();
+  });
+
   it('uses no emoji', async () => {
     const doc = await renderWith(RESULT);
     expect(doc.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u);

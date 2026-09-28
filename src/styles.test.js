@@ -80,6 +80,32 @@ describe('styles.css — mobile shell', () => {
     expect(rule('.screens')).toContain('var(--bottom-nav-h)');
   });
 
+  it('the Today status pills wrap to a second line instead of truncating', () => {
+    expect(rule('.status-pills')).toContain('flex-wrap: wrap');
+    expect(rule('.status-pill')).toContain('max-width: 100%');
+    expect(rule('.status-pill')).not.toMatch(/max-width: \d+%;[\s\S]*max-width/);
+    expect(rule('.status-pill')).not.toContain('42%');
+  });
+
+  it('the sync icon spins while syncing, except under reduced motion', () => {
+    expect(rule('#sync-btn.is-syncing .icon')).toContain('animation: sync-spin');
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*#sync-btn\.is-syncing \.icon \{ animation: none; \}/);
+  });
+
+  it('stat tile values split number and unit, and the unit may wrap', () => {
+    expect(rule('.stat-tile__value')).toContain('flex-wrap: wrap');
+    expect(rule('.stat-tile__num')).toContain('white-space: nowrap');
+    expect(rule('.stat-tile__unit')).not.toBeNull();
+  });
+
+  it('the ring step count scales through --fit and clips on one line', () => {
+    const steps = rule('.ring__steps');
+    expect(steps).toContain('font-size: calc(40px * var(--fit, 1))');
+    expect(steps).toContain('white-space: nowrap');
+    expect(steps).toContain('overflow: hidden');
+    expect(steps).toContain('max-width: 100%');
+  });
+
   it('touch targets are at least 44px', () => {
     expect(rule(':root')).toContain('--tap: 44px;');
     expect(rule('.icon-btn')).toContain('width: var(--tap)');

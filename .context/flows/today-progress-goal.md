@@ -33,9 +33,13 @@ the calendar immediately.
      "Daily step goal"), options from `STEP_GOAL_OPTIONS` labelled "Goal 10k · ~8 km".
    - `.ring[role=progressbar]` (`aria-valuenow` = pct): SVG track + `.ring__fill` arc whose
      `stroke-dasharray` is `pct% × RING_CIRCUMFERENCE` (`.ring__fill--full` when met), centre text
-     `.ring__steps`, `.ring__goal` ("of 10,000 steps"), `.ring__pct`.
+     `.ring__steps`, `.ring__goal` ("of 10,000 steps"), `.ring__pct`. `.ring__steps` is kept on one
+     line inside the ring by `keepTextFitted` (`src/fit-text.js`): a `ResizeObserver` on
+     `.ring__center` re-fits it whenever the ring gets a size (e.g. the Today screen is shown again),
+     shrinking it through the `--fit` custom property (`font-size: calc(40px * var(--fit, 1))`, floor
+     `MIN_FIT_SCALE` 0.5) so the Android WebView's system-font-size text zoom is applied once.
    - `.remaining-hint` "2,588 steps to go" or `.goal-met-badge` "Goal met"; `#goal-error[role=alert]`.
-4. `#tile-distance` gets Distance / "5.6 km" / "today".
+4. `#tile-distance` gets Distance / "5.6" + unit "km" / "today" via `fillStatTile` (`src/stat-tile.js`).
 5. On any data error: `reporter.db('❌ Progress load failed')`, zero-state panel; `render()` never throws.
 6. The goal chip's `change` listener (on the freshly built `<select>`, so re-renders never stack
    listeners) saves the goal as a number, re-renders, then calls `onGoalApplied` (errors logged);
@@ -52,6 +56,8 @@ the calendar immediately.
 - `src/goal.js` — `createGoal`, `getActiveStepGoal`, `setActiveStepGoal`, `STEP_GOAL_OPTIONS`, `STEP_GOAL_KM_HINTS`, `DEFAULT_STEP_GOAL`
 - `src/progress.js` — `getTodayRecord`, `computeProgress`
 - `src/progress-ui.js` — `createProgressUI`, `RING_CIRCUMFERENCE`, `_goalOptionLabel`
+- `src/stat-tile.js` — `fillStatTile` (Distance tile content)
+- `src/fit-text.js` — `fitText`, `keepTextFitted`, `MIN_FIT_SCALE` (ring step count fit-to-width)
 - `src/main.js` — wiring; goal-change fan-out (`streakUI`, `calendarUI`, `weekUI`)
 - `index.html` — `.today-card` with `#today-progress` and the six tile slots (`#tile-distance`, `#tile-strict`, `#tile-lifetime`, `#tile-tol99`, `#tile-tol95`, `#tile-best`)
 - `styles.css` — `.today-card`, `.today-head`, `.goal-chip`, `.ring*`, `.remaining-hint`, `.goal-met-badge`, `.today-tiles`, `.stat-tile*`

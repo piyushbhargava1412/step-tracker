@@ -1305,7 +1305,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     vi.spyOn(console, 'error').mockImplementation(() => {});
     auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
     reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() };
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
   });
 
   afterEach(() => {
@@ -1406,7 +1406,8 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const pending = engine.sync();
 
     expect(syncBtn().disabled).toBe(true);
-    expect(syncBtn().textContent).toBe('Syncing…');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(true);
+    expect(syncBtn().getAttribute('aria-busy')).toBe('true');
 
     release();
     await pending;
@@ -1424,7 +1425,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     expect(syncBtn().disabled).toBe(false);
   });
 
-  it('#sync-btn.textContent is restored to exactly "Sync Steps" in finally', async () => {
+  it('#sync-btn keeps its icon and drops the busy state in finally', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(TODAY);
     db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
@@ -1433,7 +1434,9 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     const engine = createStepSync(createFitStepSource(auth, reporter), db, reporter, document);
     await engine.sync();
 
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().querySelector('svg.icon')).not.toBeNull();
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
+    expect(syncBtn().getAttribute('aria-busy')).toBe('false');
   });
 
   it('a doc whose getElementById("sync-btn") returns null → sync() completes normally without throw', async () => {
@@ -1608,7 +1611,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
       Math.round((backfillEndMs - anchorMs) / BUCKET_MS);
 
     expect(lastSyncMessage()).toBe(
-      `✅ Synced ${dayCount} days — history now goes back to 2024-01-10; click Sync Steps again to continue the backfill.`
+      `✅ Synced ${dayCount} days — history now goes back to 2024-01-10; sync again to continue the backfill.`
     );
   });
 
@@ -1678,7 +1681,7 @@ describe('Task 9: sync() orchestrator — guards, run loop, progress and success
     expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
     expect(lastSyncMessage()).not.toContain('✅');
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
 
     failMidBackfill = false;
     callNo = 0;
@@ -1740,7 +1743,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     vi.spyOn(console, 'error').mockImplementation(() => {});
     auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
     db = {};
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
     syncStatus = document.createElement('div');
     syncStatus.id = 'sync-status';
     document.body.appendChild(syncStatus);
@@ -1796,12 +1799,12 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await pending;
 
     const expected =
-      '❌ Sync stopped at chunk 2/2 — Google Fit returned 429 twice. 1 days saved; click Sync Steps to resume.';
+      '❌ Sync stopped at chunk 2/2 — Google Fit returned 429 twice. 1 days saved; sync again to resume.';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(statusText()).not.toMatch(/^⏳/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith(
       '[steps]',
       expect.objectContaining({ name: SYNC_ERROR_NAME, kind: FAILURE_RETRY_EXHAUSTED, status: 429 })
@@ -1827,12 +1830,12 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to 2025-06-09).';
+      '🔑 Session expired — reconnect your Google Account, then sync again to continue (history synced back to 2025-06-09).';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(statusText()).not.toMatch(/^⏳/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith(
       '[steps]',
       expect.objectContaining({ kind: FAILURE_AUTH_EXPIRED, status: 401 })
@@ -1853,7 +1856,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '🔑 Session expired — reconnect your Google Account, then click Sync Steps to continue (history synced back to the beginning).';
+      '🔑 Session expired — reconnect your Google Account, then sync again to continue (history synced back to the beginning).';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
   });
@@ -1874,12 +1877,12 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '❌ Sync stopped at chunk 1/1 — Google Fit returned 403. 0 days saved; click Sync Steps to resume.';
+      '❌ Sync stopped at chunk 1/1 — Google Fit returned 403. 0 days saved; sync again to resume.';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(statusText()).not.toMatch(/^⏳/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith(
       '[steps]',
       expect.objectContaining({ kind: FAILURE_HTTP_ERROR, status: 403 })
@@ -1905,12 +1908,12 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '❌ Sync stopped at chunk 1/1 — network error. 0 days saved; click Sync Steps to resume.';
+      '❌ Sync stopped at chunk 1/1 — network error. 0 days saved; sync again to resume.';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(statusText()).not.toMatch(/^⏳/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith(
       '[steps]',
       expect.objectContaining({ kind: FAILURE_NETWORK_ERROR, status: null })
@@ -1943,7 +1946,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(lastSyncMessage()).toMatch(/^✅/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
   });
 
   // ── Persistence (Dexie) error ─────────────────────────────────────────────
@@ -1975,12 +1978,12 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '❌ Sync stopped while saving chunk 2/2 — database error. 1 days saved; click Sync Steps to resume.';
+      '❌ Sync stopped while saving chunk 2/2 — database error. 1 days saved; sync again to resume.';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(statusText()).not.toMatch(/^⏳/);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
     // Chunk 1 (2025-05-17) persisted; chunk 2 (2025-04-28) never landed.
     expect(db._rows.has('2025-05-17')).toBe(true);
@@ -2002,7 +2005,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(statusText()).toBe('🔑 Connect your Google Account first');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
   });
 
   it('empty-string token is treated the same as missing — guard fires before any fetch', async () => {
@@ -2048,7 +2051,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(statusText()).toBe(lastSyncMessage());
     expect(statusText()).not.toContain('❌');
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(console.error).toHaveBeenCalledWith('[steps]', latchError);
   });
 
@@ -2073,11 +2076,11 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     await engine.sync();
 
     const expected =
-      '❌ Sync stopped while saving chunk 1/1 — database error. 0 days saved; click Sync Steps to resume.';
+      '❌ Sync stopped while saving chunk 1/1 — database error. 0 days saved; sync again to resume.';
     expect(lastSyncMessage()).toBe(expected);
     expect(statusText()).toBe(expected);
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith('[steps]', expect.any(Error));
   });
@@ -2116,7 +2119,7 @@ describe('Task 10: sync() error contract — every terminal path and the finally
     expect(lastSyncMessage()).toContain('up to date');
     expect(statusText()).toBe(lastSyncMessage());
     expect(syncBtn().disabled).toBe(false);
-    expect(syncBtn().textContent).toBe('Sync Steps');
+    expect(syncBtn().classList.contains('is-syncing')).toBe(false);
     expect(db.settings.put).not.toHaveBeenCalled();
   });
 
@@ -2916,7 +2919,7 @@ describe('Task ST-010-2: Hourly fetch in sync() orchestrator', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
     reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
     db = makeStatefulDb({
       seed: [seedRow('2013-01-01'), seedRow('2025-06-12')],
       flag: { key: BACKFILL_COMPLETE_KEY, value: true },
@@ -3047,7 +3050,7 @@ describe('Task 16: parallel daily + hourly fetches in sync()', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     auth = { getAccessToken: vi.fn().mockReturnValue('tok-abc') };
     reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
     db = makeStatefulDb({
       seed: [seedRow('2013-01-01'), seedRow('2025-06-12')],
       flag: { key: BACKFILL_COMPLETE_KEY, value: true },
@@ -3189,7 +3192,7 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn(() => { throw new Error('fetch must not be called'); }));
     reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
   });
 
   afterEach(() => {
@@ -3237,7 +3240,7 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
     await createStepSync(source, db, reporter, document).sync();
 
     expect(lastSyncMessageFor(reporter)).toBe(
-      '❌ Sync stopped at chunk 1/1 — Fake Health returned 403. 0 days saved; click Sync Steps to resume.'
+      '❌ Sync stopped at chunk 1/1 — Fake Health returned 403. 0 days saved; sync again to resume.'
     );
   });
 
@@ -3252,7 +3255,7 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
     await createStepSync(source, db, reporter, document).sync();
 
     expect(lastSyncMessageFor(reporter)).toBe(
-      '🔑 Fake Health access was revoked — grant it again, then click Sync Steps to continue (history synced back to 2013-01-01).'
+      '🔑 Fake Health access was revoked — grant it again, then sync again to continue (history synced back to 2013-01-01).'
     );
   });
 
@@ -3290,7 +3293,7 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
 
     await engine.sync();
     expect(btn.disabled).toBe(false);
-    expect(btn.textContent).toBe('Sync Steps');
+    expect(btn.classList.contains('is-syncing')).toBe(false);
 
     ready = true;
     await engine.sync();
@@ -3320,7 +3323,7 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
     await createStepSync(source, db, reporter, document).sync();
 
     expect(lastSyncMessageFor(reporter)).toBe(
-      '❌ Sync stopped at chunk 1/1 — Fake Health data could not be read. 0 days saved; click Sync Steps to resume.'
+      '❌ Sync stopped at chunk 1/1 — Fake Health data could not be read. 0 days saved; sync again to resume.'
     );
   });
 
@@ -3362,7 +3365,7 @@ describe('Configured sync anchor drives the backfill latch and messages (default
     vi.setSystemTime(TODAY);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     reporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn(), status: vi.fn() };
-    document.body.innerHTML = '<button id="sync-btn">Sync Steps</button>';
+    document.body.innerHTML = '<button id="sync-btn" aria-label="Sync steps"><svg class="icon"></svg></button>';
   });
 
   afterEach(() => {
