@@ -50,7 +50,7 @@ arrives with ST-020).
 
 ## Error Surface
 - Steps read rejected with code `permission-denied` → `FAILURE_AUTH_EXPIRED` →
-  `🔑 Health Connect access was removed — tap "Connect Health Connect" to allow it again, then click Sync Steps…`
+  `🔑 Health Connect access was removed — tap "Connect Health Connect" to allow it again, then sync again to continue…`
 - Any other steps read failure → `FAILURE_SOURCE_ERROR` → `❌ Sync stopped at chunk i/n — Health Connect data could not be read.`
 - Distance read failure → logged `[health-connect] distance read failed`; day's distance estimated.
 - Not ready → `🔑 Tap "Connect Health Connect" to allow step access first`.

@@ -14,6 +14,8 @@
 
 import { getTodayRecord, computeProgress } from './progress.js';
 import { STEP_GOAL_KM_HINTS, STEP_GOAL_OPTIONS } from './goal.js';
+import { fillStatTile } from './stat-tile.js';
+import { keepTextFitted } from './fit-text.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const RING_SIZE = 220;
@@ -44,6 +46,9 @@ export function _goalOptionLabel(steps) {
  * @returns {{ render: Function }}
  */
 export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
+  // Stops fitting the previous render's step count (its node is replaced).
+  let stopFittingSteps = () => {};
+
   function _el(tag, className, textContent) {
     const node = doc.createElement(tag);
     if (className) node.className = className;
@@ -111,23 +116,23 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     ring.appendChild(svg);
 
     const middle = _el('div', 'ring__center');
+    const stepCount = _el('span', 'ring__steps', steps.toLocaleString('en-US'));
     middle.append(
-      _el('span', 'ring__steps', steps.toLocaleString('en-US')),
+      stepCount,
       _el('span', 'ring__goal', `of ${target_steps.toLocaleString('en-US')} steps`),
       _el('span', 'ring__pct', `${pct}%`),
     );
     ring.appendChild(middle);
+    // Large counts at a large system font size would spill past the ring.
+    stopFittingSteps();
+    stopFittingSteps = keepTextFitted(stepCount, middle);
     return ring;
   }
 
   function _fillDistanceTile(distanceKm) {
     const tile = doc.getElementById('tile-distance');
     if (!tile) return;
-    tile.replaceChildren(
-      _el('span', 'stat-tile__label', 'Distance'),
-      _el('span', 'stat-tile__value', `${distanceKm.toFixed(1)} km`),
-      _el('span', 'stat-tile__sub', 'today'),
-    );
+    fillStatTile(doc, tile, { label: 'Distance', num: distanceKm.toFixed(1), unit: 'km', sub: 'today' });
   }
 
   /**

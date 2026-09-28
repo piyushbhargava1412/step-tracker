@@ -10,10 +10,11 @@
  * (#tile-distance belongs to progress-ui.js.)
  *
  * Idempotent: each render replaces tile content. Fail-open: render() never
- * throws or rejects. Every node is built with createElement/textContent.
+ * throws or rejects. Tile content is built by stat-tile.js.
  */
 
 import { DEFAULT_STEP_GOAL } from './goal.js';
+import { fillStatTile } from './stat-tile.js';
 
 /** Zero-state result used when streak.compute() rejects. */
 function _zeroState() {
@@ -26,7 +27,8 @@ function _zeroState() {
 }
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
-const days = (n) => `${fmt(n)} ${n === 1 ? 'day' : 'days'}`;
+/** A day count as a tile value: { num: '1,910', unit: 'days' }. */
+const days = (n) => ({ num: fmt(n), unit: n === 1 ? 'day' : 'days' });
 const misses = (n) => `${fmt(n)} ${n === 1 ? 'miss' : 'misses'} used`;
 
 /** 10000 → "10k", 8500 → "8.5k". */
@@ -44,7 +46,7 @@ function _yearSpan(startDate, endDate) {
 
 /**
  * The tiles to draw, from a streak.compute() result.
- * @returns {Array<{ id: string, label: string, value: string, sub: string, good?: boolean }>}
+ * @returns {Array<{ id: string, label: string, num: string, unit?: string, sub: string, good?: boolean }>}
  */
 export function _buildTiles(result) {
   const tolerance = result.tolerance ?? _zeroState().tolerance;
@@ -53,31 +55,31 @@ export function _buildTiles(result) {
   const best = Array.isArray(result.hallOfFame) ? result.hallOfFame[0] : undefined;
 
   return [
-    { id: 'tile-strict', label: 'Strict', value: days(tolerance.actual ?? 0), sub: 'every day at 100%' },
+    { id: 'tile-strict', label: 'Strict', ...days(tolerance.actual ?? 0), sub: 'every day at 100%' },
     {
       id: 'tile-lifetime',
       label: 'Lifetime',
-      value: `${Math.round(pct)}%`,
+      num: `${Math.round(pct)}%`,
       sub: `${fmt(metDays)} of ${fmt(totalDays)} days`,
     },
     {
       id: 'tile-tol99',
       label: '99% tol',
-      value: days(tolerance.allowance99 ?? 0),
+      ...days(tolerance.allowance99 ?? 0),
       sub: misses(tolerance.misses99 ?? 0),
       good: (tolerance.misses99 ?? 0) === 0,
     },
     {
       id: 'tile-tol95',
       label: '95% tol',
-      value: days(tolerance.allowance95 ?? 0),
+      ...days(tolerance.allowance95 ?? 0),
       sub: misses(tolerance.misses95 ?? 0),
       good: (tolerance.misses95 ?? 0) === 0,
     },
     {
       id: 'tile-best',
       label: 'Best run',
-      value: best ? days(best.days) : '—',
+      ...(best ? days(best.days) : { num: '—' }),
       sub: best ? `at ${_goalShort(goal)} · ${_yearSpan(best.startDate, best.endDate)}` : 'no run yet',
     },
   ];
@@ -90,13 +92,6 @@ export function _buildTiles(result) {
  * @returns {{ render: () => Promise<void> }}
  */
 export function createStreakUI(doc, streak, reporter) {
-  function _span(className, text) {
-    const node = doc.createElement('span');
-    node.className = className;
-    node.textContent = text;
-    return node;
-  }
-
   async function render() {
     let result;
     try {
@@ -107,14 +102,9 @@ export function createStreakUI(doc, streak, reporter) {
       result = _zeroState();
     }
 
-    for (const { id, label, value, sub, good } of _buildTiles(result ?? _zeroState())) {
+    for (const { id, ...tile } of _buildTiles(result ?? _zeroState())) {
       const el = doc.getElementById(id);
-      if (!el) continue;
-      el.replaceChildren(
-        _span('stat-tile__label', label),
-        _span('stat-tile__value', value),
-        _span(good ? 'stat-tile__sub stat-tile__sub--good' : 'stat-tile__sub', sub),
-      );
+      if (el) fillStatTile(doc, el, tile);
     }
   }
 

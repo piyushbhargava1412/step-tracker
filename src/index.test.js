@@ -67,6 +67,19 @@ describe('index.html — Today screen', () => {
     expect(document.getElementById('sync-btn').getAttribute('aria-label')).toBe('Sync steps');
   });
 
+  it('groups the three statuses apart from the sync button, so they can wrap while it stays put', () => {
+    const pills = [...today.querySelectorAll('.status-line > .status-pills > [id]')].map((el) => el.id);
+    expect(pills).toEqual(['auth-status', 'last-sync', 'db-status']);
+    expect(today.querySelector('.status-line > #sync-btn')).not.toBeNull();
+  });
+
+  it('the sync button is an icon with a tooltip', () => {
+    const btn = document.getElementById('sync-btn');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent.trim()).toBe('');
+    expect(btn.getAttribute('title')).toBe('Sync steps');
+  });
+
   it('has one progress panel with the ring mount and six stat tiles in order', () => {
     const card = today.querySelector('.today-card');
     expect(card.querySelector('#today-progress')).not.toBeNull();
