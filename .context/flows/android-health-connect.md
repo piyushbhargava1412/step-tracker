@@ -53,6 +53,17 @@ arrives with ST-020).
 - Distance read failure → logged `[health-connect] distance read failed`; day's distance estimated.
 - Not ready → `🔑 Tap "Connect Health Connect" to allow step access first`.
 
+## Google Drive in the app (ST-020)
+- `selectAuth` (`src/platform/auth.js`) → `createNativeGoogleAuth` (Credential Manager via the lazily
+  loaded `@capgo/capacitor-social-login`), scope `drive.appdata` only, never writes the header status.
+- Drive panel → **Connect Google Drive** (`src/platform/native/google-drive-connection.js`, flag
+  `google_drive_connected`, silent restore at launch; `onConnected` re-renders the panel via
+  `data:drive-sync:refresh`).
+- **Make this the primary device** → `primary_device` settings row + immediate upload; only the
+  primary auto-uploads (see `.context/flows/backup-and-cloud-sync.md`).
+- `MainActivity` implements `ModifiedMainActivityForSocialLoginPlugin` and forwards Google's consent
+  result (required for scoped sign-in).
+
 ## Behaviour Notes
 - Health Connect aggregates honour the user's **data-source priority list** (de-duplication across
   phone/watch/apps); the app shows the same totals as the Health Connect app. A source not on the

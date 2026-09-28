@@ -23,6 +23,17 @@ backup first (see `.context/flows/historical-step-sync.md`, step 2) so a fresh b
 never misreads an already-active Google account as brand new. Google Drive access requires the
 `drive.appdata` OAuth scope, added to the token request in `src/auth.js`.
 
+> **Primary device (ST-020).** Drive keeps one file that every upload replaces, so exactly one
+> installation is the *primary device* (`src/primary-device.js`): only it auto-uploads after a
+> sync; others ask before a manual upload replaces a known primary's backup. The primary is the
+> `primary_device` settings row (inside every backup) and is mirrored by `driveSync.push` into the
+> Drive file's `appProperties` (`primaryDeviceId/Label`, `primarySince`);
+> `driveSync.readPrimaryDevice()` reads it metadata-only and throws when Drive can't be asked.
+> `primaryDevice.otherPrimary()` asks Drive first, persists what it learns, and **fails closed**.
+> In the Android app the Drive panel also has **Connect Google Drive** (native sign-in, silent
+> restore at launch via the `google_drive_connected` flag) and **Make this the primary device**
+> (records it, then uploads immediately). See `.context/flows/android-health-connect.md`.
+
 ## Entry Points
 - **Type**: UI Event (browser) — manual local backup
   - `#tab-backup` → `[data-action="export-backup"]` click → download a JSON backup file → records the export timestamp via `settings.setLastLocalExport`
@@ -35,7 +46,7 @@ never misreads an already-active Google account as brand new. Google Drive acces
   - After every `stepSync.sync()` completes successfully, `src/steps.js` fires a fire-and-forget push to Drive (see Core Path below)
 - **Type**: App lifecycle (browser) — automatic empty-local-DB restore
   - At the start of every `stepSync.sync()` call, `src/steps.js` checks `db.daily_records.count()`; a `0` count pulls and restores the account's Drive backup before the Fit fetch loop runs (see Core Path below and `.context/flows/historical-step-sync.md`, step 2)
-- **File**: `src/backup.js`, `src/backup-ui.js` (local backup), `src/backup-format.js` (metadata-line formatting), `src/drive-sync.js`, `src/drive-sync-ui.js` (cloud sync), `src/steps.js` (post-sync push hook + pre-sync empty-DB restore hook), `src/settings.js` (opt-out preference + last-export/last-sync metadata), `src/auth.js` (Drive OAuth scope), `src/main.js` (wiring), `index.html` (`#tab-backup`, `#backup-controls`, `#cloud-controls`)
+- **File**: `src/backup.js`, `src/backup-ui.js` (local backup), `src/backup-format.js` (metadata-line formatting), `src/drive-sync.js`, `src/drive-sync-ui.js` (cloud sync), `src/primary-device.js` (primary-device rule, ST-020), `src/platform/auth.js` + `src/platform/native/google-auth.js` (Google sign-in per platform), `src/steps.js` (post-sync push hook + pre-sync empty-DB restore hook), `src/settings.js` (opt-out preference + last-export/last-sync metadata), `src/auth.js` (Drive OAuth scope), `src/main.js` (wiring), `index.html` (`#tab-backup`, `#backup-controls`, `#cloud-controls`)
 
 ## Core Path
 
@@ -78,7 +89,7 @@ never misreads an already-active Google account as brand new. Google Drive acces
    otherwise fetches and JSON-parses the file, then runs the injected `validator` (wired to
    `backup.js`'s `_validateEnvelope`) over the **untrusted remote payload** before returning — a
    validator rejection re-throws as `TypeError` so no restore write ever happens on a tampered payload.
-7. `createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator)`
+7. `createDriveSyncUI(doc, driveSync, backup, reporter, confirmFn, driveBackupPrefs, nav = navigator, { driveConnection, primaryDevice, canMakePrimary })` (the options object is ST-020; without it the panel is unchanged)
    renders "☁️ Back Up to Drive" / "🔄 Restore from Drive" buttons (the restore button paired with an
    amber "⚠️ Overwrites local database" badge) plus the auto-upload toggle inline beside the backup
    button, and a "🕒 Last cloud sync: …" metadata line (`driveBackupPrefs.getLastDriveSync()` /

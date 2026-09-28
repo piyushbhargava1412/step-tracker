@@ -1,6 +1,6 @@
 # Health Connect & Android App Roadmap
 
-> Status: in progress · ST-016 merged; ST-017–ST-019 built and emulator-verified · 2026-09-28
+> Status: in progress · ST-016–ST-019 merged; ST-020 built and emulator-verified · 2026-09-28
 > Goal: keep step data flowing after the Google Fit REST API shuts down (end of 2026) by reading from
 > **Health Connect** inside an **Android app** (Capacitor), without losing any stored history.
 > Out of scope for now: iOS / HealthKit, wearables-only sources, Play Billing.
