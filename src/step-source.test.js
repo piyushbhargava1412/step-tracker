@@ -5,6 +5,7 @@ import {
   FAILURE_RETRY_EXHAUSTED,
   FAILURE_HTTP_ERROR,
   FAILURE_NETWORK_ERROR,
+  FAILURE_SOURCE_ERROR,
   syncFailure,
   assertStepSource,
 } from './step-source.js';
@@ -29,6 +30,7 @@ describe('ST-016: step-source.js — StepSource port and classified-failure voca
       expect(FAILURE_RETRY_EXHAUSTED).toBe('retry-exhausted');
       expect(FAILURE_HTTP_ERROR).toBe('http-error');
       expect(FAILURE_NETWORK_ERROR).toBe('network-error');
+      expect(FAILURE_SOURCE_ERROR).toBe('source-error');
     });
   });
 

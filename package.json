@@ -7,12 +7,23 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:native": "vite build --mode native",
+    "cap:sync": "npm run build:native && cap sync android",
+    "android:open": "cap open android",
+    "android:run": "npm run cap:sync && cap run android",
+    "android:assets": "sh scripts/generate-android-assets.sh"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capgo/capacitor-health": "^8.11.4",
     "dexie": "^4"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^30.0.1",
     "vite": "^8.2.1",

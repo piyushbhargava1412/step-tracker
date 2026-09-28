@@ -28,6 +28,7 @@ import {
   FAILURE_HTTP_ERROR,
   FAILURE_RETRY_EXHAUSTED,
   FAILURE_NETWORK_ERROR,
+  FAILURE_SOURCE_ERROR,
   syncFailure,
 } from './step-source.js';
 import {
@@ -2398,6 +2399,9 @@ describe('Pre-sync Drive restore recovery (empty local DB on this device)', () =
     await engine.sync();
 
     expect(driveSync.pull).toHaveBeenCalledTimes(1);
+    // A background recovery attempt: never reports "Drive unavailable" into the
+    // connection status (in the Android app the sync runs without Google).
+    expect(driveSync.pull).toHaveBeenCalledWith({ silent: true });
     expect(backup.restoreBackup).toHaveBeenCalledWith(envelope);
     expect(callOrder.indexOf('restore')).toBeLessThan(callOrder.indexOf('fit-fetch'));
     const messages = reporter.sync.mock.calls.map(([m]) => m);
@@ -3249,6 +3253,74 @@ describe('ST-016: sync() depends only on the StepSource port', () => {
 
     expect(lastSyncMessageFor(reporter)).toBe(
       '🔑 Fake Health access was revoked — grant it again, then click Sync Steps to continue (history synced back to 2013-01-01).'
+    );
+  });
+
+  it('awaits an asynchronous isReady() (Health Connect checks permissions asynchronously)', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const notReady = makeFakeSource({ isReady: vi.fn(async () => false) });
+
+    await createStepSync(notReady, db, reporter, document).sync();
+
+    expect(notReady.fetchDays).not.toHaveBeenCalled();
+    expect(lastSyncMessageFor(reporter)).toBe('🔑 Grant Fake Health access first');
+
+    const ready = makeFakeSource({ isReady: vi.fn(async () => true) });
+    await createStepSync(ready, db, reporter, document).sync();
+    expect(ready.fetchDays).toHaveBeenCalledTimes(1);
+  });
+
+  it('an overlapping sync() is ignored even while an async isReady() is pending', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const source = makeFakeSource({ isReady: vi.fn(async () => true) });
+    const engine = createStepSync(source, db, reporter, document);
+
+    await Promise.all([engine.sync(), engine.sync()]);
+
+    expect(source.isReady).toHaveBeenCalledTimes(1);
+    expect(source.fetchDays).toHaveBeenCalledTimes(1);
+  });
+
+  it('a not-ready source leaves the button untouched and a later sync can still run', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    let ready = false;
+    const source = makeFakeSource({ isReady: vi.fn(async () => ready) });
+    const engine = createStepSync(source, db, reporter, document);
+    const btn = document.getElementById('sync-btn');
+
+    await engine.sync();
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe('Sync Steps');
+
+    ready = true;
+    await engine.sync();
+    expect(source.fetchDays).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rejecting isReady() is treated as not ready and logged', async () => {
+    const db = makeStatefulDb();
+    const failure = new Error('plugin gone');
+    const source = makeFakeSource({ isReady: vi.fn(async () => { throw failure; }) });
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(source.fetchDays).not.toHaveBeenCalled();
+    expect(lastSyncMessageFor(reporter)).toBe('🔑 Grant Fake Health access first');
+    expect(console.error).toHaveBeenCalledWith('[steps]', failure);
+  });
+
+  it('renders a source-error failure as "<label> could not be read"', async () => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-12')] });
+    const source = makeFakeSource({
+      fetchDays: vi.fn(async (_chunk, { index, total, phase }) => {
+        throw syncFailure({ kind: FAILURE_SOURCE_ERROR, status: null, index, total, phase });
+      }),
+    });
+
+    await createStepSync(source, db, reporter, document).sync();
+
+    expect(lastSyncMessageFor(reporter)).toBe(
+      '❌ Sync stopped at chunk 1/1 — Fake Health data could not be read. 0 days saved; click Sync Steps to resume.'
     );
   });
 

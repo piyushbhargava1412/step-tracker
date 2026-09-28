@@ -176,10 +176,17 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
     }
   }
 
-  async function pull() {
+  /**
+   * Download the latest backup envelope. `silent` mirrors push(): a background
+   * attempt (the pre-sync empty-DB recovery) must not write "Drive
+   * unavailable" into the connection status when there is no Google token.
+   */
+  async function pull({ silent = false } = {}) {
     const token = getAccessToken();
     if (!token) {
-      reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
+      if (!silent) {
+        reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
+      }
       return;
     }
 

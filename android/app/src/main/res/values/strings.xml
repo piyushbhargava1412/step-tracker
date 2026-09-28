@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Step Tracker</string>
+    <string name="title_activity_main">Step Tracker</string>
+    <string name="package_name">com.piyushbhargava.steptracker</string>
+    <string name="custom_url_scheme">com.piyushbhargava.steptracker</string>
+</resources>

@@ -7,7 +7,12 @@ import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { createStepSync } from './steps.js'
-import { createFitStepSource } from './fit-step-source.js'
+import { Health } from '@capgo/capacitor-health'
+import { AppLauncher } from '@capacitor/app-launcher'
+import { isNativePlatform } from './platform/capabilities.js'
+import { createFileSaver } from './platform/files.js'
+import { selectStorageManager } from './platform/storage-manager.js'
+import { selectStepSource, connectLabelFor } from './platform/step-source.js'
 import { initTabs } from './tabs.js'
 import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
@@ -48,11 +53,6 @@ import { computeOdysseyProgress } from './odyssey.js'
 
 const MS_PER_DAY = 86_400_000
 
-// localStorage key recording that the user has connected their Google account.
-// Only a boolean flag is stored — never the access token itself. On a later
-// page load it signals the composition root to attempt a silent session
-// restore (GSI `prompt: ''`), so a refresh no longer forces a reconnect.
-export const GOOGLE_CONNECTED_KEY = 'google_connected'
 
 /**
  * Render the header's "Sync: X days ago" label from the most recently synced
@@ -77,8 +77,14 @@ export async function _renderLastSyncLabel(db, doc = document) {
 }
 
 export async function bootstrap(doc = document, storage = window.localStorage) {
+  // 0. Platform: the Android app (Capacitor) or a browser. Everything that
+  //    differs between them is chosen here, through src/platform/*.
+  const isNative = isNativePlatform()
+  const storageManager = selectStorageManager({ isNative, nav: navigator })
+  const fileSaver = createFileSaver({ isNative, doc })
+
   // 1. Build shared reporter
-  const reporter = createStatusReporter(doc)
+  const reporter = createStatusReporter(doc, { connectLabel: connectLabelFor(isNative) })
 
   // 2. Config object — expose CLIENT_ID as a plain object for injection
   const config = { CLIENT_ID }
@@ -93,7 +99,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // 4. Request persistent storage (fail-open)
   try {
-    await requestPersistentStorage(reporter)
+    await requestPersistentStorage(reporter, storageManager)
   } catch (err) {
     console.error('[main] requestPersistentStorage failed, continuing', err)
   }
@@ -116,7 +122,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const records = createRecords(db)
   const monthOverview = createMonthOverview(doc, calendar, reporter)
   const search = createSearch(db)
-  const exporter = createExporter(doc)
+  const exporter = createExporter(fileSaver)
   const searchUI = createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage)
   const calendarUI = createCalendarUI(doc, db, calendar, reporter, records, processImage, monthOverview)
   const challenge = createChallenge(db)
@@ -136,7 +142,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // now that settings is available (fail-open — a read error leaves whatever
   // requestPersistentStorage already wrote in place).
   try {
-    await refreshStorageProtectionBadge(reporter, settings, navigator)
+    await refreshStorageProtectionBadge(reporter, settings, storageManager)
   } catch (err) {
     console.error('[main] refreshStorageProtectionBadge failed, continuing', err)
   }
@@ -150,7 +156,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createBackup failed, continuing', err)
   }
   try {
-    backupUI = createBackupUI(doc, backup, reporter, createConfirmAdapter(window), settings)
+    backupUI = createBackupUI(doc, backup, reporter, createConfirmAdapter(window), settings, fileSaver)
   } catch (err) {
     console.error('[main] createBackupUI failed, continuing', err)
   }
@@ -164,7 +170,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, navigator)
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, storageManager)
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
@@ -173,17 +179,19 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // persistence modal with a plain status panel + direct-action button.
   let storageHealthUI = null
   try {
-    storageHealthUI = createStorageHealthUI(doc, settings, reporter, navigator)
+    storageHealthUI = createStorageHealthUI(doc, settings, reporter, storageManager)
   } catch (err) {
     console.error('[main] createStorageHealthUI failed, continuing', err)
   }
 
   // ST-013: Service Worker registration (fail-open; PROD-gated inside the
   // factory — the dev server must never register a SW over Vite HMR assets).
+  // ST-017: never inside the Android app, whose assets ship in the APK — a
+  // service worker there would keep serving the previous version's files.
   // Fire-and-forget: bootstrap does not block on worker install; the factory
   // never rejects, but a .catch() guards against unexpected async rejection.
   try {
-    createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } })
+    createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD && !isNative } })
       .register()
       .catch((err) => console.error('[main] SW registration failed, continuing', err))
   } catch (err) {
@@ -191,7 +199,16 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
-  const stepSync = createStepSync(createFitStepSource(auth, reporter), db, reporter, doc, driveSync, backup, settings)
+  // ST-019: Google Fit in the browser, Health Connect in the Android app.
+  const { source: stepSource, connection } = selectStepSource({
+    isNative,
+    auth,
+    reporter,
+    storage,
+    health: Health,
+    launcher: AppLauncher,
+  })
+  const stepSync = createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings)
 
   // Mount backup + cloud + storage-health panels into their own containers so
   // no render clears another's output (each render() wipes its container first).
@@ -246,14 +263,18 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     }
   })
 
-  // 7. Bind auth button. Connect/Reconnect is a storage-protection-relevant
-  // user gesture: silently request navigator.storage.persist() alongside it
-  // (fire-and-forget — never blocks or delays the auth flow).
+  // 7. Bind auth button: Google sign-in in the browser, Health Connect access
+  // in the Android app (the platform connection decides). Connect/Reconnect is
+  // a storage-protection-relevant user gesture: silently request persistence
+  // alongside it (fire-and-forget — never blocks or delays the connect flow).
   const authBtn = doc.getElementById('auth-btn')
   if (authBtn) {
+    authBtn.textContent = connection.label
     authBtn.addEventListener('click', () => {
-      auth.requestToken()
-      requestSilentPersistAndRefreshBadge(reporter, settings, navigator).catch((err) => {
+      Promise.resolve(connection.connect()).catch((err) => {
+        console.error('[main] connect failed, continuing', err)
+      })
+      requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
         console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
       })
     })
@@ -302,29 +323,18 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     }
   }
 
-  // 7b. Auto-sync the moment a token arrives — from the first connect click or
-  // a silent session restore — so the user never has to hit Sync Steps twice.
-  // The flag is persisted so the next page load knows to attempt a restore.
-  auth.onTokenReceived(async () => {
-    try {
-      storage?.setItem(GOOGLE_CONNECTED_KEY, '1')
-    } catch (err) {
-      console.error('[main] failed to persist google connection flag, continuing', err)
-    }
-    await runSync()
-  })
+  // 7b. Auto-sync the moment a connection succeeds — from the first connect
+  // click or a silent restore at startup — so the user never has to hit Sync
+  // Steps twice.
+  connection.onConnected(runSync)
 
-  // 7c. Restore the connection after a refresh: when the user connected before,
-  // ask GSI to silently hand back a fresh token (`prompt: ''` never shows UI).
-  // The 7b hook fires on success and auto-syncs. If Google's session expired,
-  // the callback delivers an error and the user simply clicks Connect again.
-  try {
-    if (storage?.getItem(GOOGLE_CONNECTED_KEY) === '1') {
-      auth.requestToken({ prompt: '' })
-    }
-  } catch (err) {
-    console.error('[main] failed to read google connection flag, continuing', err)
-  }
+  // 7c. Restore the connection at startup without UI: a silent Google token
+  // when the user connected before (web), or Health Connect access that was
+  // already granted (Android). 7b then auto-syncs. Fire-and-forget: startup
+  // never waits on it.
+  Promise.resolve(connection.restore()).catch((err) => {
+    console.error('[main] connection restore failed, continuing', err)
+  })
 
   // 8. Render settings modal interior at bootstrap (before wiring the button)
   try {
@@ -346,7 +356,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const syncBtn = doc.getElementById('sync-btn')
   if (syncBtn) {
     syncBtn.addEventListener('click', () => {
-      requestSilentPersistAndRefreshBadge(reporter, settings, navigator).catch((err) => {
+      requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
         console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
       })
       runSync()

@@ -128,7 +128,7 @@ vi.mock('./challenge-ui.js', () => ({
   createChallengeUI: vi.fn(() => mockChallengeUIInstance)
 }))
 
-const mockReporter = { db: vi.fn(), auth: vi.fn() }
+const mockReporter = { db: vi.fn(), auth: vi.fn(), sync: vi.fn() }
 vi.mock('./ui-status.js', () => ({
   createStatusReporter: vi.fn(() => mockReporter)
 }))
@@ -170,6 +170,24 @@ const mockFitStepSource = { label: 'Google Fit' }
 vi.mock('./fit-step-source.js', () => ({
   createFitStepSource: vi.fn(() => mockFitStepSource)
 }))
+
+// ST-017/018/019: platform detection + native plugins. Web by default; the
+// "Android app wiring" suite flips isNativePlatform to true.
+const mockIsNativePlatform = vi.fn(() => false)
+vi.mock('./platform/capabilities.js', () => ({
+  isNativePlatform: (...args) => mockIsNativePlatform(...args)
+}))
+const { mockHealth, mockAppLauncher } = vi.hoisted(() => ({
+  mockHealth: {
+    isAvailable: vi.fn().mockResolvedValue({ available: true }),
+    checkAuthorization: vi.fn().mockResolvedValue({ readAuthorized: [] }),
+    requestAuthorization: vi.fn().mockResolvedValue({ readAuthorized: ['steps', 'distance'] }),
+    queryAggregated: vi.fn().mockResolvedValue({ samples: [] }),
+  },
+  mockAppLauncher: { openUrl: vi.fn().mockResolvedValue({ completed: true }) },
+}))
+vi.mock('@capgo/capacitor-health', () => ({ Health: mockHealth }))
+vi.mock('@capacitor/app-launcher', () => ({ AppLauncher: mockAppLauncher }))
 
 // ST-015 Task 9: settings + settings-ui mocks
 const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn() }
@@ -386,8 +404,9 @@ describe('main.js — composition root bootstrap', () => {
     expect(createStatusReporter).toHaveBeenCalledTimes(1)
     // initDB receives reporter as second arg
     expect(initDB).toHaveBeenCalledWith(expect.anything(), mockReporter)
-    // requestPersistentStorage receives reporter as first arg
-    expect(requestPersistentStorage).toHaveBeenCalledWith(mockReporter)
+    // requestPersistentStorage receives reporter first and the platform
+    // storage manager (the browser navigator on web) second
+    expect(requestPersistentStorage).toHaveBeenCalledWith(mockReporter, navigator)
     // createAuth receives reporter as second arg
     expect(createAuth).toHaveBeenCalledWith(expect.anything(), mockReporter)
   })
@@ -523,7 +542,7 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
     await boot(storage)
     expect(mockAuthInstance.requestToken).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(
-      '[main] failed to read google connection flag, continuing',
+      '[google-fit-connection] failed to read the connection flag, continuing',
       expect.any(Error)
     )
     errorSpy.mockRestore()
@@ -1579,7 +1598,8 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockBackupInstance,
       mockReporter,
       mockConfirmAdapter,
-      mockSettingsInstance
+      mockSettingsInstance,
+      expect.objectContaining({ saveTextFile: expect.any(Function) })
     )
   })
 
@@ -2172,5 +2192,93 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
       .toBeLessThan(mockAnalyticsUIInstance.render.mock.invocationCallOrder[0])
     expect(mockCalendarUIInstance.render.mock.invocationCallOrder[0])
       .toBeLessThan(mockAnalyticsUIInstance.render.mock.invocationCallOrder[0])
+  })
+})
+
+describe('main.js — ST-017/018/019 platform wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockSwRegistrar.register.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockHealth.isAvailable.mockResolvedValue({ available: true })
+    mockHealth.checkAuthorization.mockResolvedValue({ readAuthorized: [] })
+    mockHealth.requestAuthorization.mockResolvedValue({ readAuthorized: ['steps', 'distance'] })
+  })
+
+  afterEach(() => {
+    mockIsNativePlatform.mockReturnValue(false)
+    document.body.innerHTML = ''
+  })
+
+  describe('in the browser', () => {
+    it('labels the connect button for Google and wires the Fit source', async () => {
+      await boot(makeStorage())
+      expect(createStatusReporter).toHaveBeenCalledWith(document, { connectLabel: 'Connect Google Account' })
+      expect(document.getElementById('auth-btn').textContent).toBe('Connect Google Account')
+      expect(createStepSync.mock.calls[0][0]).toBe(mockFitStepSource)
+    })
+
+    it('registers the service worker in production builds', async () => {
+      await boot(makeStorage())
+      expect(createSwRegister.mock.calls[0][0].config.prod).toBe(import.meta.env.PROD)
+    })
+
+    it('passes a FileSaver to the exporter and the backup panel', async () => {
+      await boot(makeStorage())
+      const [saver] = createExporter.mock.calls[0]
+      expect(typeof saver.saveTextFile).toBe('function')
+      expect(createBackupUI.mock.calls[0][5]).toBe(saver)
+    })
+  })
+
+  describe('in the Android app', () => {
+    beforeEach(() => {
+      mockIsNativePlatform.mockReturnValue(true)
+    })
+
+    it('labels the connect button for Health Connect and wires the Health Connect source', async () => {
+      await boot(makeStorage())
+      expect(createStatusReporter).toHaveBeenCalledWith(document, { connectLabel: 'Connect Health Connect' })
+      expect(document.getElementById('auth-btn').textContent).toBe('Connect Health Connect')
+      const source = createStepSync.mock.calls[0][0]
+      expect(source.label).toBe('Health Connect')
+      expect(createFitStepSource).not.toHaveBeenCalled()
+    })
+
+    it('never registers a service worker', async () => {
+      await boot(makeStorage())
+      expect(createSwRegister.mock.calls[0][0].config.prod).toBe(false)
+    })
+
+    it('treats app storage as always protected', async () => {
+      await boot(makeStorage())
+      const manager = requestPersistentStorage.mock.calls[0][1]
+      expect(manager).not.toBe(navigator)
+      await expect(manager.storage.persisted()).resolves.toBe(true)
+      expect(createStorageHealthUI.mock.calls[0][3]).toBe(manager)
+    })
+
+    it('the connect button asks Health Connect for access, then syncs', async () => {
+      await boot(makeStorage())
+      document.getElementById('auth-btn').click()
+      await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
+      expect(mockHealth.requestAuthorization).toHaveBeenCalledWith({ read: ['steps', 'distance'], requestHistoryAccess: true })
+      expect(mockAuthInstance.requestToken).not.toHaveBeenCalled()
+    })
+
+    it('syncs at startup when Health Connect access was granted before', async () => {
+      mockHealth.checkAuthorization.mockResolvedValue({ readAuthorized: ['steps', 'distance'] })
+      await boot(makeStorage())
+      await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
+      expect(mockHealth.requestAuthorization).not.toHaveBeenCalled()
+    })
+
+    it('does not sync at startup before access is granted', async () => {
+      await boot(makeStorage())
+      await Promise.resolve()
+      expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
+    })
   })
 })

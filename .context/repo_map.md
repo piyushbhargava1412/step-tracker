@@ -2,7 +2,7 @@
 
 ## Context Meta
 - verification-commit: `HEAD`
-- generated-at: `2026-09-08T04:03:55Z`
+- generated-at: `2026-09-28T13:00:00Z` (ST-017–ST-019 update)
 - confidence: `high`
 
 ## Top-Level Layout
@@ -18,7 +18,11 @@
   `main` (ST-013)
 - `package.json` — npm manifest; declares Vite, Vitest, Dexie dependencies
 - `package-lock.json` — lockfile
-- `vite.config.js` — Vite dev/build config and Vitest test config (`jsdom` environment)
+- `vite.config.js` — Vite dev/build config (mode-aware: `--mode native` adds `scripts/native-html.js`) and Vitest test config (`jsdom` environment)
+- `capacitor.config.json` — Capacitor config for the Android app (`appId` `com.piyushbhargava.steptracker`, `webDir: dist`) (ST-017)
+- `android/` — generated Capacitor Android project (committed; build outputs and `local.properties` ignored). Hand-edited: `app/src/main/AndroidManifest.xml` (health permissions + strip list), `app/build.gradle` (release signing from `ST_RELEASE_*`), `variables.gradle` (minSdk 26), `gradle/gradle-daemon-jvm.properties` (JDK 21), launcher/splash resources (ST-017/ST-019)
+- `scripts/` — `native-html.js` (+ test), `android-manifest.test.js` (health-permission guard), `generate-android-assets.sh` (icons/splash via `sips`)
+- `docs/plans/` — `health-connect-android-roadmap.md`, `android-release.md` (build/sign/install/emulator guide); `docs/slices/ST-016…ST-024`
 - `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
 - `README.md` — setup guide, Google Cloud Console registration, Step Sync engine documentation,
   Cloudflare Pages deployment, PWA install, and offline-usage documentation
@@ -26,16 +30,19 @@
 
 ## Tech Stack
 - Languages: JavaScript (ES modules), HTML, CSS, Markdown
-- Runtime: Browser-only frontend
+- Runtime: browser (PWA) and an Android app (Capacitor 8 WebView shell, `src/platform/*` chooses per platform)
 - Build / Dev server: Vite 8.x (`vite.config.js`)
 - Test framework: Vitest 4.x (jsdom environment, `src/*.test.js`)
 - Dependencies: Dexie 4 (IndexedDB wrapper, `src/db.js`)
 - External APIs:
   - Google Identity Services (`google.accounts.oauth2.initTokenClient`)
-  - Google Fitness REST aggregate endpoint (`users/me/dataset:aggregate`)
+  - Google Fitness REST aggregate endpoint (`users/me/dataset:aggregate`) — web step source
+  - Health Connect via `@capgo/capacitor-health` (`queryAggregated` hourly sums, `requestAuthorization` with history access) — Android step source (ST-019)
+  - `@capacitor/filesystem` (Android exports to `Documents/Step Tracker/`), `@capacitor/app-launcher` (Health Connect Play Store link)
 
 ## Dependency Managers
-- `npm` via `package.json` (Vite 8, Vitest 4, Dexie 4, @vitest/coverage-v8, jsdom)
+- `npm` via `package.json` (Vite 8, Vitest 4, Dexie 4, @vitest/coverage-v8, jsdom; Capacitor 8 core/android/cli, @capacitor/filesystem, @capacitor/app-launcher, @capgo/capacitor-health)
+- Gradle 8.14 (wrapper) for `android/`, daemon on JDK 21
 
 ## Entry Surfaces
 - `DOMContentLoaded` → `bootstrap()` in `src/main.js` (composition root)
@@ -59,7 +66,9 @@
 - `data:records:mutated` fan-out now also calls `searchUI.render()` (in addition to progressUI, streakUI, calendarUI, monthOverview, challengeUI)
 
 ## Implementation Areas
-- Composition root / bootstrap: `src/main.js`
+- Composition root / bootstrap: `src/main.js` (resolves `isNative` first, then the platform storage manager, file saver, and `{ source, connection }` via `selectStepSource`)
+- Platform layer (ST-018/019): `src/platform/capabilities.js` (`isNativePlatform`), `files.js` (`createFileSaver` → web download / native Documents), `storage-manager.js` (`selectStorageManager` — browser `navigator` or always-persisted in the app), `step-source.js` (`selectStepSource` → Fit + Google connection on web, Health Connect + Health Connect connection in the app; `connectLabelFor`), `web/google-fit-connection.js` (connect / silent restore via the `google_connected` flag), `native/health-connect-connection.js` (permission request incl. history, Play Store link, restore-at-launch)
+- Health Connect step source (ST-019): `src/health-connect-step-source.js` (`createHealthConnectStepSource(health, reporter)` — hourly `queryAggregated` sums grouped by local date, zero-fill, best-effort distance, `permission-denied` → `FAILURE_AUTH_EXPIRED`, other errors → `FAILURE_SOURCE_ERROR`)
 - Auth/token state management: `src/auth.js` (`createAuth` factory — `init`, `requestToken(options)` where `{ prompt: '' }` is a silent restore, `getAccessToken`, `onTokenReceived`)
 - Configuration validation: `src/config.js` (`VITE_CLIENT_ID` from `import.meta.env`)
 - IndexedDB setup: `src/db.js` (`createDb`, `initDB` via Dexie; `DB_VERSION = 6`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`); v6 backfills `hourly_steps: null` on legacy `daily_records` rows (ST-009)
@@ -83,7 +92,7 @@
 - Shared override form / proof lightbox: `src/override-form.js` (`createOverrideForm(doc, records, processImage, reporter, { onViewProof, consolePrefix })` → `{ mount(container, { date, record }, { signal }) }`; builds the steps + mandatory-proof-image form, reuses an existing proof, dispatches `data:records:mutated` on save; `createProofLightbox(doc)` → `{ open(src, panel), close() }` — single-instance full-size proof overlay; extracted from `calendar-ui.js` so the calendar drawer and Search Lab both mount the same form)
 - Search / filter engine: `src/search.js` (`createSearch(db)` factory — no `goal` collaborator; `executeQuery(filters)` — date-range / all-time Dexie query with AND-combined filters (steps, override status, target outcome vs. step target); `computeResultSummary(records, preFilterSet)`; pure export: `computeNearMisses(records, stepTarget)`, `NEAR_MISS_BAND_PCT = 10`)
 - Search UI renderer: `src/search-ui.js` (`createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage)` factory; `render()` builds filter form, results grid, summary card, Near-Miss panel, and export controls into `#tab-search`; delegated `data-action` click dispatcher for execute/reset/export-csv/export-json/edit-day; missed-outcome rows get an `edit-day` button that mounts the shared override form; `render()` retains and re-runs the last executed query after a re-render (e.g. post-mutation) so results stay fresh instead of resetting)
-- CSV/JSON exporter: `src/exporter.js` (`createExporter(doc)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and trigger a `<a download>` click; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
+- CSV/JSON exporter: `src/exporter.js` (`createExporter(fileSaver)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and save via the injected `FileSaver` (never rejects; failures logged); `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
 - Challenge engine: `src/challenge.js` (`createChallenge(db)` factory; `getActiveChallenge()` — reads `active_challenge` key from Dexie `settings` store; `setActiveChallenge(options)` — persists with `RangeError` guard when `end_date < start_date`, fail-open on DB write errors; `computeChallengeMetrics(challenge, records)` — pure function, "Latest Day" = today-1 while active or `end_date` once completed, plus cumulative total, elapsed/total days, avg pace; `formatChallengeUpdate(metrics, name)` — formats clipboard export text; `ACTIVE_CHALLENGE_KEY = 'active_challenge'`; see `.context/flows/group-challenge-tracker.md`)
 - Challenge UI renderer: `src/challenge-ui.js` (`createChallengeUI(doc, challenge, db, reporter)` factory; idempotent `render()` inserts `#challenge-card` into `#tab-dashboard`; AbortController-scoped delegated listener per render; always renders the mockup metric layout (title + date-range subtitle, ⚙️ gear + Copy Update actions, four metric tiles Latest Day / Cumulative / Day Progress / Avg. Pace); the gear toggles a collapsible start/end date config — open by default when unconfigured, hidden once configured; Save handler persists via `challenge.setActiveChallenge()`; Copy handler writes formatted update to clipboard via `navigator.clipboard.writeText()`; fail-open on missing container)
 - Settings engine: `src/settings.js` (`createSettings(db)` factory; `getSyncAnchorDate()` — reads `sync_anchor_date` from Dexie `settings` (fallback `DEFAULT_SYNC_ANCHOR = '2018-01-01'`); `setSyncAnchorDate(date)` — validates strict YYYY-MM-DD, clears the `BACKFILL_COMPLETE_KEY` latch, then persists; `countRecordsBefore(date)` — returns count of `daily_records` rows before date; `countAllRecords()` — returns total `daily_records` count (wipe impact preview); `pruneRecordsBefore(date)` — deletes those rows; `wipeDatabase()` — clears all `daily_records`, deletes `initial_backfill_complete`, resets `sync_anchor_date`; exports `SYNC_ANCHOR_KEY`, `DEFAULT_SYNC_ANCHOR`); `getHomeBaseCity()`/`setHomeBaseCity(city)` — read/write `home_base_city` in Dexie `settings`, validated against `src/odyssey.js`'s `HOME_BASE_CITIES` (ST-009)
@@ -127,6 +136,11 @@
 | build | `npm run build` | `package.json` scripts.build = `vite build` |
 | test (full suite) | `npm test` | `package.json` scripts.test = `vitest run` |
 | test (watch) | `npm run test:watch` | `package.json` scripts.test:watch = `vitest` |
+| Android web build | `npm run build:native` | scripts.build:native = `vite build --mode native` |
+| Android sync | `npm run cap:sync` | `build:native` + `cap sync android` |
+| Android open / run | `npm run android:open` / `npm run android:run` | `cap open android` / `cap:sync` + `cap run android` |
+| Android icons | `npm run android:assets` | `scripts/generate-android-assets.sh` |
+| Debug APK | `cd android && ./gradlew assembleDebug` | see `docs/plans/android-release.md` |
 | lint | Not found | no eslint/prettier config detected |
 | typecheck | Not found | no TypeScript config detected |
 
@@ -137,8 +151,8 @@
 - Kubernetes/Helm/Kustomize/Serverless manifests: Not found
 
 ## Scripts & Automation
-- Shell scripts (`*.sh`, `*.bash`, `*.zsh`): Not found
-- `scripts/`, `bin/`, `tools/`, `hack/`, `ci/`, `cd/`: Not found (repo automation folders)
+- `scripts/generate-android-assets.sh` — regenerates Android launcher icons and splash images (macOS `sips`)
+- `scripts/native-html.js` — Vite plugin for the native build (strips the PWA manifest link)
 
 ## Documentation Index
 - `README.md`

@@ -244,25 +244,9 @@ describe('createExporter — serialisers', () => {
   });
 });
 
-// ─── Task 2: createExporter — download seam ───────────────────────────────────
+// ─── createExporter — FileSaver seam (ST-018) ─────────────────────────────────
 
-/**
- * Builds a minimal injected `doc` stub with a spy anchor element.
- * Returns { doc, anchorSpy } where anchorSpy is the fake <a> element.
- */
-function makeDocStub() {
-  const anchorSpy = {
-    href: '',
-    download: '',
-    click: vi.fn(),
-  };
-  const doc = {
-    createElement: vi.fn(() => anchorSpy),
-  };
-  return { doc, anchorSpy };
-}
-
-describe('createExporter — _triggerDownload / exportCsv / exportJson', () => {
+describe('createExporter — exportCsv / exportJson through an injected FileSaver', () => {
   const SAMPLE_RECORDS = [
     {
       date: '2026-01-15',
@@ -275,120 +259,46 @@ describe('createExporter — _triggerDownload / exportCsv / exportJson', () => {
     },
   ];
 
+  let fileSaver;
+
   beforeEach(() => {
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn(() => 'blob:mock-url'),
-      revokeObjectURL: vi.fn(),
-    });
+    fileSaver = { saveTextFile: vi.fn().mockResolvedValue({ location: null }) };
   });
 
-  // ── exportCsv ─────────────────────────────────────────────────────────────
-
-  it('exportCsv: createElement called with "a"', () => {
-    const { doc } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    expect(doc.createElement).toHaveBeenCalledWith('a');
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('exportCsv: anchor.download ends with correct date and .csv extension', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    const expectedDate = _localDate();
-    expect(anchorSpy.download).toBe(`step-tracker-export-${expectedDate}.csv`);
+  it('requires a FileSaver', () => {
+    expect(() => createExporter()).toThrow(TypeError);
+    expect(() => createExporter({})).toThrow(TypeError);
   });
 
-  it('exportCsv: anchor.href is the objectURL returned by createObjectURL', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    expect(anchorSpy.href).toBe('blob:mock-url');
+  it('exportCsv saves the CSV text with a dated .csv name and text/csv type', async () => {
+    await createExporter(fileSaver).exportCsv(SAMPLE_RECORDS);
+    expect(fileSaver.saveTextFile).toHaveBeenCalledWith(
+      `step-tracker-export-${_localDate()}.csv`,
+      'text/csv',
+      _toCsv(SAMPLE_RECORDS)
+    );
   });
 
-  it('exportCsv: anchor.click() is called once', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    expect(anchorSpy.click).toHaveBeenCalledTimes(1);
+  it('exportJson saves the JSON text with a dated .json name and application/json type', async () => {
+    await createExporter(fileSaver).exportJson(SAMPLE_RECORDS);
+    expect(fileSaver.saveTextFile).toHaveBeenCalledWith(
+      `${EXPORT_FILENAME_PREFIX}${_localDate()}.json`,
+      'application/json',
+      _toJson(SAMPLE_RECORDS)
+    );
   });
 
-  it('exportCsv: URL.revokeObjectURL is called with the blob URL', () => {
-    const { doc } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-  });
-
-  it('exportCsv: URL.createObjectURL receives a Blob with type text/csv', () => {
-    const { doc } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    const blob = URL.createObjectURL.mock.calls[0][0];
-    expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe('text/csv');
-  });
-
-  it('exportCsv: blob text equals _toCsv(records)', async () => {
-    const { doc } = makeDocStub();
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    const blob = URL.createObjectURL.mock.calls[0][0];
-    const text = await blob.text();
-    expect(text).toBe(_toCsv(SAMPLE_RECORDS));
-  });
-
-  // ── exportJson ────────────────────────────────────────────────────────────
-
-  it('exportJson: anchor.download ends with correct date and .json extension', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    const { exportJson } = createExporter(doc);
-    exportJson(SAMPLE_RECORDS);
-    const expectedDate = _localDate();
-    expect(anchorSpy.download).toBe(`${EXPORT_FILENAME_PREFIX}${expectedDate}.json`);
-  });
-
-  it('exportJson: URL.createObjectURL receives a Blob with type application/json', () => {
-    const { doc } = makeDocStub();
-    const { exportJson } = createExporter(doc);
-    exportJson(SAMPLE_RECORDS);
-    const blob = URL.createObjectURL.mock.calls[0][0];
-    expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe('application/json');
-  });
-
-  it('exportJson: blob text equals _toJson(records)', async () => {
-    const { doc } = makeDocStub();
-    const { exportJson } = createExporter(doc);
-    exportJson(SAMPLE_RECORDS);
-    const blob = URL.createObjectURL.mock.calls[0][0];
-    const text = await blob.text();
-    expect(text).toBe(_toJson(SAMPLE_RECORDS));
-  });
-
-  it('exportJson: URL.revokeObjectURL is called even when anchor.click throws (finally path)', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    anchorSpy.click = vi.fn(() => { throw new Error('click failed'); });
-    const { exportJson } = createExporter(doc);
-    // Should not throw outward (caught internally)
-    expect(() => exportJson(SAMPLE_RECORDS)).not.toThrow();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-  });
-
-  it('exportCsv: URL.revokeObjectURL is called even when anchor.click throws (finally path)', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    anchorSpy.click = vi.fn(() => { throw new Error('click failed'); });
-    const { exportCsv } = createExporter(doc);
-    expect(() => exportCsv(SAMPLE_RECORDS)).not.toThrow();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-  });
-
-  it('exportCsv: console.error is called when click throws', () => {
-    const { doc, anchorSpy } = makeDocStub();
-    anchorSpy.click = vi.fn(() => { throw new Error('click failed'); });
+  it.each(['exportCsv', 'exportJson'])('%s never rejects: a failed save is logged', async (method) => {
+    const failure = new Error('save failed');
+    fileSaver.saveTextFile.mockRejectedValue(failure);
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { exportCsv } = createExporter(doc);
-    exportCsv(SAMPLE_RECORDS);
-    expect(consoleSpy).toHaveBeenCalledWith('[exporter]', expect.any(Error));
+
+    await expect(createExporter(fileSaver)[method](SAMPLE_RECORDS)).resolves.toBeUndefined();
+
+    expect(consoleSpy).toHaveBeenCalledWith('[exporter]', failure);
   });
 });

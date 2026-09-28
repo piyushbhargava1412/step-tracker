@@ -27,3 +27,12 @@ Phase 2 of [health-connect-android-roadmap.md](../plans/health-connect-android-r
 ## Implementation
 
 * New `src/platform/{capabilities,auth,files,storage-persistence,step-source}.js` + `web/` implementations; call sites in [auth.js](../../src/auth.js), [backup-ui.js](../../src/backup-ui.js), [exporter.js](../../src/exporter.js), [storage.js](../../src/storage.js), [storage-health.js](../../src/storage-health.js), [main.js](../../src/main.js).
+
+## As built
+
+* `src/platform/capabilities.js` — `isNativePlatform()`.
+* `src/platform/files.js` — `createFileSaver({ isNative, doc })` → `saveTextFile(name, mime, text) → { location }`. Web: anchor download (`web/files.js`). **Native implementation shipped here** (`native/files.js`, `@capacitor/filesystem` → `Documents/Step Tracker/`), not deferred: until Drive works in the app (ST-020) a local export is the app's only backup. Used by `exporter.js` (now `createExporter(fileSaver)`) and `backup-ui.js` (injected, defaulting to the web saver); the backup message names the saved location on Android.
+* `src/platform/storage-manager.js` — `selectStorageManager({ isNative, nav })` returns the browser `navigator` on web and an always-persisted `{ storage: { persist, persisted } }` in the app, so `storage.js`, `storage-health*.js` and `drive-sync-ui.js` keep their `nav` contract unchanged.
+* `src/platform/step-source.js` — `selectStepSource(...)` → `{ source, connection }` plus `connectLabelFor(isNative)`; see ST-019.
+* **Auth facade not added**: in the app the header button now connects Health Connect (ST-019), so Google auth only matters for Drive; ST-020 introduces the native Google implementation where it is needed.
+* `ui-status.js` — `createStatusReporter(doc, { connectLabel })`.

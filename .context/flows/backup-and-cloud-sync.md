@@ -44,9 +44,10 @@ never misreads an already-active Google account as brand new. Google Drive acces
    `buildBackup()` reads `db.daily_records.toArray()` and `db.settings.toArray()`, guards the payload
    against `MAX_BACKUP_RECORDS` (100,000) / `MAX_BACKUP_BYTES` (16 MB), and returns a versioned
    envelope: `{ schema_version: BACKUP_SCHEMA_VERSION (1), exported_at, daily_records, settings }`.
-2. `createBackupUI(doc, backup, reporter, confirmFn, settings = null)` renders an Export button
-   (`data-action="export-backup"`, triggers a `<a download>` of the JSON via the shared Blob/anchor
-   idiom, paired with a "🕒 Last local export: …" metadata line from `settings.getLastLocalExport()` /
+2. `createBackupUI(doc, backup, reporter, confirmFn, settings = null, fileSaver = web saver)` renders an Export button
+   (`data-action="export-backup"`, saves the pretty-printed JSON through the injected `FileSaver` —
+   a browser download on web, `Documents/Step Tracker/<file>` in the Android app, where the status
+   reads `✅ Backup saved to Documents/Step Tracker/…` (ST-018), paired with a "🕒 Last local export: …" metadata line from `settings.getLastLocalExport()` /
    `formatLastExportLine` in `src/backup-format.js`) and a Restore file input (paired with an amber
    "⚠️ Overwrites local database" badge). `settings` is optional — when omitted the metadata line
    always reads "Never" and nothing is persisted (fails open).

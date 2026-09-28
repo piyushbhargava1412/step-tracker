@@ -1,9 +1,11 @@
 /**
  * Local backup panel UI — sole DOM writer for the "📄 Local JSON Files" column.
- * createBackupUI(doc, backup, reporter, confirmFn, settings) factory:
+ * createBackupUI(doc, backup, reporter, confirmFn, settings, fileSaver) factory:
  *  - render(container): builds the Export Backup and Restore from Local File cards
- *  - Export: calls backup.buildBackup(), triggers <a download> via blob/anchor idiom,
- *    then persists the export timestamp via settings.setLastLocalExport
+ *  - Export: calls backup.buildBackup(), saves it through the injected FileSaver
+ *    (src/platform/files.js — a browser download on web by default, the phone's
+ *    Documents folder in the Android app), then persists the export timestamp via
+ *    settings.setLastLocalExport
  *  - Restore: reads File as text, JSON.parse, confirms via confirmFn (guards against
  *    an accidental IndexedDB overwrite), calls backup.restoreBackup(), dispatches
  *    data:records:mutated
@@ -17,8 +19,16 @@
 
 import { BACKUP_FILENAME_PREFIX } from './backup.js';
 import { formatLastExportLine } from './backup-format.js';
+import { createFileSaver } from './platform/files.js';
 
-export function createBackupUI(doc, backup, reporter, confirmFn, settings = null) {
+export function createBackupUI(
+  doc,
+  backup,
+  reporter,
+  confirmFn,
+  settings = null,
+  fileSaver = createFileSaver({ isNative: false, doc })
+) {
   let controller = null;
   let exportMetaEl = null;
 
@@ -156,16 +166,8 @@ export function createBackupUI(doc, backup, reporter, confirmFn, settings = null
       const now = new Date().toISOString();
       const date = now.slice(0, 10); // YYYY-MM-DD
       const filename = `${BACKUP_FILENAME_PREFIX}${date}.json`;
-      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-      try {
-        const a = doc.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-      reporter.db('✅ Backup exported successfully');
+      const { location } = await fileSaver.saveTextFile(filename, 'application/json', text);
+      reporter.db(location ? `✅ Backup saved to ${location}` : '✅ Backup exported successfully');
       await _recordExport(now);
     } catch (err) {
       console.error('[backup-ui]', err);

@@ -446,6 +446,23 @@ describe('createDriveSync — pull()', () => {
     vi.restoreAllMocks();
   });
 
+  it('pull({ silent: true }) with no token skips quietly — no reporter message, no request', async () => {
+    getAccessToken.mockReturnValue(null);
+
+    await expect(driveSync.pull({ silent: true })).resolves.toBeUndefined();
+
+    expect(reporter.auth).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('pull() with no token still tells the user Drive is unavailable (manual restore)', async () => {
+    getAccessToken.mockReturnValue(null);
+
+    await driveSync.pull();
+
+    expect(reporter.auth).toHaveBeenCalledWith('ℹ️ Google Account not connected — Drive sync unavailable');
+  });
+
   it('returns parsed JSON envelope when file exists', async () => {
     fetchFn
       .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'file-id-xyz' }] }))

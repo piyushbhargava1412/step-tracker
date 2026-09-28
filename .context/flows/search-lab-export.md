@@ -68,10 +68,12 @@ browser-only with no network calls.
    empties the grid, resets the summary to zero-state, clears the Near-Miss panel.
 8. **Export CSV/JSON**: guards `currentRecords` non-null and non-empty, then delegates to
    `exporter.exportCsv(currentRecords)` or `exporter.exportJson(currentRecords)`.
-9. `createExporter(doc)` serialises records through `_toExportRow` (maps DB fields to CSV-header-keyed
+9. `createExporter(fileSaver)` serialises records through `_toExportRow` (maps DB fields to CSV-header-keyed
    object), then `_toCsv` (RFC-4180, with `_csvCell` quoting) or `_toJson` (JSON.stringify with
-   indent 2). Downloads via a temporary `<a href=blobURL download=filename>` click; `URL.revokeObjectURL`
-   is always called in a `finally` block.
+   indent 2), and saves via the injected `FileSaver` (`src/platform/files.js`, ST-018): a temporary
+   `<a download>` click in the browser (object URL revoked on the next tick), or a UTF-8 file in
+   `Documents/Step Tracker/` in the Android app. `exportCsv`/`exportJson` never reject — a failed save
+   is logged as `[exporter]`.
 
 ## Data Touchpoints
 - **Entities**: `daily_records` rows (`date`, `effective_steps`, `effective_distance_km`,
@@ -83,7 +85,7 @@ browser-only with no network calls.
 
 ## Integrations
 - No external network calls. All data is read from local Dexie IndexedDB.
-- Browser File Download API: `Blob`, `URL.createObjectURL`, `URL.revokeObjectURL`, `<a>.click()`.
+- `FileSaver` (`src/platform/files.js`): browser download (`Blob`, `URL.createObjectURL`, `<a>.click()`) or `@capacitor/filesystem` in the app.
 
 ## Error / Retry Surface
 - `executeQuery` rejects on Dexie error; `_runQuery` catches, logs `console.error('[search]', err)`, calls `reporter.db('❌ Search query failed')`, nulls `currentRecords`, and renders an empty grid (fail-open, no crash).
@@ -96,14 +98,14 @@ browser-only with no network calls.
 - `src/search.js` — query engine (`createSearch(db)` factory; `executeQuery`, `computeResultSummary`); Near-Miss pure export: `computeNearMisses`, `NEAR_MISS_BAND_PCT`
 - `src/search-ui.js` — panel renderer (`createSearchUI(doc, search, exporter, reporter, computeNearMisses, records, processImage)` factory; `render()` builds filter form, results grid, summary card, Near-Miss panel, and export controls into `#tab-search`; delegated `data-action` click dispatcher for execute/reset/export-csv/export-json/edit-day; missed-outcome rows mount the shared override form; retained-query replay on re-render)
 - `src/override-form.js` — shared override form + proof lightbox (`createOverrideForm(doc, records, processImage, reporter, { onViewProof, consolePrefix })` → `{ mount(container, { date, record }, { signal }) }`; `createProofLightbox(doc)` → `{ open(src, panel), close() }`)
-- `src/exporter.js` — download seam (`createExporter(doc)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and trigger a `<a download>` click; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
+- `src/exporter.js` — export seam (`createExporter(fileSaver)` factory; `exportCsv(records)` / `exportJson(records)` — serialise `daily_records` to RFC-4180 CSV or pretty-printed JSON and save through the `FileSaver`; `CSV_HEADERS`, `EXPORT_FILENAME_PREFIX` constants; `_toExportRow`, `_csvCell`, `_toCsv`, `_toJson` pure helpers)
 - `src/main.js` — composition-root wiring; passes `computeNearMisses`, `records`, and `processImage` to `createSearchUI`; `data:records:mutated` listener re-renders the search panel
 
 ## Tests
 - `src/search.test.js` — executeQuery (date-range vs all-time, all filter combinations, result sort, DB error propagation, null/undefined filters), computeResultSummary (count/matchPct/avgSteps, divide-by-zero, non-finite distance), computeNearMisses (band calculation, zero/empty, shortfall values).
 - `src/search-ui.test.js` — render skeleton, idempotent re-render, AbortController lifecycle, all data-action handlers, Near-Miss panel render/empty state, textContent-only contract (no innerHTML), error path, stale-data guard after query failure, retained-query replay (re-run + filter repopulation on re-render; reset clears retention), Edit Day button visibility (missed outcome + records injected) and override-form mounting.
 - `src/override-form.test.js` — shared form DOM contract, proof handling (upload/reuse/delete/processing/rejection), validation guards, `data:records:mutated` dispatch, signal-bound listener cleanup, `createProofLightbox` open/close/dismiss semantics.
-- `src/exporter.test.js` — pure serialisation helpers, CSV/JSON parity, RFC-4180 quoting, download seam (Blob type/content, anchor href/download/click, revokeObjectURL finally path, error logging).
+- `src/exporter.test.js` — pure serialisation helpers, CSV/JSON parity, RFC-4180 quoting, FileSaver seam (file name/MIME/text passed to `saveTextFile`, never-reject + error logging); the anchor/Blob mechanics are tested in `src/platform/files.test.js`.
 
 ## Notes
 - `src/search.js` is a pure engine: no DOM imports, no `document` or `window` references. Enforced by `src/search.test.js` source-text assertion.

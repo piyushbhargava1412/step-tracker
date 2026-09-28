@@ -6,6 +6,10 @@ node_modules/
 dist/
 coverage/
 
+# Android signing keys — kept outside the repo; see docs/plans/android-release.md
+*.jks
+*.keystore
+
 # --- ARCUS generated artifacts (managed by arcus-opencode) ---
 .opencode/
 
