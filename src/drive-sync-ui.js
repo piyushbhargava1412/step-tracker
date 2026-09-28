@@ -27,12 +27,21 @@
  * (and a manual backup's freshly-recorded size) stay in sync without a
  * cross-module reference between the two panels.
  *
+ * ST-020 options (all optional; without them the panel is unchanged):
+ *  - driveConnection: `{ isConnected(), connect() }` — the Android app signs in
+ *    to Google for Drive from this panel (its header button is Health Connect).
+ *  - primaryDevice: `{ status(), otherPrimary(), makeThisPrimary() }` — shows
+ *    which installation is the primary device and asks before a manual upload
+ *    would replace another primary's backup.
+ *  - canMakePrimary: show "Make this the primary device" (the Android app).
+ *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
 
 import { formatLastSyncLine } from './backup-format.js';
 import { requestSilentPersistAndRefreshBadge } from './storage-health.js';
+import { _formatReadableDate, _localDate } from './date-utils.js';
 
 export function createDriveSyncUI(
   doc,
@@ -41,10 +50,12 @@ export function createDriveSyncUI(
   reporter,
   confirmFn,
   driveBackupPrefs = null,
-  nav = navigator
+  nav = navigator,
+  { driveConnection = null, primaryDevice = null, canMakePrimary = false } = {}
 ) {
   let controller = null;
   let syncMetaEl = null;
+  let mountedContainer = null;
 
   /**
    * (Re)build the cloud-sync column content inside the given container element.
@@ -56,6 +67,7 @@ export function createDriveSyncUI(
    * @param {HTMLElement} container
    */
   async function render(container) {
+    mountedContainer = container;
     // Abort previous listeners
     if (controller) {
       controller.abort();
@@ -95,6 +107,13 @@ export function createDriveSyncUI(
     const heading = doc.createElement('h2');
     heading.textContent = '☁️ Google Drive Cloud Sync';
     panel.appendChild(heading);
+
+    if (driveConnection) {
+      panel.appendChild(_buildConnectionSection());
+    }
+    if (primaryDevice) {
+      panel.appendChild(await _buildPrimarySection());
+    }
 
     // Backup section
     const backupSection = doc.createElement('section');
@@ -187,10 +206,112 @@ export function createDriveSyncUI(
           await _handleRestoreFromCloud(restoreBtn);
         } else if (action === 'toggle-drive-backup') {
           await _handleToggleBackup(e.target);
+        } else if (action === 'connect-drive') {
+          _handleConnectDrive();
+        } else if (action === 'make-primary') {
+          await _handleMakePrimary(e.target);
         }
       },
       { signal }
     );
+  }
+
+  /** "Connect Google Drive" button, or the connected state (ST-020, Android app). */
+  function _buildConnectionSection() {
+    const section = doc.createElement('section');
+    section.className = 'cloud-sync-section data-panel__section cloud-sync-account';
+    if (driveConnection.isConnected()) {
+      const connected = doc.createElement('p');
+      connected.textContent = '✅ Google Drive connected';
+      section.appendChild(connected);
+      return section;
+    }
+    const desc = doc.createElement('p');
+    desc.textContent = 'Sign in with Google to back up to, and restore from, your Google Drive.';
+    section.appendChild(desc);
+    const btn = doc.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.setAttribute('data-action', 'connect-drive');
+    btn.textContent = '🔗 Connect Google Drive';
+    section.appendChild(btn);
+    return section;
+  }
+
+  /** Which installation is the primary device, and the "make primary" action (ST-020). */
+  async function _buildPrimarySection() {
+    let status = { primary: null, isThisDevice: false };
+    try {
+      status = await primaryDevice.status();
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
+    }
+
+    const section = doc.createElement('section');
+    section.className = 'cloud-sync-section data-panel__section cloud-sync-primary';
+    const line = doc.createElement('p');
+    line.textContent = _describePrimary(status);
+    section.appendChild(line);
+
+    if (canMakePrimary && !status.isThisDevice) {
+      const btn = doc.createElement('button');
+      btn.className = 'btn btn-secondary';
+      btn.setAttribute('data-action', 'make-primary');
+      btn.textContent = '📱 Make this the primary device';
+      section.appendChild(btn);
+    }
+    return section;
+  }
+
+  function _describePrimary({ primary, isThisDevice }) {
+    if (!primary) {
+      return 'No primary device yet — every device backs up to Drive automatically.';
+    }
+    if (isThisDevice) {
+      return '📱 This device is the primary device — it backs up to Drive automatically.';
+    }
+    const since = _formatReadableDate(_localDate(new Date(primary.since).getTime()));
+    return `📱 Primary device: ${primary.label} (since ${since}) — this device does not back up automatically.`;
+  }
+
+  function _handleConnectDrive() {
+    try {
+      driveConnection.connect();
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
+    }
+  }
+
+  /**
+   * Record this installation as the primary device, then upload at once so
+   * the Drive backup (and its metadata) carries the new primary and every
+   * other installation stops uploading automatically.
+   * @param {HTMLButtonElement} btn
+   */
+  async function _handleMakePrimary(btn) {
+    const confirmed = confirmFn(
+      'Make this the primary device? Only this device will back up to Google Drive automatically; ' +
+        'other devices (such as the web app) will stop and ask before replacing its backup.'
+    );
+    if (!confirmed) return;
+    if (driveConnection && !driveConnection.isConnected()) {
+      reporter.sync('ℹ️ Connect Google Drive first — the primary device is recorded in your Drive backup');
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      await primaryDevice.makeThisPrimary();
+      const envelope = await backup.buildBackup();
+      await driveSync.push(envelope);
+      reporter.sync('✅ This device is now the primary device');
+      await _recordSync(envelope);
+    } catch (err) {
+      console.error('[drive-sync-ui]', err);
+      reporter.sync('❌ Could not record the primary device in Drive: ' + (err.message ?? err));
+    } finally {
+      btn.disabled = false;
+    }
+    if (mountedContainer) await render(mountedContainer);
   }
 
   /**
@@ -243,6 +364,24 @@ export function createDriveSyncUI(
    * @param {HTMLButtonElement} btn
    */
   async function _handleBackupNow(btn) {
+    // ST-020: warn before replacing a known primary device's backup. An
+    // unknown answer (Drive could not be asked, id null) is not a known
+    // primary — the upload itself then reports the real problem.
+    if (primaryDevice) {
+      let other = null;
+      try {
+        other = await primaryDevice.otherPrimary();
+      } catch (err) {
+        console.error('[drive-sync-ui]', err);
+      }
+      if (other?.id) {
+        const confirmed = confirmFn(
+          `${other.label} is the primary device. Backing up from here replaces its Google Drive backup. Continue?`
+        );
+        if (!confirmed) return;
+      }
+    }
+
     btn.disabled = true;
     try {
       const envelope = await backup.buildBackup();

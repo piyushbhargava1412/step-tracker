@@ -562,3 +562,105 @@ describe('createDriveSync — pull()', () => {
     );
   });
 });
+
+// ─── ST-020: primary device in Drive file metadata ────────────────────────────
+
+describe('ST-020: primary device mirrored into Drive appProperties', () => {
+  const primary = { id: 'dev-app', label: 'Android app', since: '2026-09-28T12:00:00.000Z' };
+  const envelopeWith = (settings) => ({ schema_version: 1, exported_at: 'x', daily_records: [], settings });
+
+  let fetchFn, reporter, getAccessToken, driveSync;
+
+  beforeEach(() => {
+    fetchFn = vi.fn();
+    reporter = makeReporter();
+    getAccessToken = vi.fn().mockReturnValue('tok');
+    driveSync = createDriveSync({ getAccessToken, reporter, fetchFn });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Parse the JSON metadata part of the multipart upload body of fetch call n. */
+  function uploadedMetadata(n) {
+    const opts = fetchFn.mock.calls[n][1];
+    const boundary = opts.headers['Content-Type'].split('boundary=')[1];
+    const part = opts.body.split(`--${boundary}`)[1];
+    return JSON.parse(part.slice(part.indexOf('\r\n\r\n') + 4).trim());
+  }
+
+  it('writes the envelope\'s primary device into appProperties on create', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new' }));
+
+    await driveSync.push(envelopeWith([{ key: 'primary_device', value: primary }]));
+
+    expect(uploadedMetadata(1).appProperties).toEqual({
+      primaryDeviceId: 'dev-app',
+      primaryDeviceLabel: 'Android app',
+      primarySince: '2026-09-28T12:00:00.000Z',
+    });
+  });
+
+  it('writes it on update (PATCH) too, so the metadata always matches the file', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'file-1' }] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'file-1' }));
+
+    await driveSync.push(envelopeWith([{ key: 'primary_device', value: primary }]));
+
+    expect(fetchFn.mock.calls[1][1].method).toBe('PATCH');
+    expect(uploadedMetadata(1).appProperties.primaryDeviceId).toBe('dev-app');
+  });
+
+  it('sends no appProperties when no primary device is recorded', async () => {
+    fetchFn
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new' }));
+
+    await driveSync.push(envelopeWith([{ key: 'other', value: 1 }]));
+
+    expect(uploadedMetadata(1).appProperties).toBeUndefined();
+  });
+
+  describe('readPrimaryDevice()', () => {
+    it('returns the primary recorded on the newest backup file', async () => {
+      fetchFn.mockResolvedValueOnce(makeOkResponse({
+        files: [{ id: 'f', appProperties: { primaryDeviceId: 'dev-app', primaryDeviceLabel: 'Android app', primarySince: primary.since } }],
+      }));
+
+      await expect(driveSync.readPrimaryDevice()).resolves.toEqual(primary);
+
+      const [url, opts] = fetchFn.mock.calls[0];
+      expect(url).toContain('fields=files(id%2CappProperties)');
+      expect(url).toContain('spaces=appDataFolder');
+      expect(opts.headers.Authorization).toBe('Bearer tok');
+    });
+
+    it('returns null when there is no backup or no primary on it', async () => {
+      fetchFn.mockResolvedValueOnce(makeOkResponse({ files: [] }));
+      await expect(driveSync.readPrimaryDevice()).resolves.toBeNull();
+      fetchFn.mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'f' }] }));
+      await expect(driveSync.readPrimaryDevice()).resolves.toBeNull();
+      fetchFn.mockResolvedValueOnce(makeOkResponse({ files: [{ id: 'f', appProperties: { primaryDeviceId: 'x' } }] }));
+      await expect(driveSync.readPrimaryDevice()).resolves.toBeNull();
+    });
+
+    it('throws when Drive cannot be asked — the caller must not guess', async () => {
+      fetchFn.mockResolvedValueOnce(makeErrorResponse(500));
+      await expect(driveSync.readPrimaryDevice()).rejects.toThrow('HTTP 500');
+      fetchFn.mockRejectedValueOnce(new TypeError('offline'));
+      await expect(driveSync.readPrimaryDevice()).rejects.toThrow('offline');
+    });
+
+    it('throws without a Google token, and says nothing to the user', async () => {
+      getAccessToken.mockReturnValue(null);
+      await expect(driveSync.readPrimaryDevice()).rejects.toThrow(/not connected/);
+      expect(reporter.auth).not.toHaveBeenCalled();
+      expect(fetchFn).not.toHaveBeenCalled();
+    });
+  });
+});

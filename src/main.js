@@ -5,7 +5,9 @@ import { CLIENT_ID } from './config.js'
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { requestPersistentStorage } from './storage.js'
-import { createAuth } from './auth.js'
+import { selectAuth } from './platform/auth.js'
+import { createGoogleDriveConnection } from './platform/native/google-drive-connection.js'
+import { createPrimaryDevice } from './primary-device.js'
 import { createStepSync } from './steps.js'
 import { Health } from '@capgo/capacitor-health'
 import { AppLauncher } from '@capacitor/app-launcher'
@@ -104,8 +106,10 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] requestPersistentStorage failed, continuing', err)
   }
 
-  // 5. Auth (fail-open: a missing/late-loading GSI script must not abort bootstrap)
-  const auth = createAuth(config, reporter)
+  // 5. Auth (fail-open: a missing/late-loading GSI script must not abort bootstrap).
+  //    Google Identity Services in the browser; native Google sign-in (Drive
+  //    only) in the Android app — ST-020.
+  const auth = selectAuth({ isNative, config, reporter })
   try {
     auth.init()
   } catch (err) {
@@ -169,8 +173,30 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   } catch (err) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
+  // ST-020: only the primary device uploads to Drive automatically; every
+  // other installation asks before replacing its backup. Fail-open: without
+  // it, uploads behave as before.
+  let primaryDevice = null
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, storageManager)
+    primaryDevice = createPrimaryDevice({
+      settings,
+      driveSync,
+      storage,
+      label: isNative ? 'Android app' : 'Web browser',
+    })
+  } catch (err) {
+    console.error('[main] createPrimaryDevice failed, continuing', err)
+  }
+  // ST-020: in the app, Google sign-in (for Drive) lives in the Drive panel —
+  // the header button is Health Connect's. In the browser the header button
+  // already covers Google.
+  const driveConnection = isNative ? createGoogleDriveConnection({ auth, storage }) : null
+  try {
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, storageManager, {
+      primaryDevice,
+      driveConnection,
+      canMakePrimary: isNative,
+    })
   } catch (err) {
     console.error('[main] createDriveSyncUI failed, continuing', err)
   }
@@ -208,7 +234,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     health: Health,
     launcher: AppLauncher,
   })
-  const stepSync = createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings)
+  const stepSync = createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings, primaryDevice)
 
   // Mount backup + cloud + storage-health panels into their own containers so
   // no render clears another's output (each render() wipes its container first).
@@ -335,6 +361,17 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   Promise.resolve(connection.restore()).catch((err) => {
     console.error('[main] connection restore failed, continuing', err)
   })
+
+  // 7d. Android app: Google Drive connects from the Drive panel and restores
+  // silently at launch; either way the panel re-renders to show it.
+  if (driveConnection) {
+    driveConnection.onConnected(() => {
+      doc.dispatchEvent(new (doc.defaultView?.CustomEvent ?? CustomEvent)('data:drive-sync:refresh'))
+    })
+    Promise.resolve(driveConnection.restore()).catch((err) => {
+      console.error('[main] Google Drive restore failed, continuing', err)
+    })
+  }
 
   // 8. Render settings modal interior at bootstrap (before wiring the button)
   try {

@@ -10,13 +10,19 @@
 const MANIFEST_LINK = /\s*<link rel="manifest"[^>]*>/;
 
 /**
- * Remove PWA-only tags from index.html.
+ * Google Identity Services (web sign-in). Google blocks it inside an app's
+ * WebView; the app signs in natively instead (src/platform/native/google-auth.js).
+ */
+const GOOGLE_WEB_SIGN_IN = /\s*<!-- Google Identity Services Library -->\s*<script src="https:\/\/accounts\.google\.com\/gsi\/client"[^>]*><\/script>/;
+
+/**
+ * Remove web-only tags from index.html: the PWA manifest and Google's web sign-in script.
  *
  * @param {string} html
  * @returns {string}
  */
 export function stripPwaTags(html) {
-  return html.replace(MANIFEST_LINK, '');
+  return html.replace(MANIFEST_LINK, '').replace(GOOGLE_WEB_SIGN_IN, '');
 }
 
 /** Vite plugin applying stripPwaTags to index.html in `--mode native`. */

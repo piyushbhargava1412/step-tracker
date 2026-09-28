@@ -18,7 +18,7 @@ vi.mock('./backup-ui.js', () => ({
   createBackupUI: vi.fn(() => mockBackupUIInstance)
 }))
 
-const mockDriveSyncInstance = { find: vi.fn().mockResolvedValue(null), push: vi.fn().mockResolvedValue(undefined), pull: vi.fn().mockResolvedValue(null) }
+const mockDriveSyncInstance = { find: vi.fn().mockResolvedValue(null), push: vi.fn().mockResolvedValue(undefined), pull: vi.fn().mockResolvedValue(null), readPrimaryDevice: vi.fn().mockResolvedValue(null) }
 vi.mock('./drive-sync.js', () => ({
   createDriveSync: vi.fn(() => mockDriveSyncInstance)
 }))
@@ -188,9 +188,19 @@ const { mockHealth, mockAppLauncher } = vi.hoisted(() => ({
 }))
 vi.mock('@capgo/capacitor-health', () => ({ Health: mockHealth }))
 vi.mock('@capacitor/app-launcher', () => ({ AppLauncher: mockAppLauncher }))
+const { mockSocialLogin } = vi.hoisted(() => ({
+  mockSocialLogin: {
+    initialize: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    getAuthorizationCode: vi.fn().mockResolvedValue({ accessToken: 'tok-drv' }),
+    login: vi.fn(),
+    logout: vi.fn(),
+  },
+}))
+vi.mock('@capgo/capacitor-social-login', () => ({ SocialLogin: mockSocialLogin }))
 
 // ST-015 Task 9: settings + settings-ui mocks
-const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn() }
+const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn(), getPrimaryDevice: vi.fn().mockResolvedValue(null), setPrimaryDevice: vi.fn() }
 vi.mock('./settings.js', () => ({
   createSettings: vi.fn(() => mockSettingsInstance)
 }))
@@ -477,7 +487,8 @@ describe('main.js — Task 11 step sync wiring', () => {
       document,
       mockDriveSyncInstance,
       mockBackupInstance,
-      mockSettingsInstance
+      mockSettingsInstance,
+      expect.objectContaining({ otherPrimary: expect.any(Function) })
     )
   })
 
@@ -542,7 +553,7 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
     await boot(storage)
     expect(mockAuthInstance.requestToken).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(
-      '[google-fit-connection] failed to read the connection flag, continuing',
+      '[google-connection] failed to read the connection flag, continuing',
       expect.any(Error)
     )
     errorSpy.mockRestore()
@@ -1625,7 +1636,8 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockReporter,
       mockConfirmAdapter,
       mockSettingsInstance,
-      navigator
+      navigator,
+      expect.objectContaining({ primaryDevice: expect.anything() })
     )
   })
 
@@ -2279,6 +2291,87 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
       await boot(makeStorage())
       await Promise.resolve()
       expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    mockSwRegistrar.register.mockResolvedValue(undefined)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockSettingsInstance.getPrimaryDevice.mockResolvedValue(null)
+    mockHealth.isAvailable.mockResolvedValue({ available: true })
+    mockHealth.checkAuthorization.mockResolvedValue({ readAuthorized: [] })
+    mockSocialLogin.initialize.mockResolvedValue(undefined)
+    mockSocialLogin.refresh.mockResolvedValue(undefined)
+    mockSocialLogin.getAuthorizationCode.mockResolvedValue({ accessToken: 'tok-drv' })
+  })
+
+  afterEach(() => {
+    mockIsNativePlatform.mockReturnValue(false)
+    document.body.innerHTML = ''
+  })
+
+  const driveUIOptions = () => createDriveSyncUI.mock.calls[0][7]
+  const stepSyncPrimary = () => createStepSync.mock.calls[0][7]
+
+  describe('in the browser', () => {
+    it('shares one primary-device checker between the sync engine and the Drive panel', async () => {
+      await boot(makeStorage())
+      const primaryDevice = driveUIOptions().primaryDevice
+      expect(typeof primaryDevice.otherPrimary).toBe('function')
+      expect(stepSyncPrimary()).toBe(primaryDevice)
+      expect(primaryDevice.label).toBe('Web browser')
+    })
+
+    it('keeps Google sign-in in the header: no Drive connect button, no "make primary"', async () => {
+      await boot(makeStorage())
+      expect(driveUIOptions().driveConnection).toBeNull()
+      expect(driveUIOptions().canMakePrimary).toBe(false)
+      expect(createAuth).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('in the Android app', () => {
+    beforeEach(() => {
+      mockIsNativePlatform.mockReturnValue(true)
+    })
+
+    it('signs in to Google natively, not with Google Identity Services', async () => {
+      await boot(makeStorage())
+      expect(createAuth).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(mockSocialLogin.initialize).toHaveBeenCalledWith({
+        google: { webClientId: 'FAKE_ID', mode: 'online' },
+      }))
+    })
+
+    it('offers Connect Google Drive and "make primary" in the Drive panel', async () => {
+      await boot(makeStorage())
+      expect(driveUIOptions().driveConnection.label).toBe('Connect Google Drive')
+      expect(driveUIOptions().canMakePrimary).toBe(true)
+      expect(driveUIOptions().primaryDevice.label).toBe('Android app')
+    })
+
+    it('reconnects Drive silently at launch when it was connected before, then refreshes the panel', async () => {
+      const storage = makeStorage()
+      storage.setItem('google_drive_connected', '1')
+      const refreshed = vi.fn()
+      document.addEventListener('data:drive-sync:refresh', refreshed)
+      await boot(storage)
+
+      await vi.waitFor(() => expect(mockSocialLogin.getAuthorizationCode).toHaveBeenCalled())
+      await vi.waitFor(() => expect(refreshed).toHaveBeenCalled())
+      expect(mockSocialLogin.login).not.toHaveBeenCalled()
+      document.removeEventListener('data:drive-sync:refresh', refreshed)
+    })
+
+    it('does not touch Google at launch when Drive was never connected', async () => {
+      await boot(makeStorage())
+      await Promise.resolve()
+      expect(mockSocialLogin.refresh).not.toHaveBeenCalled()
     })
   })
 })

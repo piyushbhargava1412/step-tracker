@@ -8,6 +8,7 @@ import {
   LAST_LOCAL_EXPORT_KEY,
   LAST_DRIVE_SYNC_KEY,
   BACKFILL_COMPLETE_KEY,
+  PRIMARY_DEVICE_KEY,
 } from './settings.js';
 import { HOME_BASE_CITIES } from './odyssey.js';
 
@@ -646,6 +647,47 @@ describe('setHomeBaseCity', () => {
     db.settings.get.mockResolvedValue({ key: SYNC_ANCHOR_KEY, value: '2022-06-15' });
     const anchorResult = await settings.getSyncAnchorDate();
     expect(anchorResult).toBe('2022-06-15');
+    expect(db.settings.put).not.toHaveBeenCalled();
+  });
+});
+
+describe('ST-020: getPrimaryDevice / setPrimaryDevice', () => {
+  let db;
+  let settings;
+  const primary = { id: 'dev-123', label: 'Android app', since: '2026-09-28T12:00:00.000Z' };
+
+  beforeEach(() => {
+    db = { settings: { get: vi.fn(), put: vi.fn().mockResolvedValue(undefined), delete: vi.fn() } };
+    settings = createSettings(db);
+  });
+
+  it('stores the primary device under PRIMARY_DEVICE_KEY', async () => {
+    await settings.setPrimaryDevice(primary);
+    expect(PRIMARY_DEVICE_KEY).toBe('primary_device');
+    expect(db.settings.put).toHaveBeenCalledWith({ key: PRIMARY_DEVICE_KEY, value: primary });
+  });
+
+  it('reads it back, or null when none is recorded', async () => {
+    db.settings.get.mockResolvedValueOnce({ key: PRIMARY_DEVICE_KEY, value: primary });
+    await expect(settings.getPrimaryDevice()).resolves.toEqual(primary);
+    db.settings.get.mockResolvedValueOnce(undefined);
+    await expect(settings.getPrimaryDevice()).resolves.toBeNull();
+  });
+
+  it('treats a malformed stored value as none', async () => {
+    db.settings.get.mockResolvedValueOnce({ key: PRIMARY_DEVICE_KEY, value: { label: 'x' } });
+    await expect(settings.getPrimaryDevice()).resolves.toBeNull();
+  });
+
+  it('fails open to null on a read error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.settings.get.mockRejectedValueOnce(new Error('boom'));
+    await expect(settings.getPrimaryDevice()).resolves.toBeNull();
+  });
+
+  it('rejects an invalid primary device before writing', async () => {
+    await expect(settings.setPrimaryDevice({ id: '', label: 'x', since: 'y' })).rejects.toThrow(TypeError);
+    await expect(settings.setPrimaryDevice(null)).rejects.toThrow(TypeError);
     expect(db.settings.put).not.toHaveBeenCalled();
   });
 });

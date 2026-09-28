@@ -3395,3 +3395,74 @@ describe('Configured sync anchor drives the backfill latch and messages (default
     expect(msgs.at(-1)).toContain('full history complete back to 2024-03-01.');
   });
 });
+
+describe('ST-020: post-sync Drive upload respects the primary device', () => {
+  const TODAY = new Date(2025, 5, 19);
+  let reporter, doc, driveSync, backup, prefs;
+
+  const source = () => ({
+    label: 'Fake',
+    notReadyMessage: '🔑 x',
+    accessLostMessage: 'x',
+    isReady: () => true,
+    fetchDays: vi.fn(async () => []),
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    reporter = { sync: vi.fn(), db: vi.fn(), auth: vi.fn() };
+    doc = { getElementById: vi.fn().mockReturnValue(null) };
+    driveSync = { push: vi.fn().mockResolvedValue(undefined) };
+    backup = {
+      buildBackup: vi.fn().mockResolvedValue({ schema_version: 1, daily_records: [], settings: [] }),
+      markPushed: vi.fn().mockResolvedValue(undefined),
+    };
+    prefs = { getDriveBackupEnabled: vi.fn().mockResolvedValue(true), setLastDriveSync: vi.fn() };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const run = async (primaryDevice) => {
+    const db = makeStatefulDb({ seed: [seedRow('2013-01-01'), seedRow('2025-06-15')], flag: true });
+    await createStepSync(source(), db, reporter, doc, driveSync, backup, prefs, primaryDevice).sync();
+    await vi.waitFor(() => expect(prefs.getDriveBackupEnabled).toHaveBeenCalled());
+    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+  };
+
+  it('skips the automatic upload when another device is primary — nothing is built or pushed', async () => {
+    const primaryDevice = { otherPrimary: vi.fn().mockResolvedValue({ id: 'app', label: 'Android app', since: 'x' }) };
+
+    await run(primaryDevice);
+
+    expect(primaryDevice.otherPrimary).toHaveBeenCalledTimes(1);
+    expect(backup.buildBackup).not.toHaveBeenCalled();
+    expect(driveSync.push).not.toHaveBeenCalled();
+  });
+
+  it('uploads as before when this device is primary or none is', async () => {
+    const primaryDevice = { otherPrimary: vi.fn().mockResolvedValue(null) };
+
+    await run(primaryDevice);
+
+    await vi.waitFor(() => expect(driveSync.push).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not ask about the primary when auto-upload is switched off', async () => {
+    prefs.getDriveBackupEnabled.mockResolvedValue(false);
+    const primaryDevice = { otherPrimary: vi.fn() };
+
+    await run(primaryDevice);
+
+    expect(primaryDevice.otherPrimary).not.toHaveBeenCalled();
+  });
+
+  it('without a primaryDevice collaborator (legacy wiring) uploads as before', async () => {
+    await run(null);
+    await vi.waitFor(() => expect(driveSync.push).toHaveBeenCalledTimes(1));
+  });
+});

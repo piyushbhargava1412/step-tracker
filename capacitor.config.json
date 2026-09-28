@@ -4,5 +4,16 @@
   "webDir": "dist",
   "android": {
     "backgroundColor": "#020617"
+  },
+  "plugins": {
+    "SocialLogin": {
+      "providers": {
+        "google": true,
+        "facebook": false,
+        "apple": false,
+        "twitter": false
+      },
+      "logLevel": 1
+    }
   }
 }

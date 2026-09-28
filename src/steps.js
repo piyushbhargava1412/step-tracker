@@ -529,9 +529,15 @@ export function _checkSourceReady(source) {
   *                             setLastDriveSync(). When null (legacy call
   *                             sites), the post-sync Drive auto-upload is
   *                             treated as enabled (default).
+  * @param {object|null} primaryDevice  - ST-020 collaborator exposing
+  *                             otherPrimary(). When another installation is
+  *                             the primary device, the automatic post-sync
+  *                             upload is skipped so it can never overwrite
+  *                             that device's Drive backup. Null (legacy call
+  *                             sites) uploads as before.
  * @returns {{ sync: Function }}
  */
-export function createStepSync(source, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null) {
+export function createStepSync(source, db, reporter, doc = document, driveSync = null, backup = null, driveBackupPrefs = null, primaryDevice = null) {
   assertStepSource(source);
 
   // Re-entrancy guard — lives in the factory closure, never at module level.
@@ -709,6 +715,8 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
                 ? await driveBackupPrefs.getDriveBackupEnabled()
                 : true;
             if (!enabled) return;
+            // ST-020: only the primary device uploads automatically.
+            if (primaryDevice && (await primaryDevice.otherPrimary())) return;
             const envelope = await backup.buildBackup();
             const result = await driveSync.push(envelope, { silent: true });
             if (result?.skipped === true) return;
