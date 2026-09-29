@@ -17,10 +17,11 @@ export const ONBOARDING_DONE_KEY = 'onboarding_done';
  *   sourceName: string,                 e.g. "Health Connect"
  *   hasData: () => Promise<boolean>,
  *   onRestore?: () => void,             opens Backup & restore
+ *   intro?: string,                     replaces the "reads your daily steps from …" text
  * }} deps
  * @returns {{ start: () => Promise<void>, dismiss: () => void, isOpen: () => boolean }}
  */
-export function createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore = () => {} }) {
+export function createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore = () => {}, intro }) {
   const root = () => doc.getElementById('onboarding');
   let bound = false;
 
@@ -77,7 +78,7 @@ export function createOnboardingUI(doc, { storage, connection, sourceName, hasDa
     if (connectBtn) connectBtn.textContent = connection.label;
     const text = doc.getElementById('onboarding-text');
     if (text) {
-      text.textContent = `Step Tracker reads your daily steps from ${sourceName}. Everything stays on this device.`;
+      text.textContent = intro ?? `Step Tracker reads your daily steps from ${sourceName}. Everything stays on this device.`;
     }
     _bind();
     el.hidden = false;

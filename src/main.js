@@ -7,7 +7,11 @@ import '@fontsource/jetbrains-mono/700.css'
 
 import { CLIENT_ID } from './config.js'
 import { createStatusReporter } from './ui-status.js'
-import { createDb, initDB } from './db.js'
+import { createDb, dbNameFor, initDB } from './db.js'
+import { guardWrites } from './read-only.js'
+import { selectAccess, applyAccess } from './platform/access.js'
+import { createViewer } from './viewer.js'
+import { renderViewerStatus } from './viewer-ui.js'
 import { requestPersistentStorage } from './storage.js'
 import { selectAuth } from './platform/auth.js'
 import { createGoogleDriveConnection } from './platform/native/google-drive-connection.js'
@@ -115,6 +119,10 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 0. Platform: the Android app (Capacitor) or a browser. Everything that
   //    differs between them is chosen here, through src/platform/*.
   const isNative = isNativePlatform()
+  // ST-023: the app edits; the browser is a read-only viewer of the app's
+  // Drive snapshot. <html data-access> drives the markup gating in styles.css.
+  const access = selectAccess({ isNative })
+  applyAccess(doc, access)
   const storageManager = selectStorageManager({ isNative, nav: navigator })
   const fileSaver = createFileSaver({ isNative, doc })
 
@@ -124,8 +132,10 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 2. Config object — expose CLIENT_ID as a plain object for injection
   const config = { CLIENT_ID }
 
-  // 3. Init DB (fail-open: catch so later steps still run)
-  const db = createDb()
+  // 3. Init DB (fail-open: catch so later steps still run). The viewer caches
+  //    into its own database, and every write outside a snapshot load is refused.
+  const db = createDb(dbNameFor(access))
+  const { writeSnapshot } = guardWrites(db, { isReadOnly: () => !access.canEdit })
   try {
     await initDB(db, reporter)
   } catch (err) {
@@ -297,7 +307,8 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // A goal change re-scores streaks and the calendar.
   const progressUI = createProgressUI(doc, goal, db, reporter, () =>
-    _renderViews([['streakUI', streakUI], ['calendarUI', calendarUI], ['weekUI', weekUI]], 'goal change'))
+    _renderViews([['streakUI', streakUI], ['calendarUI', calendarUI], ['weekUI', weekUI]], 'goal change'),
+  { canEdit: access.canEdit })
 
   // Views that show step data, in screen order; re-rendered after every sync.
   const dataViews = () => [
@@ -315,7 +326,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // browser, Health Connect access in the Android app (the platform
   // connection decides). Connect is a storage-protection-relevant user
   // gesture: silently request persistence alongside it (fire-and-forget).
-  const sourceName = isNative ? 'Health Connect' : 'Google Fit'
+  const sourceName = isNative ? 'Health Connect' : 'Google Drive'
   const sourceNameEl = doc.getElementById('step-source-name')
   if (sourceNameEl) sourceNameEl.textContent = sourceName
   const authBtn = doc.getElementById('auth-btn')
@@ -331,23 +342,50 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     })
   }
 
-  // 7a. Shared post-sync re-render pipeline (SF-12: re-render after each sync).
-  // Every sync goes through `syncTrigger` (below) so the app knows when it
-  // last synced — the sync button, pull-to-refresh, the auto-sync-on-connect
-  // hook and the resume hook converge on the same refresh.
-  const runSyncPipeline = async () => {
-    await stepSync.sync()
-    await _renderViews(dataViews(), 'sync')
+  // 7a. What a "sync" is: the step sync in the app; in the read-only web
+  // viewer (ST-023), re-downloading the app's Drive snapshot — Drive reads
+  // only, the viewer is handed nothing but `pull`.
+  const viewer = access.canEdit
+    ? null
+    : createViewer({
+      db,
+      writeSnapshot,
+      driveSync: { pull: () => driveSync.pull() },
+      isConnected: () => Boolean(auth.getAccessToken()),
+      reporter,
+    })
+  const refresher = viewer
+    ? {
+      run: () => viewer.refresh(),
+      canRun: () => viewer.canRefresh(),
+      renderStatus: async () => renderViewerStatus(doc, await viewer.snapshotTime()),
+    }
+    : {
+      run: () => stepSync.sync(),
+      canRun: () => stepSync.canSync(),
+      renderStatus: () => _renderLastSyncLabel(db, doc),
+    }
+  const renderRefreshStatus = async () => {
     try {
-      await _renderLastSyncLabel(db, doc)
+      await refresher.renderStatus()
     } catch (err) {
       console.error('[main] last-sync label update failed, continuing', err)
     }
   }
 
+  // Shared post-sync re-render pipeline (SF-12: re-render after each sync).
+  // Every sync goes through `syncTrigger` (below) so the app knows when it
+  // last synced — the sync button, pull-to-refresh, the auto-sync-on-connect
+  // hook and the resume hook converge on the same refresh.
+  const runSyncPipeline = async () => {
+    await refresher.run()
+    await _renderViews(dataViews(), 'sync')
+    await renderRefreshStatus()
+  }
+
   const syncTrigger = createSyncTrigger({
     sync: runSyncPipeline,
-    canSync: () => stepSync.canSync(),
+    canSync: () => refresher.canRun(),
   })
 
   // 7'. Navigation: bottom tabs, pushed screens, the app-bar back arrow and
@@ -371,6 +409,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     sourceName,
     hasData: async () => (await db.daily_records.count()) > 0,
     onRestore: () => screens.go('backup'),
+    intro: viewer ? 'See the steps your Step Tracker app backs up to your Google Drive.' : undefined,
   })
 
   // 7b. Auto-sync the moment a connection succeeds — from the first connect
@@ -445,12 +484,9 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
       ['driveSyncUI', cloudView],
     ], 'mutation'))
 
-  // 8b. Populate Today's "Sync: …" label from the newest record (fail-open)
-  try {
-    await _renderLastSyncLabel(db, doc)
-  } catch (err) {
-    console.error('[main] last-sync label update failed, continuing', err)
-  }
+  // 8b. Populate Today's "Sync: …" label from the newest record — or, in the
+  // viewer, "Data as of …" from the cached snapshot (fail-open)
+  await renderRefreshStatus()
 
   // 9. Calendar Week / Month switch — the week renders when first shown.
   initCalendarViewSwitch(doc, {

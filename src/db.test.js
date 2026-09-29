@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DB_NAME, DB_VERSION, createDb, initDB } from './db.js';
+import { DB_NAME, DB_VERSION, VIEWER_DB_NAME, createDb, dbNameFor, initDB } from './db.js';
 
 // We mock Dexie so that `new Dexie(...)` returns a controllable object.
 // Each call to version() returns a fresh chainable object so v2 and v3
@@ -52,6 +52,19 @@ describe('DB constants', () => {
   });
   it('DB_VERSION equals 6', () => {
     expect(DB_VERSION).toBe(6);
+  });
+});
+
+describe('ST-023: database per role', () => {
+  it('the app keeps its database; the browser viewer caches into its own', () => {
+    expect(dbNameFor({ canEdit: true })).toBe(DB_NAME);
+    expect(dbNameFor({ canEdit: false })).toBe(VIEWER_DB_NAME);
+    expect(VIEWER_DB_NAME).toBe('StepTrackerViewerDB');
+  });
+
+  it('createDb opens the named database (StepTrackerDB by default)', () => {
+    expect(createDb()._name).toBe(DB_NAME);
+    expect(createDb(VIEWER_DB_NAME)._name).toBe(VIEWER_DB_NAME);
   });
 });
 

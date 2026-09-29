@@ -535,6 +535,8 @@ describe('render() — drawer', async () => {
     const editBtn = doc.querySelector('[data-action="edit-day"]');
     expect(editBtn).not.toBeNull();
     expect(editBtn.disabled).toBe(true);
+    // ST-023: hidden in the read-only web viewer.
+    expect(editBtn.hasAttribute('data-editor-only')).toBe(true);
   });
 
   it('drawer has no Verified Manual or Override note rows', async () => {
@@ -1114,6 +1116,7 @@ describe('Task 4 — Revert button', () => {
 
     const revertBtn = doc.querySelector('[data-action="revert-day"]');
     expect(revertBtn).not.toBeNull();
+    expect(revertBtn.hasAttribute('data-editor-only')).toBe(true);
   });
 
   it('confirmFn returns true → revertRecord called + data:records:mutated dispatched', async () => {

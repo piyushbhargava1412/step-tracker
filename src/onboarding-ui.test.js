@@ -55,6 +55,12 @@ describe('createOnboardingUI', () => {
       .toBe('Step Tracker reads your daily steps from Health Connect. Everything stays on this device.');
   });
 
+  it('ST-023: a custom introduction (the read-only web viewer)', async () => {
+    const intro = 'See the steps your Step Tracker app backs up to Google Drive.';
+    await createOnboardingUI(doc, { storage, connection, sourceName: 'Google Drive', intro, hasData: vi.fn().mockResolvedValue(false) }).start();
+    expect(doc.getElementById('onboarding-text').textContent).toBe(intro);
+  });
+
   it('stays hidden when there is data already', async () => {
     await create(true).start();
     expect(doc.getElementById('onboarding').hidden).toBe(true);

@@ -43,9 +43,11 @@ export function _goalOptionLabel(steps) {
  * @param {object} db
  * @param {{ db: Function }} reporter
  * @param {Function} [onGoalApplied]  invoked after a goal change is saved and re-rendered
+ * @param {{ canEdit?: boolean }} [options]  canEdit false (ST-023, the read-only
+ *   web viewer) shows the goal chip disabled.
  * @returns {{ render: Function }}
  */
-export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}) {
+export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}, { canEdit = true } = {}) {
   // Stops fitting the previous render's step count (its node is replaced).
   let stopFittingSteps = () => {};
 
@@ -76,6 +78,7 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
       select.appendChild(option);
     }
     select.value = String(progress.target_steps);
+    select.disabled = !canEdit;
     select.addEventListener('change', (event) => _onGoalChange(event));
     chip.appendChild(select);
     head.appendChild(chip);

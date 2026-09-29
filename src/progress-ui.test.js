@@ -281,3 +281,20 @@ describe('goal chip (the step goal selector)', () => {
     await expect(tick()).resolves.toBeUndefined();
   });
 });
+
+describe('ST-023: goal chip for a viewer', () => {
+  it('shows the goal but cannot change it', async () => {
+    const doc = buildDoc();
+    const goal = makeGoal(GOAL_10K);
+    const ui = createProgressUI(doc, goal, makeDb({ effective_steps: 10 }), { db: vi.fn() }, () => {}, { canEdit: false });
+    await ui.render();
+    const select = doc.getElementById('goal-select');
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe(String(GOAL_10K));
+  });
+
+  it('editors can change it (the default)', async () => {
+    const doc = await renderWith({ effective_steps: 10 });
+    expect(doc.getElementById('goal-select').disabled).toBe(false);
+  });
+});

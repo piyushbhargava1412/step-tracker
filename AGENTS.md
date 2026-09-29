@@ -42,6 +42,7 @@ Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
 | Settings, sync horizon, data prune / wipe flow | [flows/settings-data-management.md](.context/flows/settings-data-management.md) |
 | Local backup & Google Drive cloud sync flow | [flows/backup-and-cloud-sync.md](.context/flows/backup-and-cloud-sync.md) |
 | Storage Health protection matrix, silent persist gestures & panel | [flows/storage-health.md](.context/flows/storage-health.md) |
+| Read-only web viewer: role, cache DB, write backstop, markup gating (ST-023) | [flows/read-only-web-viewer.md](.context/flows/read-only-web-viewer.md) |
 | Group Challenge Tracker flow | [flows/group-challenge-tracker.md](.context/flows/group-challenge-tracker.md) |
 | PWA install, offline app-shell caching & Cloudflare Pages deploy | [flows/pwa-offline-install.md](.context/flows/pwa-offline-install.md) |
 | Health Connect / Android migration roadmap & slices (ST-016 → ST-024) | [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md) |
@@ -67,6 +68,7 @@ relevant to your current task.**
 - [Settings — Sync Horizon & Data Management](.context/flows/settings-data-management.md)
 - [Local Backup/Restore & Google Drive Cloud Sync](.context/flows/backup-and-cloud-sync.md)
 - [Storage Health — Protection Matrix, Silent Persist Gestures & Panel](.context/flows/storage-health.md)
+- [Read-Only Web Viewer](.context/flows/read-only-web-viewer.md)
 - [Group Challenge Tracker](.context/flows/group-challenge-tracker.md)
 - [PWA Install & Offline App Shell Caching](.context/flows/pwa-offline-install.md)
 - [Android App — Health Connect Connection & Sync](.context/flows/android-health-connect.md)

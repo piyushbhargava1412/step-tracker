@@ -170,6 +170,7 @@ export function createChallengeUI(doc, challenge, db, reporter, { share = null }
     const config = doc.createElement('div');
     config.className = 'challenge-config';
     config.id = 'challenge-config';
+    config.dataset.editorOnly = ''; // ST-023: hidden in the read-only web viewer
 
     // Name input row
     const nameLabel = doc.createElement('label');
@@ -268,6 +269,7 @@ export function createChallengeUI(doc, challenge, db, reporter, { share = null }
     edit.type = 'button';
     edit.className = 'icon-btn challenge-icon-btn';
     edit.dataset.action = 'toggle-challenge-config';
+    edit.dataset.editorOnly = '';
     edit.setAttribute('aria-label', 'Edit challenge');
     edit.appendChild(createIcon(doc, 'pencil', { size: 20 }));
     actions.appendChild(edit);
@@ -382,6 +384,8 @@ export function createChallengeUI(doc, challenge, db, reporter, { share = null }
     summary.type = 'button';
     summary.className = 'card challenge-summary';
     summary.dataset.go = 'challenge';
+    // ST-023: without a challenge the card only invites setting one up — app only.
+    if (!metrics) summary.dataset.editorOnly = '';
 
     const icon = doc.createElement('span');
     icon.className = 'challenge-summary__icon';

@@ -134,6 +134,16 @@ describe('createGoal — step-goal API (SF-3/SF-9/SF-10)', () => {
       expect(consoleSpy).toHaveBeenCalledWith('[goal]', err);
     });
 
+    it('ST-023: the read-only viewer refusing the lazy default write is expected — not logged', async () => {
+      mockGet.mockResolvedValue(undefined);
+      mockPut.mockRejectedValue(Object.assign(new Error('view only'), { name: 'ReadOnlyError' }));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const result = await createGoal(mockDb).getActiveStepGoal();
+
+      expect(result).toBe(10000);
+      expect(consoleSpy).not.toHaveBeenCalled();
+    });
+
     it('SF-3: lazily-written row never contains effective_from, and goal_history.put is never called', async () => {
       const mockHistoryPut = vi.fn();
       const dbWithHistory = {

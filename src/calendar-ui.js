@@ -458,6 +458,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
         revertBtn.type = 'button';
         revertBtn.className = 'revert-btn btn btn-secondary';
         revertBtn.dataset.action = 'revert-day';
+        revertBtn.dataset.editorOnly = '';
         revertBtn.textContent = 'Revert to synced';
         revertBtn.addEventListener('click', async () => {
           const confirmed = confirmFn('Are you sure you want to revert to the original synced values? This will undo your manual override.');
@@ -500,6 +501,7 @@ export function createCalendarUI(doc, db, calendarEngine, reporter, records, pro
     const editBtn = doc.createElement('button');
     editBtn.type = 'button';
     editBtn.dataset.action = 'edit-day';
+    editBtn.dataset.editorOnly = ''; // ST-023: hidden in the read-only web viewer
     if (!records) {
       editBtn.disabled = true;
       editBtn.title = 'Editing arrives in ST-006';
