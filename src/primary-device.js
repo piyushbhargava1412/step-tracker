@@ -2,10 +2,10 @@
  * Primary device (ST-020).
  *
  * Drive holds one backup file and every upload replaces it (last writer
- * wins). Once the Android app backs up to Drive, a browser that keeps syncing
- * from Google Fit would overwrite the app's backup. So exactly one
- * installation is the *primary device*: only it uploads automatically, and
- * any other installation asks before a manual upload.
+ * wins), so exactly one installation is the *primary device*: only it
+ * uploads automatically, and any other installation asks before a manual
+ * upload. (Since ST-023 the browser is read-only and never uploads; the rule
+ * still separates two Android installs sharing one Google account.)
  *
  * The primary is recorded as a settings row (so it travels inside every
  * backup) and mirrored onto the Drive file's metadata by drive-sync.js (so

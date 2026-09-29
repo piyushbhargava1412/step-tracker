@@ -11,8 +11,9 @@ need for the task at hand; do not read everything up front.
 
 ## Project Context
 
-Step-tracker is a step streak tracker with no backend: a browser PWA that reads daily steps from
-Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
+Step-tracker is a step streak tracker with no backend: an Android app (Capacitor) that reads daily
+steps from Health Connect and backs them up to Google Drive, and a read-only web viewer (PWA) of that
+backup.
 
 - Technical map: [.context/repo_map.md](.context/repo_map.md)
 - Business scope: [.context/repo_scope.md](.context/repo_scope.md)
@@ -46,7 +47,7 @@ Google Fit, and an Android app (Capacitor) that reads them from Health Connect.
 | Group Challenge Tracker flow | [flows/group-challenge-tracker.md](.context/flows/group-challenge-tracker.md) |
 | PWA install, offline app-shell caching & Cloudflare Pages deploy | [flows/pwa-offline-install.md](.context/flows/pwa-offline-install.md) |
 | Health Connect / Android migration roadmap & slices (ST-016 → ST-024) | [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md) |
-| Step data sources (`StepSource` port, Google Fit source) | [flows/historical-step-sync.md](.context/flows/historical-step-sync.md) |
+| Step sync engine & `StepSource` port (Health Connect is the only source) | [flows/historical-step-sync.md](.context/flows/historical-step-sync.md) |
 | Android app: Health Connect connection & sync, platform layer | [flows/android-health-connect.md](.context/flows/android-health-connect.md) |
 | Android build, signing, install & emulator testing | [docs/plans/android-release.md](docs/plans/android-release.md) |
 

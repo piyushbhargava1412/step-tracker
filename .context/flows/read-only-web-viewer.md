@@ -74,5 +74,5 @@ browser can change data, locally or on Drive.
 ## Notes
 - On `localhost` Dexie runs in debug mode and `console.trace`s each refused write — dev-server
   noise only; the deployed site has debug off.
-- Until ST-024 the browser's Google sign-in still requests the Fit scopes, and the Fit step
-  source is still constructed (unused in the viewer).
+- Since ST-024 the browser's Google sign-in asks for `drive.appdata` only and the browser builds
+  no step source or step sync at all (`selectStepSource` → `{ source: null, connection }`).

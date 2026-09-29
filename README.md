@@ -54,8 +54,8 @@ The app is laid out like a phone app (ST-025), in the same Deep Blue colours:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create or select a project
-3. Enable the **Fitness API** and the **Drive API** under **APIs & Services → Library**
-4. Configure the **OAuth consent screen** (External) — the scopes requested at first sign-in will be listed there
+3. Enable the **Drive API** under **APIs & Services → Library**
+4. Configure the **OAuth consent screen** (External) with the one scope the app uses: `.../auth/drive.appdata`
 5. Create an OAuth 2.0 Client ID (application type: Web)
 6. Add the following to **Authorized JavaScript Origins** (explicit per-client-ID restrictions):
    - `http://localhost:1981`
@@ -88,8 +88,8 @@ npm run build
 - Legacy configuration files (`config.local.js`, `config.example.js`) have been retired — the successor flow is `cp .env.example .env.local` and setting `VITE_CLIENT_ID` there; no other configuration file is read
 
 ### Google Account Connection & Session
-- Click **Connect Google Account** once to authorize; the moment a token arrives the app **auto-syncs** — no separate Sync tap is needed.
-- The connection survives a **page refresh**: a boolean `google_connected` flag is stored in `localStorage` (never the token itself), and on the next load the app asks Google Identity Services for a fresh token silently (`prompt: ''`). When that succeeds, the auto-sync runs again; if Google's session has expired, you simply click Connect once more.
+- Click **Connect Google Account** once to authorize (Drive app data only); the moment a token arrives the web viewer **downloads the app's latest backup** — no separate tap is needed.
+- The connection survives a **page refresh**: a boolean `google_connected` flag is stored in `localStorage` (never the token itself), and on the next load the app asks Google Identity Services for a fresh token silently (`prompt: ''`). When that succeeds, the backup is downloaded again; if Google's session has expired, you simply click Connect once more.
 - Limitation: the in-browser token flow has no refresh token, so the silent restore depends on Google's session cookie. A normal refresh keeps it alive; a fully closed/reopened browser or a long gap may require one reconnect click.
 
 ## Deploying to Cloudflare Pages
@@ -129,7 +129,7 @@ The installed app launches full-screen from the home screen with its own icon.
 After the app has loaded successfully at least once, the app shell — every screen and the navigation — works offline, and your synced records remain readable from local IndexedDB storage. What still needs a network connection:
 
 - **Google sign-in**: the GSI bootstrap script is served stale-while-revalidate; signing in always requires connectivity
-- **Step sync and Drive sync**: Google Fit (`googleapis.com/fitness/*`) and Drive (`googleapis.com/drive/*`) REST calls always go straight to the network — tokens and sync data are never served from cache
+- **Refreshing from Drive**: Drive (`googleapis.com/drive/*`) REST calls always go straight to the network — tokens and backup data are never served from cache
 
 
 ## Service Worker Updates
@@ -139,7 +139,7 @@ The service worker versioned caches update on next visit after a deploy (update-
 ## Android App (Health Connect)
 
 The same code also ships as an Android app (Capacitor). In the app, steps and distance come from
-**Health Connect** instead of Google Fit: tap **Connect Health Connect**, allow Steps and Distance
+**Health Connect**: tap **Connect Health Connect**, allow Steps and Distance
 (and access to past data), and the app syncs — automatically on every later launch, and again whenever you come back to it after 10 minutes or more. Exports and
 backups are saved to `Documents/Step Tracker/` on the phone. For Google Drive backup, open
 Settings › **Backup & restore** → **Connect Google Drive**; it uses the same Drive backup the web
@@ -170,31 +170,28 @@ Roadmap: [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connec
 
 ## Step Sync
 
-The step-sync engine (`src/steps.js`) pulls daily step data from an injected `StepSource` (`src/step-source.js`); today that is the Google Fit source (`src/fit-step-source.js`), the sole gateway to the Google Fit REST API. Tapping the Sync button (`#sync-btn`, the refresh icon on Today) triggers `createStepSync(createFitStepSource(auth, reporter), db, reporter, doc).sync()`, which fetches daily step aggregates and persists them into the local Dexie `daily_records` table for streak calculation.
+The step-sync engine (`src/steps.js`) runs in the Android app. It reads daily step data from an injected `StepSource` (`src/step-source.js`) — Health Connect (`src/health-connect-step-source.js`), the only source since ST-024 retired Google Fit — and persists it into the local Dexie `daily_records` table for streak calculation. Tapping the Sync button (`#sync-btn`, the refresh icon on Today) or pulling down runs it; so do connecting, launching and returning to the app after 10 minutes.
 
-**Request shape:**
-- Each chunk is a `POST` to `https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate` with `Authorization: Bearer <token>` (the token is re-read from `auth.getAccessToken()` on every attempt and is never logged, cached, or persisted) and `Content-Type: application/json`.
-- Exactly two `aggregateBy` entries are requested — `com.google.step_count.delta` (steps) and `com.google.distance.delta` (distance) — with **no `dataSourceId`**, so Google merges data across all connected devices and Health Connect sources.
-- `bucketByTime.durationMillis` is one day, and `startTimeMillis`/`endTimeMillis` are constructed at **local midnight** (00:00:00.000 in the browser's timezone), not UTC zero-hour, so each bucket maps to a local calendar day.
-- Requests are split into ≤30-calendar-day chunks (`CHUNK_DAYS = 30`), processed newest-first, with boundaries on local midnight so they stay DST-safe.
-- Distance is normalised from metres to kilometres; when Google Fit returns no distance data, distance falls back to `steps × 0.000762` km/step (`STEP_TO_KM`). Days with zero steps still produce a record (zero-filled).
+**Reading:**
+- The sync window is split into ≤30-calendar-day chunks (`CHUNK_DAYS = 30`), processed newest-first, with boundaries on **local midnight** so each day maps to a local calendar day and chunks stay DST-safe.
+- The source returns one reading per local day (zero-filled) with steps, distance when measured, and a 24-hour step profile. When no distance was measured, it is estimated as `steps × 0.000762` km/step (`STEP_TO_KM`).
 
 **History backfill:**
 - History is fetched back to the sync horizon set in Settings › Track history from (default `2018-01-01`; changing it re-checks whether older days need fetching). On a first sync this spans years (~100 chunks at the default), so **the first sync can take several minutes**; the app shows a progress message in the sync status line and asks you to keep the tab open.
 - Syncs run in a two-segment window model: an incremental window over the latest 3 stored days (always), plus a full-history backfill window when the backfill is not yet complete.
-- An interrupted backfill is fail-stop: already-persisted chunks are kept, and the next click resumes at the correct older date. A terminal error skips the latch write, so the persisted chunks stay put for the resume.
+- An interrupted backfill is fail-stop: already-persisted chunks are kept, and the next sync resumes at the correct older date. A terminal error skips the latch write, so the persisted chunks stay put for the resume.
 - Once the backfill reaches the anchor, a one-time latch (`initial_backfill_complete` in the Dexie `settings` store) is written, so every future sync collapses to a single incremental request.
 
 **Incremental window:**
-- Every run refreshes `[latest stored date − 3 days → tomorrow's local midnight]`. The 3-day `SAFETY_BUFFER_DAYS` window exists because wearable and Health Connect data can arrive late — without it, an overdue step read could incorrectly look like a streak-breaking zero.
+- Every run refreshes `[latest stored date − 3 days → tomorrow's local midnight]`. The 3-day `SAFETY_BUFFER_DAYS` window exists because watch and fitness-app data can reach Health Connect late — without it, an overdue step read could incorrectly look like a streak-breaking zero.
 
-**Errors and retries:**
-- A single retry is performed on transient `429` (rate limit) and `5xx` responses, honouring `Retry-After` (capped at 30 s, else 2 s). `401` short-circuits with a `🔑 Session expired` prompt; other `4xx` and network errors are terminal and fail-stop.
+**Errors:**
+- The source classifies failures (`syncFailure` in `src/step-source.js`); lost Health Connect access shows a `🔑` prompt to allow it again, and read failures are terminal and fail-stop.
 - Every state — progress, success, transient, terminal, and auth — is surfaced in the `#sync-status` status line via `reporter.sync()`; there are no alerts, toasts, or progress bars.
 
 **Override preservation & high-water mark:**
 - Chunks are persisted transactionally, merging with existing rows. Rows marked `is_overridden: true` keep their user-authored `effective_*` values and `override` metadata — only `original_*` is refreshed — so a resync never clobbers a manual correction.
-- For all other rows, `effective_steps` / `effective_distance_km` apply a **high-water mark**: `max(stored, incoming)`. If Google Fit later returns a *lower* number for a day (server-side scrubbing or a late data revision), the PWA ignores the reduction and keeps the highest recorded value — steps a user has already seen are never taken away. `original_*` always tracks the raw cloud truth for debugging.
+- For all other rows, `effective_steps` / `effective_distance_km` apply a **high-water mark**: `max(stored, incoming)`. If the source later reports a *lower* number for a day (a late data revision), the app ignores the reduction and keeps the highest recorded value — steps a user has already seen are never taken away. `original_*` always tracks the raw cloud truth for debugging.
 
 ## Goal Commitment & Today's Progress
 
@@ -335,7 +332,7 @@ Avg Daily Steps  = Math.round(Total Steps / days_evaluated)
 Hit Rate %       = Math.round((days_target_met / days_evaluated) × 100)
 ```
 
-**Critical note on `days_evaluated`**: This metric counts **only past or present days that have at least one synced record**, not all calendar days in the month. A day with no synced data from Google Fit is excluded from both the numerator and denominator. This ensures an incompletely backfilled month is not reported as a near-zero hit rate.
+**Critical note on `days_evaluated`**: This metric counts **only past or present days that have at least one synced record**, not all calendar days in the month. A day with no synced data is excluded from both the numerator and denominator. This ensures an incompletely backfilled month is not reported as a near-zero hit rate.
 
 For example:
 - A month with 15 synced days (of which 10 met target) renders Hit Rate as `67%`, not a lower ratio based on the full 31-day month.
@@ -348,12 +345,12 @@ Tapping any day (except future dates) opens a bottom sheet for that day: the ste
 **For a synced day:**
 - **Effective Steps** — the steps actually counted (after any override).
 - **Effective Distance** — the distance actually counted (after any override), in km.
-- **Synced steps** — the original steps reported by the step source (Health Connect or Google Fit).
+- **Synced steps** — the original steps reported by the step source (Health Connect).
 - **Verified Manual** — shown only if the day is marked as overridden; displays the user's corrected steps. Otherwise, renders `—`.
 - **Override note** — the user's explanatory text (e.g. "Phone was in pocket during phone call"). Shown only if overridden.
 - **Override status** — whether the day has a user correction (`Yes` or absent).
 
-**For an unsynced day (no record from Google Fit):**
+**For an unsynced day (no record from the step source):**
 - The date header appears, but all metrics show `—`.
 - A placeholder message reads `No synced data for this date`.
 - The **Correct steps** button is still present and active, allowing you to manually log the day.
@@ -385,7 +382,7 @@ The **Manual Override** feature lets you correct any day's step and distance rec
 **Revert to synced data:**
 1. Open the day sheet for an overridden day (shown with a `*` badge on the tile).
 2. Click **Revert to Synced**. Confirm the native browser prompt.
-3. The record returns to Google Fit values; the `*` badge disappears and all metrics recalculate.
+3. The record returns to the synced values; the `*` badge disappears and all metrics recalculate.
 
 ### Data Lineage: `original_*` vs `effective_*`
 
@@ -393,14 +390,14 @@ Every `daily_records` row carries two parallel field sets:
 
 | Field | Meaning |
 |-------|---------|
-| `original_steps` / `original_distance_km` | The raw value reported by Google Fit — refreshed to whatever the cloud returns on every sync (preserved on overridden rows). The raw cloud truth for debugging. |
+| `original_steps` / `original_distance_km` | The raw value reported by the step source — refreshed to whatever the source returns on every sync (preserved on overridden rows). The raw cloud truth for debugging. |
 | `effective_steps` / `effective_distance_km` | The value used by all metrics (streak engine, progress card, calendar heatmap, monthly summary). On insert it equals `original_*`; on resync it only ever goes **up** — it is `max(stored, incoming)` — and is overridden only by a user correction or revert. |
 | `is_overridden` | `true` when a user correction is active. |
 | `override.note` | Required audit justification (plain text). |
 | `override.proof_image_base64` | Optional JPEG Base64 proof image, or `null`. |
 | `override.updated_at` | ISO timestamp of the last manual correction. |
 
-**Resync safety**: When Google Fit data is re-fetched, only `original_*` and `synced_at` are refreshed on overridden rows — the `effective_*` values and `override` metadata are preserved, so a resync never clobbers a manual correction. On non-overridden rows `effective_*` is never reduced by a lower cloud value (high-water mark); only `original_*` follows the cloud down.
+**Resync safety**: When a day is re-read from the step source, only `original_*` and `synced_at` are refreshed on overridden rows — the `effective_*` values and `override` metadata are preserved, so a resync never clobbers a manual correction. On non-overridden rows `effective_*` is never reduced by a lower cloud value (high-water mark); only `original_*` follows the cloud down.
 
 ### Proof-Image Storage
 
@@ -476,8 +473,8 @@ Each subsequent row corresponds to one `daily_records` entry in the result set:
 | Column | Source field | Notes |
 |--------|-------------|-------|
 | `Date` | `record.date` | ISO date string (`YYYY-MM-DD`) |
-| `Original_Steps` | `record.original_steps` | Raw Google Fit step count |
-| `Original_Distance_KM` | `record.original_distance_km` | Raw Google Fit distance in km |
+| `Original_Steps` | `record.original_steps` | Raw step count from the step source |
+| `Original_Distance_KM` | `record.original_distance_km` | Raw distance in km from the step source |
 | `Effective_Steps` | `record.effective_steps` | Steps used by all metrics (post-override) |
 | `Effective_Distance_KM` | `record.effective_distance_km` | Distance used by all metrics (post-override) |
 | `Is_Overridden` | `record.is_overridden === true` | Boolean: `true` or `false` |

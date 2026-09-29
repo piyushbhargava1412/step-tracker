@@ -275,7 +275,8 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
 
   // 6b. Step sync engine — wired here so driveSync + backup are available as injected collaborators
-  // ST-019: Google Fit in the browser, Health Connect in the Android app.
+  // ST-019/024: Health Connect in the Android app; the browser has no step
+  // source — its read-only viewer (ST-023) reads the app's Drive backup.
   const { source: stepSource, connection } = selectStepSource({
     isNative,
     auth,
@@ -284,7 +285,9 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     health: Health,
     launcher: AppLauncher,
   })
-  const stepSync = createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings, primaryDevice)
+  const stepSync = stepSource
+    ? createStepSync(stepSource, db, reporter, doc, driveSync, backup, settings, primaryDevice)
+    : null
 
   // Backup & restore screen: the three panels mount into their own
   // containers so no render clears another's output (each render() wipes its

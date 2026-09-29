@@ -7,8 +7,8 @@ confidence: high (unit-tested; verified on a Pixel 9 emulator, Android 17, real 
 -->
 
 ## Overview
-Inside the Capacitor Android app, steps and distance come from **Health Connect** instead of the
-Google Fit REST API. The same web code runs in the app's WebView; `src/platform/*` decides per
+Inside the Capacitor Android app, steps and distance come from **Health Connect** — the only step
+source since ST-024 retired Google Fit. The same web code runs in the app's WebView; `src/platform/*` decides per
 platform. The Connect button (Settings › Connections, and the first-launch welcome screen) reads **Connect Health Connect**, requests Health Connect read access
 (steps, distance and history), and every sync reads hourly aggregates through
 `@capgo/capacitor-health`. No Google sign-in is involved in syncing steps (Drive backup in the app
@@ -45,7 +45,7 @@ arrives with ST-020).
    `Health.queryAggregated({ bucket: 'hour', aggregation: 'sum' })` calls (steps, distance) over the
    chunk's exact local-midnight instants, groups buckets by **local calendar date** (DST-safe),
    rounds hourly steps, and zero-fills every date in the chunk. Distance is best-effort.
-5. Records flow through `_toDailyRecords` → `_upsertChunk` exactly as for Fit (overrides kept,
+5. Records flow through `_toDailyRecords` → `_upsertChunk` (overrides kept,
    high-water mark, `hourly_steps` refreshed).
 
 ## Error Surface

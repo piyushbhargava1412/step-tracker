@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  createGoogleFitConnection,
+  createGoogleAccountConnection,
   GOOGLE_CONNECTED_KEY,
   GOOGLE_CONNECT_LABEL,
-} from './google-fit-connection.js';
+} from './google-account-connection.js';
 
-describe('ST-019: Google Fit connection (web)', () => {
+describe('ST-019 / ST-024: Google account connection (web viewer)', () => {
   let auth;
   let storage;
   let tokenHandler;
@@ -25,20 +25,20 @@ describe('ST-019: Google Fit connection (web)', () => {
   });
 
   it('labels the button "Connect Google Account" and keeps the existing storage key', () => {
-    const connection = createGoogleFitConnection({ auth, storage });
+    const connection = createGoogleAccountConnection({ auth, storage });
     expect(connection.label).toBe(GOOGLE_CONNECT_LABEL);
     expect(GOOGLE_CONNECT_LABEL).toBe('Connect Google Account');
     expect(GOOGLE_CONNECTED_KEY).toBe('google_connected');
   });
 
   it('connect() starts Google\'s interactive consent', () => {
-    createGoogleFitConnection({ auth, storage }).connect();
+    createGoogleAccountConnection({ auth, storage }).connect();
     expect(auth.requestToken).toHaveBeenCalledWith();
   });
 
   it('on a token, remembers the connection then runs the listener', async () => {
     const listener = vi.fn().mockResolvedValue(undefined);
-    createGoogleFitConnection({ auth, storage }).onConnected(listener);
+    createGoogleAccountConnection({ auth, storage }).onConnected(listener);
 
     await tokenHandler('tok');
 
@@ -49,7 +49,7 @@ describe('ST-019: Google Fit connection (web)', () => {
   it('still runs the listener when remembering the connection fails', async () => {
     storage.setItem.mockImplementation(() => { throw new Error('quota'); });
     const listener = vi.fn();
-    createGoogleFitConnection({ auth, storage }).onConnected(listener);
+    createGoogleAccountConnection({ auth, storage }).onConnected(listener);
 
     await tokenHandler('tok');
 
@@ -58,7 +58,7 @@ describe('ST-019: Google Fit connection (web)', () => {
   });
 
   it('restore() silently asks for a token only when the user connected before', () => {
-    const connection = createGoogleFitConnection({ auth, storage });
+    const connection = createGoogleAccountConnection({ auth, storage });
     connection.restore();
     expect(auth.requestToken).not.toHaveBeenCalled();
 
@@ -69,7 +69,7 @@ describe('ST-019: Google Fit connection (web)', () => {
 
   it('restore() survives unreadable storage', () => {
     storage.getItem.mockImplementation(() => { throw new Error('blocked'); });
-    expect(() => createGoogleFitConnection({ auth, storage }).restore()).not.toThrow();
+    expect(() => createGoogleAccountConnection({ auth, storage }).restore()).not.toThrow();
     expect(auth.requestToken).not.toHaveBeenCalled();
   });
 });

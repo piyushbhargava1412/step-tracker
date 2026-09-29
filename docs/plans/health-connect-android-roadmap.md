@@ -1,6 +1,6 @@
 # Health Connect & Android App Roadmap
 
-> Status: in progress · ST-016–ST-020 merged; ST-021 built; next ST-023 + ST-024 (ST-022 Play Store postponed by the owner) · 2026-09-28
+> Status: in progress · ST-016–ST-021 and ST-025 merged; ST-026, ST-023 and ST-024 built (owner asked for them together, 2026-09-29, ahead of the Fit shutdown); ST-022 Play Store postponed by the owner · 2026-09-29
 > Goal: keep step data flowing after the Google Fit REST API shuts down (end of 2026) by reading from
 > **Health Connect** inside an **Android app** (Capacitor), without losing any stored history.
 > Out of scope for now: iOS / HealthKit, wearables-only sources, Play Billing.
@@ -54,7 +54,7 @@ scopes in [auth.js](../../src/auth.js) know about Fit.
 | 3 | [ST-022](../slices/ST-022-play-store-release.md) | Release keystore, privacy policy, Health apps declaration, internal testing track. |
 | 3 | [ST-026](../slices/ST-026-silent-drive-auth.md) | Stay connected to Drive (Play services authorization, no sign-in sheet); app storage wording. |
 | 4 | [ST-023](../slices/ST-023-read-only-web-viewer.md) | Web URL becomes a read-only viewer of the Drive snapshot. |
-| 4 | [ST-024](../slices/ST-024-retire-google-fit.md) | Remove the Fit source and `fitness.*` scopes after shutdown. |
+| 4 | [ST-024](../slices/ST-024-retire-google-fit.md) | Remove the Fit source and `fitness.*` scopes (done with ST-023, before the shutdown). |
 
 ## Deadlines
 

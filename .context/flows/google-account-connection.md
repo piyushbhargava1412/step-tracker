@@ -7,10 +7,10 @@ confidence: high
 -->
 
 ## Overview
-Authenticates the user in-browser with Google Identity Services and obtains an OAuth access token with Fitness read scopes (both step activity and location data) so step data can later be fetched. The connection is restored automatically after a page refresh (silent GSI token request), and a sync kicks off automatically the moment a valid token arrives — no second click needed.
+Authenticates the user in-browser with Google Identity Services and obtains an OAuth access token for **Drive app data only** (ST-024 removed the Google Fit scopes), which the read-only web viewer uses to download the Android app's backup (`.context/flows/read-only-web-viewer.md`). The connection is restored automatically after a page refresh (silent GSI token request), and a snapshot refresh kicks off automatically the moment a valid token arrives — no second click needed.
 
 > **Platform note (ST-019):** this flow is the **browser** connection. The logic lives in
-> `src/platform/web/google-fit-connection.js` (`createGoogleFitConnection` — `connect()`,
+> `src/platform/web/google-account-connection.js` (`createGoogleAccountConnection` — `connect()`,
 > `restore()`, `onConnected()`), selected by `src/platform/step-source.js`. In the Android app the
 > same header button connects **Health Connect** instead — see
 > `.context/flows/android-health-connect.md`.
@@ -23,7 +23,7 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
 ## Core Path
 1. **Initialization**: On app start, `src/auth.js` calls `google.accounts.oauth2.initTokenClient()` with:
    - Client ID from `import.meta.env.VITE_CLIENT_ID` (loaded from `.env.local`)
-   - Scopes: `fitness.activity.read fitness.location.read drive.appdata` (space-delimited; ST-012 added `drive.appdata` so the same token also authorizes Google Drive AppData cloud backup — see `.context/flows/backup-and-cloud-sync.md`)
+   - Scope: `https://www.googleapis.com/auth/drive.appdata` only (ST-024; the Fit scopes were removed with the Fit source — see `.context/flows/backup-and-cloud-sync.md`)
 
 2. **Token Request**: User clicks `#auth_btn` → calls `requestToken()` → `tokenClient.requestAccessToken()` triggers the Google consent/token popup.
 
@@ -55,13 +55,11 @@ Authenticates the user in-browser with Google Identity Services and obtains an O
   - Must be set before build/dev server starts
   - Example value: `123456789-abcdefghijklmnopqrstuvwxyz.apps.googleusercontent.com`
 
-### OAuth Scopes (Space-Delimited)
+### OAuth Scope
 ```
-fitness.activity.read fitness.location.read drive.appdata
+https://www.googleapis.com/auth/drive.appdata
 ```
-- `fitness.activity.read`: Read step count and activity data
-- `fitness.location.read`: Read location-based fitness data
-- `drive.appdata`: Read/write the app-private Google Drive AppData folder (ST-012 cloud backup; see `.context/flows/backup-and-cloud-sync.md`)
+- `drive.appdata`: the app-private Google Drive AppData folder — the browser only reads it (ST-023 viewer); the Android app backs up to it. The Google Cloud consent screen should list only this scope (owner step, ST-024).
 
 ## Scope
 - `src/auth.js` (OAuth 2.0 initialization, token client setup, token storage, `onTokenReceived` listener, `requestToken(options)` for silent restore)
@@ -77,5 +75,4 @@ fitness.activity.read fitness.location.read drive.appdata
 - Token is stored in module closure (`src/auth.js`), not on the window object or any global variable
 - The implicit GSI token flow has **no refresh token**; silent restore works only while Google's `gsi_session` cookie is valid (a refresh keeps it; a full browser restart or a long gap may expire it, at which point the user reconnects once)
 - Configuration has been migrated from `config.example.js` / `config.local.js` with `window.APP_CONFIG.CLIENT_ID` to `.env.local` + `import.meta.env.VITE_CLIENT_ID`
-- Both fitness scopes are required for full functionality: activity read provides step counts, location read provides location-based insights
-- `drive.appdata` is requested in the same consent screen as the fitness scopes (single sign-in); a token missing this scope would only affect Drive cloud sync (`.context/flows/backup-and-cloud-sync.md`), not step sync — the two capabilities share one `auth.js` token but are otherwise independent
+- The browser has no step source (ST-024); without a token the viewer shows its "Connect your Google Account" message and keeps its cached snapshot.

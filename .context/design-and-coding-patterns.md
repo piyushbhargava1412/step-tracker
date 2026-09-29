@@ -157,7 +157,7 @@ confidence: high
 - **Dependencies**: `npm` + `package.json`; runtime dep — `dexie@^4` (IndexedDB wrapper);
   dev deps — `vite@^8`, `vitest@^4`, `@vitest/coverage-v8`, `jsdom`. The Google Identity Services
   script is still loaded as a runtime `<script src="https://accounts.google.com/gsi/client">` at
-  `index.html:8` (no npm package). Google Fit REST API called via `fetch`.
+  `index.html:8` (no npm package). Google Drive REST API called via `fetch`; Health Connect via its Capacitor plugin.
   *Evidence*: `package.json`, `vite.config.js`, `index.html:8`.
 
 ---

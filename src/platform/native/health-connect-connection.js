@@ -18,7 +18,7 @@ const stepsAllowed = (status) => (status?.readAuthorized ?? []).includes('steps'
 /**
  * @param {{ health: object, reporter: object, launcher: object }} deps
  *   health: the @capgo/capacitor-health plugin; launcher: @capacitor/app-launcher.
- * @returns {import('../web/google-fit-connection.js').Connection}
+ * @returns {import('../google-connection.js').Connection}
  */
 export function createHealthConnectConnection({ health, reporter, launcher }) {
   let listener = null;

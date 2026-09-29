@@ -32,19 +32,9 @@ describe('createAuth', () => {
     expect(opts.client_id).toBe(config.CLIENT_ID);
   });
 
-  it('initTokenClient receives scope containing fitness.activity.read', () => {
+  it('ST-024: asks only for Drive app data — no Google Fit scopes', () => {
     const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
-    expect(opts.scope).toContain('fitness.activity.read');
-  });
-
-  it('initTokenClient receives scope containing fitness.location.read', () => {
-    const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
-    expect(opts.scope).toContain('fitness.location.read');
-  });
-
-  it('both scopes delivered as a single space-delimited string', () => {
-    const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
-    expect(opts.scope.split(' ').length).toBe(3);
+    expect(opts.scope).toBe('https://www.googleapis.com/auth/drive.appdata');
   });
 
   it('callback with valid access_token stores the token', () => {
@@ -131,14 +121,6 @@ describe('createAuth', () => {
   it('initTokenClient receives scope containing drive.appdata', () => {
     const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
     expect(opts.scope).toContain('https://www.googleapis.com/auth/drive.appdata');
-  });
-
-  it('all three scopes are space-delimited with no comma or semicolon', () => {
-    const [opts] = mockGsi.accounts.oauth2.initTokenClient.mock.calls[0];
-    const parts = opts.scope.split(' ').filter(Boolean);
-    expect(parts).toHaveLength(3);
-    expect(opts.scope).not.toContain(',');
-    expect(opts.scope).not.toContain(';');
   });
 
 });

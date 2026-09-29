@@ -6,7 +6,7 @@
   - confidence: `high`
 
 ## Purpose
-This repository is a client-side step streak tracker web app that connects to Google Identity + Google Fitness APIs, fetches historical daily step buckets, and computes/displays a current streak against a fixed daily goal. The codebase is structured as an ES module tree built and served by Vite, with Dexie-backed IndexedDB persistence and a Vitest unit-test suite.
+This repository is a client-side step streak tracker with no backend: an Android app (Capacitor) that reads daily steps from Health Connect and backs them up to the user's Google Drive, and a read-only web viewer (PWA) of that backup. It computes and displays streaks against a daily goal. The codebase is structured as an ES module tree built and served by Vite, with Dexie-backed IndexedDB persistence and a Vitest unit-test suite.
 
 ## In-Scope Responsibilities
 - Mobile UI shell (ST-025) — app bar, one screen at a time, four bottom tabs (Today, Calendar, Insights, Journey), pushed Search / Group challenge / Settings / Backup & restore screens, first-launch welcome (`index.html`, `styles.css`)
@@ -15,7 +15,7 @@ This repository is a client-side step streak tracker web app that connects to Go
 - UI status reporting abstraction (`src/ui-status.js`)
 - IndexedDB persistence via Dexie (`src/db.js`, `src/storage.js`) — v2 adds `goal_history` migration; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history` table and seeds `active_step_goal` in `settings` (`DB_VERSION = 6`); v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`; v6 backfills `hourly_steps: null` on legacy `daily_records` rows (ST-009)
 - Application bootstrap / composition root (`src/main.js`)
-- Google Fitness aggregate step/distance fetch and incremental sync engine (`src/steps.js`) — chunked requests, normalisation, Dexie `daily_records` persistence, retry/error contract, backfill latch; `effective_*` is high-water-marked (never reduced by a lowered cloud response) while `original_*` preserves raw cloud truth; sync anchor date is read dynamically from Dexie `settings` (`sync_anchor_date` key, fallback `DEFAULT_SYNC_ANCHOR = '2018-01-01'`); (ST-009) a parallel, non-fatal 1-hour-bucket fetch attaches a 24-element `hourly_steps` array per record, feeding the Analytics/Gamification Lab (see below)
+- Step/distance sync engine over the `StepSource` port (`src/steps.js`; Health Connect is the only source since ST-024) — chunked reads, normalisation, Dexie `daily_records` persistence, retry/error contract, backfill latch; `effective_*` is high-water-marked (never reduced by a lowered cloud response) while `original_*` preserves raw cloud truth; sync anchor date is read dynamically from Dexie `settings` (`sync_anchor_date` key, fallback `DEFAULT_SYNC_ANCHOR = '2018-01-01'`); (ST-009) a parallel, non-fatal 1-hour-bucket fetch attaches a 24-element `hourly_steps` array per record, feeding the Analytics/Gamification Lab (see below)
 - Goal Commitment management (`src/goal.js`) — read/write active daily step goal (`active_step_goal` key) in Dexie `settings` store; preset options `STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]` with display km hints `STEP_GOAL_KM_HINTS`; scalar step-only lens (no km, no `goal_history` write)
 - Today's Progress computation and card rendering (`src/progress.js`, `src/progress-ui.js`) — pure computation of steps/distance vs. goal, progress ring + goal chip + Distance tile in Today's progress panel (`#today-progress`), re-rendered on load and after each sync
 - Streak computation and output rendering (`src/streak.js`, `src/streak-ui.js`) — effective-date unified streak, fixed tier streaks, Hall of Fame metrics, and the Today panel's streak tiles (Strict, Lifetime, 99% tol, 95% tol, Best run; no tier chips)
@@ -42,7 +42,7 @@ This repository is a client-side step streak tracker web app that connects to Go
 - No server-side persistence/database
 - No linting or type-checking toolchain detected
 - The service worker (`public/sw.js`) only caches the static app shell and passes through/never
-  caches Google Fit, Drive, or GSI-auth network calls — it is not an offline-first data-sync layer
+  caches Drive or GSI-auth network calls — it is not an offline-first data-sync layer
 
 ## Evidence Base
 - Source scanned: `src/` (all modules + tests), `index.html`, `styles.css`, `package.json`, `vite.config.js`, `.env.example`, `README.md`, `.arcus/plans/PRD.md`, `public/` (manifest, icons, service worker), `.github/workflows/deploy.yml`

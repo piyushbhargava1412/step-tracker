@@ -120,7 +120,7 @@ describe('ST-019: createHealthConnectStepSource', () => {
     expect(days[0].hourlySteps.reduce((a, b) => a + b, 0)).toBe(8000);
   });
 
-  it('zero-fills every local day in the chunk that has no data (like Google Fit)', async () => {
+  it('zero-fills every local day in the chunk that has no data', async () => {
     const days = await createHealthConnectStepSource(health, reporter).fetchDays(CHUNK, CTX);
 
     expect(days.map((d) => d.date)).toEqual(['2025-06-14', '2025-06-15']);

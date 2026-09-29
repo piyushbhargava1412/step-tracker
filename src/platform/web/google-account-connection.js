@@ -1,7 +1,7 @@
 /**
- * Google Fit connection (web): what the header Connect button does in the
- * browser — Google sign-in covering Fit and Drive — and how a refreshed page
- * reconnects without UI.
+ * Google account connection (web): what Connect does in the browser — Google
+ * sign-in for Drive, which the read-only viewer (ST-023) reads the app's backup
+ * from — and how a refreshed page reconnects without UI.
  */
 import { createGoogleConnection } from '../google-connection.js';
 
@@ -15,6 +15,6 @@ export const GOOGLE_CONNECTED_KEY = 'google_connected';
  * @param {{ auth: object, storage: Storage|undefined }} deps
  * @returns {import('../google-connection.js').Connection}
  */
-export function createGoogleFitConnection({ auth, storage }) {
+export function createGoogleAccountConnection({ auth, storage }) {
   return createGoogleConnection({ auth, storage, label: GOOGLE_CONNECT_LABEL, flagKey: GOOGLE_CONNECTED_KEY });
 }

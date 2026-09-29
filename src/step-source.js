@@ -1,6 +1,6 @@
 /**
  * StepSource port — the contract between the sync engine (steps.js) and any
- * provider of daily step data (Google Fit today, Health Connect next).
+ * provider of daily step data (Health Connect, in the Android app).
  *
  * Single-responsibility: define the port and the classified-failure
  * vocabulary every source shares. No I/O, no DOM, no Dexie.

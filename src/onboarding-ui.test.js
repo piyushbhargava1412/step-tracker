@@ -119,7 +119,7 @@ describe('createOnboardingUI', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     storage = { getItem: vi.fn(() => { throw new Error('blocked'); }), setItem: vi.fn(() => { throw new Error('blocked'); }) };
     const ui = createOnboardingUI(doc, {
-      storage, connection, sourceName: 'Google Fit', hasData: vi.fn().mockRejectedValue(new Error('db')), onRestore,
+      storage, connection, sourceName: 'Google Drive', hasData: vi.fn().mockRejectedValue(new Error('db')), onRestore,
     });
     await ui.start();
     expect(doc.getElementById('onboarding').hidden).toBe(false);
