@@ -182,10 +182,6 @@ vi.mock('./steps.js', () => ({
   createStepSync: vi.fn(() => mockStepSyncInstance)
 }))
 
-const mockFitStepSource = { label: 'Google Fit' }
-vi.mock('./fit-step-source.js', () => ({
-  createFitStepSource: vi.fn(() => mockFitStepSource)
-}))
 
 // ST-017/018/019: platform detection + native plugins. Web by default; the
 // "Android app wiring" suite flips isNativePlatform to true.
@@ -301,7 +297,6 @@ import { createAuth } from './auth.js'
 import { createCalendarWeekUI } from './calendar-week-ui.js'
 import { createOnboardingUI } from './onboarding-ui.js'
 import { createStepSync } from './steps.js'
-import { createFitStepSource } from './fit-step-source.js'
 import { createStreak } from './streak.js'
 import { createStreakUI } from './streak-ui.js'
 import { createCalendar } from './calendar.js'
@@ -549,21 +544,17 @@ describe('main.js — Task 11 step sync wiring', () => {
     document.body.innerHTML = ''
   })
 
-  it('invokes createStepSync exactly once on DOMContentLoaded', async () => {
+  it('ST-024: the browser builds no step sync — it has no step source', async () => {
+    await boot()
+    expect(createStepSync).not.toHaveBeenCalled()
+  })
+
+  it('the app builds one step sync over Health Connect, the db, reporter, doc and the Drive collaborators', async () => {
+    asApp()
     await boot()
     expect(createStepSync).toHaveBeenCalledTimes(1)
-  })
-
-  it('composes the Google Fit StepSource from the shared auth and reporter', async () => {
-    await boot()
-    expect(createFitStepSource).toHaveBeenCalledTimes(1)
-    expect(createFitStepSource).toHaveBeenCalledWith(mockAuthInstance, mockReporter)
-  })
-
-  it('createStepSync receives the Fit StepSource, db, the shared reporter and the shared doc as the fourth argument', async () => {
-    await boot()
     expect(createStepSync).toHaveBeenCalledWith(
-      mockFitStepSource,
+      expect.objectContaining({ label: 'Health Connect' }),
       mockDb,
       mockReporter,
       document,
@@ -587,6 +578,7 @@ describe('main.js — Task 11 step sync wiring', () => {
       <button id="auth-btn">Connect</button>
       <nav class="tab-bar"></nav>
     `
+    asApp()
     await expect(bootstrap(document)).resolves.toBeUndefined()
     expect(createStepSync).toHaveBeenCalledTimes(1)
   })
@@ -2321,11 +2313,11 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
   })
 
   describe('in the browser', () => {
-    it('labels the connect button for Google and wires the Fit source', async () => {
+    it('labels the connect button for Google, with no step source (ST-024)', async () => {
       await boot(makeStorage())
       expect(createStatusReporter).toHaveBeenCalledWith(document, { connectLabel: 'Connect Google Account' })
       expect(document.getElementById('auth-btn').textContent).toBe('Connect Google Account')
-      expect(createStepSync.mock.calls[0][0]).toBe(mockFitStepSource)
+      expect(createStepSync).not.toHaveBeenCalled()
     })
 
     it('registers the service worker in production builds', async () => {
@@ -2352,7 +2344,6 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
       expect(document.getElementById('auth-btn').textContent).toBe('Connect Health Connect')
       const source = createStepSync.mock.calls[0][0]
       expect(source.label).toBe('Health Connect')
-      expect(createFitStepSource).not.toHaveBeenCalled()
     })
 
     it('never registers a service worker', async () => {
@@ -2422,12 +2413,9 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
   const stepSyncPrimary = () => createStepSync.mock.calls[0][7]
 
   describe('in the browser', () => {
-    it('shares one primary-device checker between the sync engine and the Drive panel', async () => {
+    it('labels this installation "Web browser" (it never uploads — ST-023)', async () => {
       await boot(makeStorage())
-      const primaryDevice = driveUIOptions().primaryDevice
-      expect(typeof primaryDevice.otherPrimary).toBe('function')
-      expect(stepSyncPrimary()).toBe(primaryDevice)
-      expect(primaryDevice.label).toBe('Web browser')
+      expect(driveUIOptions().primaryDevice.label).toBe('Web browser')
     })
 
     it('keeps Google sign-in in the header: no Drive connect button, no "make primary"', async () => {
@@ -2449,6 +2437,13 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
       await vi.waitFor(() => expect(mockSocialLogin.initialize).toHaveBeenCalledWith({
         google: { webClientId: 'FAKE_ID', mode: 'online' },
       }))
+    })
+
+    it('shares one primary-device checker between the sync engine and the Drive panel', async () => {
+      await boot(makeStorage())
+      const primaryDevice = driveUIOptions().primaryDevice
+      expect(typeof primaryDevice.otherPrimary).toBe('function')
+      expect(stepSyncPrimary()).toBe(primaryDevice)
     })
 
     it('offers Connect Google Drive and "make primary" in the Drive panel', async () => {

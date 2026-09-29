@@ -1,13 +1,13 @@
 /**
  * Step data source selection — the one place that decides where steps come
- * from on each platform, and what the header Connect button does:
+ * from on each platform, and what the Connect button does:
  *
- *   browser      → Google Fit REST  + Google sign-in
- *   Android app  → Health Connect   + Health Connect permissions
+ *   Android app  → Health Connect + Health Connect permissions
+ *   browser      → no step source (ST-024: Google Fit is gone) + Google sign-in,
+ *                  which the read-only viewer uses to read the app's Drive backup
  */
-import { createFitStepSource } from '../fit-step-source.js';
 import { createHealthConnectStepSource } from '../health-connect-step-source.js';
-import { createGoogleFitConnection, GOOGLE_CONNECT_LABEL } from './web/google-fit-connection.js';
+import { createGoogleAccountConnection, GOOGLE_CONNECT_LABEL } from './web/google-account-connection.js';
 import {
   createHealthConnectConnection,
   HEALTH_CONNECT_CONNECT_LABEL,
@@ -33,8 +33,8 @@ export function connectLabelFor(isNative) {
  * @param {Storage} [deps.storage] localStorage (web connection flag).
  * @param {object}  [deps.health]  @capgo/capacitor-health plugin (native).
  * @param {object}  [deps.launcher] @capacitor/app-launcher (native).
- * @returns {{ source: import('../step-source.js').StepSource,
- *             connection: import('./web/google-fit-connection.js').Connection }}
+ * @returns {{ source: import('../step-source.js').StepSource|null,
+ *             connection: import('../google-connection.js').Connection }}
  */
 export function selectStepSource({ isNative, auth, reporter, storage, health, launcher }) {
   if (isNative) {
@@ -44,7 +44,7 @@ export function selectStepSource({ isNative, auth, reporter, storage, health, la
     };
   }
   return {
-    source: createFitStepSource(auth, reporter),
-    connection: createGoogleFitConnection({ auth, storage }),
+    source: null,
+    connection: createGoogleAccountConnection({ auth, storage }),
   };
 }

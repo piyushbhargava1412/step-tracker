@@ -40,7 +40,6 @@
 - Dependencies: Dexie 4 (IndexedDB wrapper, `src/db.js`)
 - External APIs:
   - Google Identity Services (`google.accounts.oauth2.initTokenClient`)
-  - Google Fitness REST aggregate endpoint (`users/me/dataset:aggregate`) — web step source
   - Health Connect via `@capgo/capacitor-health` (`queryAggregated` hourly sums, `requestAuthorization` with history access) — Android step source (ST-019)
   - `@capacitor/filesystem` (Android exports to `Documents/Step Tracker/`), `@capacitor/app-launcher` (Health Connect Play Store link), `@capacitor/share` (challenge update → Android share sheet), `@capacitor/app` (resume + back button)
 - Fonts: Manrope (`@fontsource-variable/manrope`) and JetBrains Mono (`@fontsource/jetbrains-mono`), bundled — no Google Fonts request
@@ -86,7 +85,7 @@
 - First-launch welcome: `src/onboarding-ui.js` (`createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore })` → `start`/`dismiss`/`isOpen`; `ONBOARDING_DONE_KEY`)
 - Share adapter: `src/platform/share.js` (`selectShare({ isNative })` → Capacitor Share in the app, Web Share in a browser that has it, else `null`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
-- Step data sources (ST-016): `src/step-source.js` (`StepSource` port, `assertStepSource`, `syncFailure`, `FAILURE_*`) and `src/fit-step-source.js` (`createFitStepSource` — the only module calling the Google Fit REST API: request bodies, retry/backoff, hourly pass, bucket parsing into `DayReading`s)
+- Step data sources (ST-016, ST-024): `src/step-source.js` (`StepSource` port, `assertStepSource`, `syncFailure`, `FAILURE_*`); the only source is `src/health-connect-step-source.js` (Android). The Google Fit REST source was removed in ST-024; engine tests use `makeFakeSource()` from `src/steps.fixtures.js`
 - Step sync engine: `src/steps.js` (`createStepSync(source, …)` factory; `sync()` orchestrator with two-segment windows, chunked `source.fetchDays`, `_toDailyRecords` (distance estimate when a source reports none), upsert, backfill latch; `_upsertChunk` high-water-marks `effective_*` as `max(stored, incoming)` on non-overridden rows while `original_*` tracks the raw cloud truth); (ST-009) the Fit source's parallel, independently-fallible 1-hour-bucket fetch (`HOURLY_BUCKET_MS = 3_600_000`) yields a 24-element `hourly_steps` array per record — see `.context/flows/historical-step-sync.md`
 - Date utilities: `src/date-utils.js` (pure helpers: `_localDate`, `_addDaysUtc`; no DOM, no Dexie; extracted from `goal.js` and `streak.js`)
 - Unit conversion constants: `src/units.js` (pure constants: `KM_TO_STEPS = 1312.33`; no imports; extracted from `goal.js`)

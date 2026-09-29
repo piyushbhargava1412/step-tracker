@@ -26,7 +26,7 @@ export function classifyRequestUrl(urlString, origin) {
   const path = url.pathname;
 
   if (host === 'googleapis.com' || host.endsWith('.googleapis.com')) {
-    if (path.startsWith('/fitness/') || path.startsWith('/drive/')) {
+    if (path.startsWith('/drive/')) {
       return NETWORK_ONLY;
     }
   }

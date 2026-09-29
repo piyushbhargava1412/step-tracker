@@ -1,6 +1,6 @@
 /**
- * Google auth selection: Google Identity Services in the browser (Fit + Drive
- * scopes), native Google sign-in in the Android app (Drive only — ST-020).
+ * Google auth selection: Google Identity Services in the browser, native
+ * Google sign-in in the Android app (ST-020) — both for Drive app data only.
  * Both have the createAuth contract: init, requestToken(options),
  * getAccessToken, onTokenReceived.
  */

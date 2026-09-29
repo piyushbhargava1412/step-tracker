@@ -22,13 +22,10 @@ describe('classifyRequestUrl', () => {
       expect(classifyRequestUrl(urlString, origin)).toBe(expected);
     });
 
-    it('classifies a fitness aggregate REST call as NETWORK_ONLY', () => {
+    it('ST-024: a non-Drive googleapis REST call is not special (Google Fit is gone) → SKIP', () => {
       expect(
-        classifyRequestUrl(
-          'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',
-          LOCAL_ORIGIN
-        )
-      ).toBe(NETWORK_ONLY);
+        classifyRequestUrl('https://www.googleapis.com/oauth2/v3/userinfo', LOCAL_ORIGIN)
+      ).toBe(SKIP);
     });
 
     it.each([
@@ -55,9 +52,9 @@ describe('classifyRequestUrl', () => {
 
   describe('Edge Cases', () => {
     it.each([
-      'https://www.googleapis.com/fitnessev/v1/anything',
-      'https://www.googleapis.com/fitness-preview/v1/anything',
-    ])('does NOT match the /fitness/ prefix for %s → SKIP', (urlString) => {
+      'https://www.googleapis.com/drivex/v1/anything',
+      'https://www.googleapis.com/drive-preview/v1/anything',
+    ])('does NOT match the /drive/ prefix for %s → SKIP', (urlString) => {
       expect(classifyRequestUrl(urlString, LOCAL_ORIGIN)).toBe(SKIP);
     });
 

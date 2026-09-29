@@ -1,4 +1,8 @@
-const SCOPES = 'https://www.googleapis.com/auth/fitness.activity.read https://www.googleapis.com/auth/fitness.location.read https://www.googleapis.com/auth/drive.appdata';
+/**
+ * The browser is a read-only viewer of the app's Drive backup (ST-023), so it
+ * asks only for Drive app data (ST-024 removed the step-data scopes).
+ */
+const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 
 export function createAuth(config, reporter, gsi) {
   let accessToken = null;

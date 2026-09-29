@@ -2,7 +2,7 @@
 // Caching policy mirrors src/sw-policy.js — keep in sync.
 // Classic worker (no ES imports) for iOS Safari compatibility.
 
-const SW_VERSION = 'step-tracker-v1';
+const SW_VERSION = 'step-tracker-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -44,7 +44,7 @@ function classifyRequestUrl(urlString, origin) {
   const path = url.pathname;
 
   if (host === 'googleapis.com' || host.endsWith('.googleapis.com')) {
-    if (path.startsWith('/fitness/') || path.startsWith('/drive/')) {
+    if (path.startsWith('/drive/')) {
       return 'NETWORK_ONLY';
     }
   }

@@ -21,7 +21,8 @@ const SHARED_URL_TABLE = [
   ['http://localhost:1981/styles.css', LOCAL_ORIGIN, CACHE_FIRST],
   ['http://localhost:1981/manifest.json', LOCAL_ORIGIN, CACHE_FIRST],
   ['http://localhost:1981/assets/index-abc123.js', LOCAL_ORIGIN, CACHE_FIRST],
-  ['https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate', LOCAL_ORIGIN, NETWORK_ONLY],
+  // ST-024: Google Fit is gone — other googleapis REST paths are no longer special.
+  ['https://www.googleapis.com/oauth2/v3/userinfo', LOCAL_ORIGIN, SKIP],
   ['https://www.googleapis.com/drive/v3/files', LOCAL_ORIGIN, NETWORK_ONLY],
   ['https://www.googleapis.com/drive/v3/files/abc123', LOCAL_ORIGIN, NETWORK_ONLY],
   ['https://googleapis.com/drive/v3/files', LOCAL_ORIGIN, NETWORK_ONLY],
@@ -34,8 +35,8 @@ const SHARED_URL_TABLE = [
   ['blob:https://example.com/uuid', LOCAL_ORIGIN, SKIP],
   ['ftp://example.com/file', LOCAL_ORIGIN, SKIP],
   ['chrome-extension://abc123/manifest.json', LOCAL_ORIGIN, SKIP],
-  ['https://www.googleapis.com/fitnessev/v1/anything', LOCAL_ORIGIN, SKIP],
-  ['https://www.googleapis.com/fitness-preview/v1/anything', LOCAL_ORIGIN, SKIP],
+  ['https://www.googleapis.com/drivex/v1/anything', LOCAL_ORIGIN, SKIP],
+  ['https://www.googleapis.com/drive-preview/v1/anything', LOCAL_ORIGIN, SKIP],
   ['https://example.com:8443/x', 'https://example.com', SKIP],
   ['', LOCAL_ORIGIN, SKIP],
   [null, LOCAL_ORIGIN, SKIP],
@@ -79,7 +80,7 @@ describe('PWA sanity spine', () => {
   });
 
   it('mirrors every src/sw-policy.js policy marker so the copy cannot drift', () => {
-    const markers = ['googleapis.com', '/fitness/', '/drive/', 'accounts.google.com', '/gsi/'];
+    const markers = ['googleapis.com', '/drive/', 'accounts.google.com', '/gsi/'];
     for (const marker of markers) {
       expect(policySource).toContain(marker);
       expect(swSource).toContain(marker);
@@ -88,12 +89,12 @@ describe('PWA sanity spine', () => {
   });
 
   it('keeps the Network-Only REST bypass free of any cache access', () => {
-    const fitnessGuard = swSource.indexOf("'/fitness/'");
-    expect(fitnessGuard).toBeGreaterThan(-1);
+    const driveGuard = swSource.indexOf("'/drive/'");
+    expect(driveGuard).toBeGreaterThan(-1);
     const firstCacheAccess = Math.min(
       ...['cache.match', 'cache.put'].map((token) => swSource.indexOf(token)).filter((i) => i !== -1)
     );
-    expect(firstCacheAccess).toBeGreaterThan(fitnessGuard);
+    expect(firstCacheAccess).toBeGreaterThan(driveGuard);
   });
 
   it('implements stale-while-revalidate for GSI with background refresh', () => {
@@ -108,9 +109,10 @@ describe('PWA sanity spine', () => {
     expect(swrWindow).toMatch(/response\.ok\s*\|\|\s*response\.type\s*===\s*'opaque'/);
   });
 
-  it('includes both fitness AND drive bypass markers (ST-012 drive.appdata scope)', () => {
-    expect(swSource).toContain('/fitness/');
+  it('ST-024: bypasses only Drive — no Google Fit path is special any more', () => {
     expect(swSource).toContain('/drive/');
+    expect(policySource).not.toMatch(/fit/i);
+    expect(swSource).not.toMatch(/fit/i);
   });
 
   it('serves navigation requests network-first with cache fallback (review warning 1)', () => {
@@ -194,9 +196,10 @@ describe('README setup, deployment, and PWA-install guide', () => {
     expect(readme).toContain('https://<your-project>.pages.dev');
   });
 
-  it('documents Fitness API AND Drive API enablement', () => {
-    expect(readme).toContain('Fitness API');
+  it('ST-024: documents Drive API enablement and the drive.appdata scope only', () => {
     expect(readme).toContain('Drive API');
+    expect(readme).toContain('drive.appdata');
+    expect(readme).not.toContain('Fitness API');
   });
 
   it('documents the .env.local + VITE_CLIENT_ID configuration flow', () => {
@@ -282,9 +285,9 @@ describe('sw.js embedded classifier semantic parity', () => {
     }
   );
 
-  it('preserves the Network-Only REST bypass for all fitness and drive paths', () => {
+  it('preserves the Network-Only REST bypass for Drive paths', () => {
     const restUrls = [
-      'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',
+      'https://www.googleapis.com/drive/v3/files',
       'https://www.googleapis.com/drive/v3/files/abc123',
     ];
     for (const url of restUrls) {

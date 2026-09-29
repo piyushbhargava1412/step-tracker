@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { selectStepSource, connectLabelFor } from './step-source.js';
-import { FIT_SOURCE_LABEL } from '../fit-step-source.js';
 import { HEALTH_CONNECT_LABEL } from '../health-connect-step-source.js';
-import { GOOGLE_CONNECT_LABEL } from './web/google-fit-connection.js';
+import { GOOGLE_CONNECT_LABEL } from './web/google-account-connection.js';
 import { HEALTH_CONNECT_CONNECT_LABEL } from './native/health-connect-connection.js';
 
 const deps = () => ({
@@ -14,9 +13,9 @@ const deps = () => ({
 });
 
 describe('ST-019: selectStepSource', () => {
-  it('uses Google Fit and the Google connection in the browser', () => {
+  it('ST-024: the browser has no step source — only the Google connection its read-only viewer uses', () => {
     const { source, connection } = selectStepSource({ isNative: false, ...deps() });
-    expect(source.label).toBe(FIT_SOURCE_LABEL);
+    expect(source).toBeNull();
     expect(connection.label).toBe(GOOGLE_CONNECT_LABEL);
   });
 

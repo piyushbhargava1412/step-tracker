@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import { _formatLocalDate } from './steps.js';
 
 /**
  * Shared test fixtures for the step-sync engine tests.
@@ -126,4 +127,30 @@ export function syncBtn(doc = document) {
 export function lastSyncMessage(reporter) {
   const calls = reporter.sync.mock.calls;
   return calls.length ? calls[calls.length - 1][0] : undefined;
+}
+
+/** Steps each fake reading reports. */
+export const FAKE_STEPS = 500;
+
+/**
+ * In-memory StepSource (src/step-source.js contract) for engine tests — the
+ * engine knows nothing about how a source reads its data.
+ *
+ * By default each chunk yields one reading, at the chunk's first local day,
+ * so a full backfill converges its oldest record onto the sync anchor.
+ * Override `fetchDays` to script readings or throw a syncFailure().
+ *
+ * @param {object} [overrides]  Any StepSource member.
+ */
+export function makeFakeSource(overrides = {}) {
+  return {
+    label: 'Fake Health',
+    notReadyMessage: '🔑 Grant Fake Health access first',
+    accessLostMessage: 'Fake Health access was revoked — grant it again',
+    isReady: vi.fn(() => true),
+    fetchDays: vi.fn(async (chunk) => [
+      { date: _formatLocalDate(chunk.startMs), steps: FAKE_STEPS, distanceKm: null, hourlySteps: null },
+    ]),
+    ...overrides,
+  };
 }

@@ -1,6 +1,6 @@
 /**
- * Google account connection — shared by the browser's header button (Google
- * Fit + Drive) and the Android app's Drive panel (Drive only). Works with any
+ * Google account connection — shared by the browser viewer's Connect button
+ * and the Android app's Drive panel (both Drive only). Works with any
  * auth object that has the createAuth contract: requestToken(options),
  * getAccessToken(), onTokenReceived(listener).
  *

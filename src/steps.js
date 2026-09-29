@@ -4,7 +4,7 @@
  * Single-responsibility: decide which days to sync, pull them from an injected
  * StepSource (see step-source.js) chunk by chunk, and persist them into
  * `daily_records` without ever clobbering user overrides. The engine knows
- * nothing about Google Fit, Health Connect or HTTP — sources do.
+ * nothing about Health Connect or any other provider — sources do.
  *
  * Factory: createStepSync(source, db, reporter, doc = document, …)
  *
@@ -480,7 +480,7 @@ export async function _renderSyncErrorMessage({ error, i, total, persistedDays, 
 /**
  * Ask a source whether a sync may start. A synchronous answer stays
  * synchronous (so the button busy state is still set in the same tick for
- * sources like Google Fit); an asynchronous one (Health Connect checks its
+ * sources that answer at once); an asynchronous one (Health Connect checks its
  * permissions) is returned as a promise. Fail-closed: a thrown or rejected
  * check is logged and counts as not ready, so the user sees the connect prompt.
  *
@@ -509,7 +509,7 @@ export function _checkSourceReady(source) {
  * Create the step-sync engine.
  *
  * @param {import('./step-source.js').StepSource} source - Where daily step
- *                             data comes from (Google Fit, Health Connect, …).
+ *                             data comes from (Health Connect in the app).
  * @param {object} db        - Dexie database instance.
   * @param {object} reporter  - Status reporter with a sync(text) method.
   * @param {Document} doc     - The document to use for DOM access (defaults to
@@ -610,7 +610,7 @@ export function createStepSync(source, db, reporter, doc = document, driveSync =
       // rows and resolves a normal incremental window instead. Fail-open: any
       // failure here (no token, no backup file, a network error, or a
       // validator rejection on a tampered payload) is logged under the
-      // `[drive-sync]` tag and falls through to the unmodified Fit sync below
+      // `[drive-sync]` tag and falls through to the unmodified source sync below
       // — this recovery step must never block or fail the sync.
       if (driveSync && backup) {
         try {

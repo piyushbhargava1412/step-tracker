@@ -19,7 +19,7 @@ checked-in web app manifest (`public/manifest.json`) plus two 192/512 PNG icons 
 installable from iOS Safari, Android Chrome, and desktop Chrome/Edge. A hand-written classic
 service worker (`public/sw.js`) precaches the app shell at install and, on `fetch`, applies a
 per-request caching policy (`CACHE_FIRST` for same-origin assets, `NETWORK_ONLY` for Google
-Fit/Drive REST calls, `STALE_WHILE_REVALIDATE` for the GSI bootstrap script, `SKIP`/pass-through
+Drive REST calls, `STALE_WHILE_REVALIDATE` for the GSI bootstrap script, `SKIP`/pass-through
 for everything else). The policy decision table is authored once as a pure module
 (`src/sw-policy.js`) and hand-mirrored into the classic-worker `public/sw.js` (which cannot use ES
 imports for iOS Safari compatibility); a dedicated parity test (`src/pwa-sanity.test.js`) extracts
@@ -67,8 +67,9 @@ test-gated (`npm ci` → `npm test` → `npm run build` → Pages deploy).
 ### Caching policy (`src/sw-policy.js`, mirrored in `public/sw.js`)
 5. `classifyRequestUrl(urlString, origin)` is a pure classifier (no `navigator`/`document`/`caches`/
    `fetch` references) returning one of four buckets:
-   - `NETWORK_ONLY` — `googleapis.com` (or `*.googleapis.com`) hosts with a `/fitness/` or `/drive/`
-     path prefix (Google Fit + Drive REST calls; tokens/sync data must never be served from cache).
+   - `NETWORK_ONLY` — `googleapis.com` (or `*.googleapis.com`) hosts with a `/drive/` path prefix
+     (Drive REST calls; tokens/backup data must never be served from cache). ST-024 dropped the
+     `/fitness/` prefix with Google Fit and bumped `SW_VERSION` to `step-tracker-v2`.
    - `STALE_WHILE_REVALIDATE` — `accounts.google.com` paths containing `/gsi/` (the GSI bootstrap
      script).
    - `CACHE_FIRST` — any same-origin request (`url.origin === origin`).
@@ -202,7 +203,7 @@ test-gated (`npm ci` → `npm test` → `npm run build` → Pages deploy).
   online first; every subsequent visit fixes this since `CACHE_FIRST` populates the cache on first
   successful fetch.
 - The Google Sign-In button and step/Drive sync always require connectivity even offline-app-shell:
-  `NETWORK_ONLY` for `googleapis.com/fitness/*` and `googleapis.com/drive/*` guarantees tokens and
+  `NETWORK_ONLY` for `googleapis.com/drive/*` guarantees tokens and
   sync payloads are never served stale from cache; `STALE_WHILE_REVALIDATE` for the GSI script means
   sign-in itself still needs a live network round trip to complete even though the bootstrap script
   may render from cache momentarily.

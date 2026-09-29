@@ -21,11 +21,11 @@ describe('sync-progress-modal', () => {
   });
 
   it('renders the message text into the modal body', () => {
-    showSyncProgressModal(doc, '⏳ Full history sync — fetching all Google Fit data since 2013.');
+    showSyncProgressModal(doc, '⏳ Full history sync — fetching all Health Connect data since 2013.');
 
     const message = doc.querySelector('[data-role="message"]');
     expect(message.textContent).toBe(
-      '⏳ Full history sync — fetching all Google Fit data since 2013.'
+      '⏳ Full history sync — fetching all Health Connect data since 2013.'
     );
   });
 
