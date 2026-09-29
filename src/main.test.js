@@ -207,6 +207,10 @@ const { mockSocialLogin } = vi.hoisted(() => ({
   },
 }))
 vi.mock('@capgo/capacitor-social-login', () => ({ SocialLogin: mockSocialLogin }))
+const { mockDriveAuthorization } = vi.hoisted(() => ({
+  mockDriveAuthorization: { authorize: vi.fn().mockResolvedValue('tok-drv') },
+}))
+vi.mock('./platform/native/drive-authorization.js', () => ({ createDriveAuthorization: () => mockDriveAuthorization }))
 const { mockCapacitorApp } = vi.hoisted(() => ({
   mockCapacitorApp: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) },
 }))
@@ -1994,7 +1998,7 @@ describe('main.js — Storage Health wiring', () => {
   it('createStorageHealthUI is instantiated once with (doc, settings, reporter, navigator)', async () => {
     await bootstrap(isolatedDoc)
     expect(createStorageHealthUI).toHaveBeenCalledTimes(1)
-    expect(createStorageHealthUI).toHaveBeenCalledWith(isolatedDoc, mockSettingsInstance, mockReporter, navigator)
+    expect(createStorageHealthUI).toHaveBeenCalledWith(isolatedDoc, mockSettingsInstance, mockReporter, navigator, { appStorage: false })
   })
 
   it('storageHealthUI.render is called with #storage-health-controls when present', async () => {
@@ -2437,8 +2441,10 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
       document.addEventListener('data:drive-sync:refresh', refreshed)
       await boot(storage)
 
-      await vi.waitFor(() => expect(mockSocialLogin.getAuthorizationCode).toHaveBeenCalled())
+      await vi.waitFor(() => expect(mockDriveAuthorization.authorize).toHaveBeenCalled())
       await vi.waitFor(() => expect(refreshed).toHaveBeenCalled())
+      // ST-026: no Credential Manager sign-in ("Signing in as…") on a relaunch.
+      expect(mockSocialLogin.refresh).not.toHaveBeenCalled()
       expect(mockSocialLogin.login).not.toHaveBeenCalled()
       document.removeEventListener('data:drive-sync:refresh', refreshed)
     })
@@ -2446,7 +2452,22 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
     it('does not touch Google at launch when Drive was never connected', async () => {
       await boot(makeStorage())
       await Promise.resolve()
+      expect(mockDriveAuthorization.authorize).not.toHaveBeenCalled()
       expect(mockSocialLogin.refresh).not.toHaveBeenCalled()
+    })
+
+    it('ST-026: each Drive request asks Play services for a current token', async () => {
+      const storage = makeStorage()
+      storage.setItem('google_drive_account', 'me@example.com')
+      await boot(storage)
+      mockDriveAuthorization.authorize.mockResolvedValueOnce('tok-renewed')
+      const { getAccessToken } = createDriveSync.mock.calls.at(-1)[0]
+      await expect(getAccessToken()).resolves.toBe('tok-renewed')
+    })
+
+    it('ST-026: the storage panel describes app storage', async () => {
+      await boot(makeStorage())
+      expect(createStorageHealthUI.mock.calls.at(-1)[4]).toEqual({ appStorage: true })
     })
   })
 })

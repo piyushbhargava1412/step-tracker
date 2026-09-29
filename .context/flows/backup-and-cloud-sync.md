@@ -31,8 +31,9 @@ never misreads an already-active Google account as brand new. Google Drive acces
 > Drive file's `appProperties` (`primaryDeviceId/Label`, `primarySince`);
 > `driveSync.readPrimaryDevice()` reads it metadata-only and throws when Drive can't be asked.
 > `primaryDevice.otherPrimary()` asks Drive first, persists what it learns, and **fails closed**.
-> In the Android app the Drive panel also has **Connect Google Drive** (native sign-in, silent
-> restore at launch via the `google_drive_connected` flag) and **Make this the primary device**
+> In the Android app the Drive panel also has **Connect Google Drive** (native sign-in once, then
+> silent Play services authorization for every token — ST-026; silent restore at launch via the
+> `google_drive_connected` flag) and **Make this the primary device**
 > (records it, then uploads immediately). See `.context/flows/android-health-connect.md`.
 
 ## Entry Points

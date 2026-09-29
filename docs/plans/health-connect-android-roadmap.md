@@ -52,6 +52,7 @@ scopes in [auth.js](../../src/auth.js) know about Fit.
 | 3 | [ST-020](../slices/ST-020-native-google-sign-in-drive.md) | Native Google sign-in for Drive `appdata`; primary-device rule. |
 | 3 | [ST-021](../slices/ST-021-background-sync.md) | Sync when the app returns to the foreground (re-scoped: closed-app background sync deferred until after ST-023). |
 | 3 | [ST-022](../slices/ST-022-play-store-release.md) | Release keystore, privacy policy, Health apps declaration, internal testing track. |
+| 3 | [ST-026](../slices/ST-026-silent-drive-auth.md) | Stay connected to Drive (Play services authorization, no sign-in sheet); app storage wording. |
 | 4 | [ST-023](../slices/ST-023-read-only-web-viewer.md) | Web URL becomes a read-only viewer of the Drive snapshot. |
 | 4 | [ST-024](../slices/ST-024-retire-google-fit.md) | Remove the Fit source and `fitness.*` scopes after shutdown. |
 

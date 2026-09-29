@@ -664,3 +664,35 @@ describe('ST-020: primary device mirrored into Drive appProperties', () => {
     });
   });
 });
+
+describe('ST-026: an asynchronous token source (a fresh token before every Drive call)', () => {
+  const envelope = { schema_version: 1, exported_at: '2026-01-01T00:00:00.000Z', daily_records: [], settings: [] };
+
+  it('find(), push(), pull() and readPrimaryDevice() await the token and send it', async () => {
+    const getAccessToken = vi.fn().mockResolvedValue('fresh-token');
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))              // push → find
+      .mockResolvedValueOnce(makeOkResponse({ id: 'new-file-id' }))      // push → create
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }))              // pull → find
+      .mockResolvedValueOnce(makeOkResponse({ files: [] }));             // readPrimaryDevice
+    const driveSync = createDriveSync({ getAccessToken, reporter: makeReporter(), fetchFn });
+
+    await driveSync.push(envelope);
+    await driveSync.pull({ silent: true });
+    await driveSync.readPrimaryDevice();
+
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+    for (const [, opts] of fetchFn.mock.calls) {
+      expect(opts.headers.Authorization).toBe('Bearer fresh-token');
+    }
+    expect(getAccessToken.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('a token source resolving to null counts as not connected', async () => {
+    const fetchFn = vi.fn();
+    const driveSync = createDriveSync({ getAccessToken: vi.fn().mockResolvedValue(null), reporter: makeReporter(), fetchFn });
+    await expect(driveSync.push(envelope, { silent: true })).resolves.toBe(DRIVE_PUSH_SKIPPED);
+    await expect(driveSync.readPrimaryDevice()).rejects.toThrow('not connected');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+});

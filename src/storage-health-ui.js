@@ -2,11 +2,16 @@
  * "💾 Storage & Data Health" panel — sole DOM writer for the Backup tab's
  * storage-health section.
  *
- * createStorageHealthUI(doc, settings, reporter, nav = navigator)
+ * createStorageHealthUI(doc, settings, reporter, nav = navigator, { appStorage = false })
  *   render(container): builds the panel showing Drive Cloud Backup status,
  *     Local Browser Storage status, and a "Request Browser Storage
  *     Protection" button that calls navigator.storage.persist() directly —
  *     no confirmation modal, per the redesigned protection flow.
+ *
+ * ST-026 — `appStorage` (the Android app): the database lives in app-private
+ * storage that only uninstalling or clearing the app's data removes, so the
+ * local row reads "On this phone: Kept until the app is uninstalled" and the
+ * browser-only protection button and hint are not rendered.
  *
  * `settings` doubles as the metadata store: getDriveBackupEnabled() drives the
  * Drive row, getLastDriveSync() supplies the backup size. Both reads are
@@ -31,7 +36,10 @@ const DECLINED_HINT =
   'it automatically after you use the app a bit more, or once it is added to your Home Screen.';
 const ERROR_HINT = 'Something went wrong requesting protection. Please try again in a moment.';
 
-export function createStorageHealthUI(doc, settings, reporter, nav = navigator) {
+const APP_STORAGE_LABEL = 'On this phone:';
+const APP_STORAGE_TEXT = '🟢 Kept until the app is uninstalled';
+
+export function createStorageHealthUI(doc, settings, reporter, nav = navigator, { appStorage = false } = {}) {
   let controller = null;
   let driveStatusEl = null;
   let localStatusEl = null;
@@ -64,9 +72,17 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator) 
     panel.appendChild(driveRow.row);
     driveStatusEl = driveRow.value;
 
-    const localRow = _buildRow(doc, 'Local Browser Storage:', 'local-status');
+    const localRow = _buildRow(doc, appStorage ? APP_STORAGE_LABEL : 'Local Browser Storage:', 'local-status');
     panel.appendChild(localRow.row);
     localStatusEl = localRow.value;
+
+    if (appStorage) {
+      localStatusEl.textContent = APP_STORAGE_TEXT;
+      hintEl = null;
+      container.appendChild(panel);
+      await _refreshDriveStatus();
+      return;
+    }
 
     const protectBtn = doc.createElement('button');
     protectBtn.type = 'button';
@@ -102,6 +118,23 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator) 
    * the individual _read* helpers keep one failure from blocking the other).
    */
   async function _refreshStatuses() {
+    await _refreshDriveStatus();
+
+    let persisted = false;
+    try {
+      if (typeof nav?.storage?.persisted === 'function') {
+        persisted = (await nav.storage.persisted()) === true;
+      }
+    } catch (err) {
+      console.error('[storage-health-ui]', err);
+    }
+
+    if (localStatusEl) {
+      localStatusEl.textContent = persisted ? '🟢 Protected' : '🟡 Unpersisted';
+    }
+  }
+
+  async function _refreshDriveStatus() {
     let driveEnabled = false;
     try {
       driveEnabled = (await settings?.getDriveBackupEnabled?.()) === true;
@@ -124,19 +157,6 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator) 
           ? `🟢 Active (${formatBytes(lastSync.bytes)})`
           : '🟢 Active'
         : '⚪ Disabled';
-    }
-
-    let persisted = false;
-    try {
-      if (typeof nav?.storage?.persisted === 'function') {
-        persisted = (await nav.storage.persisted()) === true;
-      }
-    } catch (err) {
-      console.error('[storage-health-ui]', err);
-    }
-
-    if (localStatusEl) {
-      localStatusEl.textContent = persisted ? '🟢 Protected' : '🟡 Unpersisted';
     }
   }
 

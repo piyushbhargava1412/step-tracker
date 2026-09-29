@@ -77,11 +77,15 @@ function buildMultipartBody(metadata, data) {
   return { boundary, body };
 }
 
+/**
+ * `getAccessToken` is called before every request and may return the token or a
+ * promise of it (the Android app renews its token through Play services — ST-026).
+ */
 export function createDriveSync({ getAccessToken, reporter, fetchFn, validator = () => {} }) {
   let cachedFileId = null;
 
   async function find() {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
       return;
@@ -146,7 +150,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
   }
 
   async function push(envelope, { silent = false } = {}) {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       if (!silent) {
         reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
@@ -213,7 +217,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
    * unavailable" into the connection status when there is no Google token.
    */
   async function pull({ silent = false } = {}) {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       if (!silent) {
         reporter.auth('ℹ️ Google Account not connected — Drive sync unavailable');
@@ -259,7 +263,7 @@ export function createDriveSync({ getAccessToken, reporter, fetchFn, validator =
    * @returns {Promise<{ id: string, label: string, since: string }|null>}
    */
   async function readPrimaryDevice() {
-    const token = getAccessToken();
+    const token = await getAccessToken();
     if (!token) {
       throw new Error('[drive-sync] Google Account not connected');
     }

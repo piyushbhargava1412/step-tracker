@@ -55,9 +55,20 @@ arrives with ST-020).
 - Distance read failure → logged `[health-connect] distance read failed`; day's distance estimated.
 - Not ready → `🔑 Tap "Connect Health Connect" to allow step access first`.
 
-## Google Drive in the app (ST-020)
-- `selectAuth` (`src/platform/auth.js`) → `createNativeGoogleAuth` (Credential Manager via the lazily
-  loaded `@capgo/capacitor-social-login`), scope `drive.appdata` only, never writes the header status.
+## Google Drive in the app (ST-020, ST-026)
+- `selectAuth` (`src/platform/auth.js`) → `createNativeGoogleAuth`, scope `drive.appdata` only, never
+  writes the header status. **First connect**: Credential Manager sign-in via the lazily loaded
+  `@capgo/capacitor-social-login` (account picker + consent); the account's email is remembered in
+  localStorage `google_drive_account` (never a token).
+- **Every token after that** (ST-026) comes from the app-local `DriveAuthorization` plugin
+  (`android/.../DriveAuthorizationPlugin.java`, registered in `MainActivity.onCreate`; JS side
+  `src/platform/native/drive-authorization.js`): Play services' Authorization API
+  (`Identity.getAuthorizationClient().authorize`, `setAccount(email)`) returns a token for the granted
+  scope with **no UI** and renews it when expired. A needed resolution is reported as `NEEDS_CONSENT`
+  (→ null, silent) — never launched. The silent restore at launch and `getFreshAccessToken()` (called
+  by `drive-sync.js` before every request via `main.js`) use it, so a relaunch never shows
+  Credential Manager's "Signing in as…" sheet and an in-memory app never uploads with an expired
+  token. The SocialLogin plugin's `refresh()` is no longer used.
 - Drive panel → **Connect Google Drive** (`src/platform/native/google-drive-connection.js`, flag
   `google_drive_connected`, silent restore at launch; `onConnected` re-renders the panel via
   `data:drive-sync:refresh`).

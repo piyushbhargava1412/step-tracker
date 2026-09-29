@@ -25,3 +25,35 @@ describe('ST-020: MainActivity wiring for scoped Google sign-in', () => {
     expect(MAIN_ACTIVITY).toContain('handleGoogleLoginIntent(requestCode, data)');
   });
 });
+
+const JAVA_DIR = path.resolve(__dirname, '../android/app/src/main/java/com/piyushbhargava/steptracker');
+const readOptional = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '');
+const DRIVE_PLUGIN = readOptional(path.join(JAVA_DIR, 'DriveAuthorizationPlugin.java'));
+const APP_GRADLE = fs.readFileSync(path.resolve(__dirname, '../android/app/build.gradle'), 'utf-8');
+
+describe('ST-026: DriveAuthorization native plugin', () => {
+  it('is registered by MainActivity before the bridge starts', () => {
+    expect(MAIN_ACTIVITY).toMatch(/registerPlugin\(DriveAuthorizationPlugin\.class\);\s*super\.onCreate\(/);
+  });
+
+  it('exposes "DriveAuthorization" with an authorize method', () => {
+    expect(DRIVE_PLUGIN).toContain('@CapacitorPlugin(name = "DriveAuthorization")');
+    expect(DRIVE_PLUGIN).toMatch(/@PluginMethod\s+public void authorize\(PluginCall call\)/);
+  });
+
+  it('uses the Play services Authorization API for the remembered account — not Credential Manager sign-in', () => {
+    expect(DRIVE_PLUGIN).toContain('Identity.getAuthorizationClient(');
+    expect(DRIVE_PLUGIN).toContain('setAccount(');
+    expect(DRIVE_PLUGIN).not.toMatch(/CredentialManager|GetGoogleIdOption/);
+  });
+
+  it('never shows UI: a needed resolution is reported as NEEDS_CONSENT, not launched', () => {
+    expect(DRIVE_PLUGIN).toContain('hasResolution()');
+    expect(DRIVE_PLUGIN).toContain('"NEEDS_CONSENT"');
+    expect(DRIVE_PLUGIN).not.toMatch(/startIntentSender|launch\(/);
+  });
+
+  it('the app depends on play-services-auth directly (the SocialLogin plugin keeps it private)', () => {
+    expect(APP_GRADLE).toMatch(/implementation ['"]com\.google\.android\.gms:play-services-auth:\d/);
+  });
+});
