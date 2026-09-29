@@ -20,6 +20,7 @@ older one — Android refuses a lower or equal code.
 |---------|-------------|------|
 | 1.1 | 2 | Health Connect app (ST-017–ST-021) |
 | 0.2.0 | 3 | Mobile redesign (ST-025) — the owner chose to restart the version name at 0.2.0 |
+| 0.3.0 | 4 | Stay connected to Drive (ST-026), read-only web viewer (ST-023), Google Fit retired (ST-024) |
 
 ## Prerequisites
 
