@@ -69,6 +69,9 @@ click; tapping the pill opens Backup & restore when unprotected.
    `refreshStorageProtectionBadge` so the status pill never disagrees with the panel. All reads are
    individually fail-open (a settings/Dexie error defaults the Drive row to "Disabled" and logs).
    No innerHTML; AbortController-scoped listeners so re-render never accumulates handlers.
+   **In the Android app** (`{ appStorage: true }`, ST-026) the local row reads "On this phone:
+   🟢 Kept until the app is uninstalled" and neither the button nor the hint is rendered — browser
+   eviction doesn't apply to app-private storage, and the storage manager is never asked.
 
 ### Cross-panel refresh (event-based, no direct references)
 6. The Storage Health panel and the Drive Cloud Sync panel are separate modules mounted into

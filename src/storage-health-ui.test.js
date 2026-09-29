@@ -272,3 +272,46 @@ describe('createStorageHealthUI', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe('ST-026: the storage panel inside the Android app', () => {
+  let doc, container;
+
+  beforeEach(() => {
+    doc = buildDoc();
+    container = doc.getElementById('storage-health-controls');
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const renderApp = async (settings = makeSettings()) => {
+    const nav = makeNav({ persisted: true });
+    const ui = createStorageHealthUI(doc, settings, makeReporter(), nav, { appStorage: true });
+    await ui.render(container);
+    return nav;
+  };
+
+  it('describes app storage, not browser storage', async () => {
+    await renderApp();
+    const labels = [...container.querySelectorAll('.storage-health-label')].map((el) => el.textContent);
+    expect(labels).toEqual(['Google Drive Cloud Backup:', 'On this phone:']);
+    expect(container.querySelector('[data-field="local-status"]').textContent).toBe('🟢 Kept until the app is uninstalled');
+    expect(container.textContent).not.toMatch(/browser/i);
+  });
+
+  it('has no protection button or browser hint', async () => {
+    await renderApp();
+    expect(container.querySelector('[data-action="request-storage-protection"]')).toBeNull();
+    expect(container.querySelector('.storage-health-hint')).toBeNull();
+  });
+
+  it('still shows the Drive backup row', async () => {
+    await renderApp(makeSettings({ enabled: true }));
+    expect(container.querySelector('[data-field="drive-status"]').textContent).toBe('🟢 Active');
+  });
+
+  it('never asks the storage manager', async () => {
+    const nav = await renderApp();
+    expect(nav.storage.persisted).not.toHaveBeenCalled();
+    expect(nav.storage.persist).not.toHaveBeenCalled();
+  });
+});

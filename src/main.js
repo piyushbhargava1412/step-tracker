@@ -142,7 +142,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // 5. Auth (fail-open: a missing/late-loading GSI script must not abort bootstrap).
   //    Google Identity Services in the browser; native Google sign-in (Drive
   //    only) in the Android app — ST-020.
-  const auth = selectAuth({ isNative, config, reporter })
+  const auth = selectAuth({ isNative, config, reporter, storage })
   try {
     auth.init()
   } catch (err) {
@@ -205,7 +205,12 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   let driveSync = null
   let driveSyncUI = null
   try {
-    driveSync = createDriveSync({ getAccessToken: auth.getAccessToken.bind(auth), reporter, fetchFn: fetch.bind(window), validator: _validateEnvelope })
+    // ST-026: in the app, each Drive request gets a current token from Play
+    // services (a token cached at launch expires after an hour).
+    const getDriveToken = auth.getFreshAccessToken
+      ? () => auth.getFreshAccessToken()
+      : () => auth.getAccessToken()
+    driveSync = createDriveSync({ getAccessToken: getDriveToken, reporter, fetchFn: fetch.bind(window), validator: _validateEnvelope })
   } catch (err) {
     console.error('[main] createDriveSync failed, continuing', err)
   }
@@ -240,7 +245,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // Storage protection panel (fail-open) — a plain status panel + direct-action button.
   let storageHealthUI = null
   try {
-    storageHealthUI = createStorageHealthUI(doc, settings, reporter, storageManager)
+    storageHealthUI = createStorageHealthUI(doc, settings, reporter, storageManager, { appStorage: isNative })
   } catch (err) {
     console.error('[main] createStorageHealthUI failed, continuing', err)
   }

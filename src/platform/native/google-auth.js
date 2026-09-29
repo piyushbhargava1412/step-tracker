@@ -1,25 +1,34 @@
 /**
- * Native Google sign-in for the Android app (ST-020) — Drive only.
+ * Native Google auth for the Android app (ST-020, ST-026) — Drive only.
  *
- * Google blocks its web sign-in inside an app's WebView, so the app signs in
- * through Android's Credential Manager via @capgo/capacitor-social-login. The
- * returned object has the same contract as the web createAuth()
- * (init, requestToken(options), getAccessToken, onTokenReceived), so
- * drive-sync.js and the connection wiring don't know which one they use.
+ * Google blocks its web sign-in inside an app's WebView, so the first connect
+ * signs in through Android's Credential Manager via
+ * @capgo/capacitor-social-login (account picker + Drive consent). From then on
+ * every token comes from Google Play services' Authorization API (the
+ * app-local DriveAuthorization plugin): a token for the already-granted
+ * scope, with no sign-in and no UI, renewed by Play services when it expires.
+ * That is what keeps the user connected — the plugin's own `refresh()` would
+ * run a new Credential Manager sign-in ("Signing in as…") once a token expires.
+ *
+ * The returned object has the same contract as the web createAuth()
+ * (init, requestToken(options), getAccessToken, onTokenReceived), plus
+ * getFreshAccessToken() for the Drive gateway, so drive-sync.js and the
+ * connection wiring don't know which one they use.
  *
  * Deliberate differences from web:
  * - Only drive.appdata is requested: steps come from Health Connect.
  * - The header status line belongs to Health Connect, so this never writes
  *   reporter.auth(); the Drive panel shows the Google connection instead.
- * - A silent request (`prompt: ''`) refreshes through Credential Manager's
- *   saved account and never shows UI; an interactive one may show the
- *   account picker / consent.
+ * - A silent request (`prompt: ''`) never shows UI; an interactive one shows
+ *   the account picker / consent only when the silent authorization has no token.
  */
 
 export const DRIVE_APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
-
 const SCOPES = [DRIVE_APPDATA_SCOPE];
 const PROVIDER = 'google';
+
+/** localStorage: the email of the Google account connected for Drive (never a token). */
+export const GOOGLE_DRIVE_ACCOUNT_KEY = 'google_drive_account';
 
 /**
  * @param {object} deps
@@ -29,8 +38,11 @@ const PROVIDER = 'google';
  * @param {object} deps.reporter     Status reporter (sync(text)).
  * @param {object|Promise<object>} deps.socialLogin  The SocialLogin plugin (or a
  *   promise of it, when it is loaded lazily).
+ * @param {{ authorize: (options: object) => Promise<string|null> }} deps.driveAuthorization
+ *   Play services authorization (src/platform/native/drive-authorization.js).
+ * @param {Storage} [deps.storage]  localStorage, for the connected account's email.
  */
-export function createNativeGoogleAuth({ config, reporter, socialLogin }) {
+export function createNativeGoogleAuth({ config, reporter, socialLogin, driveAuthorization, storage }) {
   let accessToken = null;
   let onTokenListener = null;
   let initialization = null;
@@ -48,18 +60,34 @@ export function createNativeGoogleAuth({ config, reporter, socialLogin }) {
     ensureInitialized().catch((err) => console.error('[native-google-auth] init failed', err));
   }
 
-  /** A token for the saved account without any UI, or null. */
-  async function silentToken() {
-    const google = await ensureInitialized();
-    // No-op while the saved token is valid; otherwise re-selects the saved account.
-    await google.refresh({ provider: PROVIDER, options: { scopes: SCOPES } });
-    const { accessToken: token } = await google.getAuthorizationCode({ provider: PROVIDER });
-    return token ?? null;
+  function _readAccount() {
+    try {
+      return storage?.getItem(GOOGLE_DRIVE_ACCOUNT_KEY) || null;
+    } catch (err) {
+      console.error('[native-google-auth] failed to read the connected account', err);
+      return null;
+    }
+  }
+
+  function _rememberAccount(email) {
+    if (!email) return;
+    try {
+      storage?.setItem(GOOGLE_DRIVE_ACCOUNT_KEY, email);
+    } catch (err) {
+      console.error('[native-google-auth] failed to remember the connected account', err);
+    }
+  }
+
+  /** A token for the granted scope without any UI, or null. */
+  function silentToken() {
+    const account = _readAccount();
+    return driveAuthorization.authorize(account ? { scopes: SCOPES, account } : { scopes: SCOPES });
   }
 
   async function interactiveToken() {
     const google = await ensureInitialized();
     const { result } = await google.login({ provider: PROVIDER, options: { scopes: SCOPES } });
+    _rememberAccount(result?.profile?.email);
     return result?.accessToken?.token ?? null;
   }
 
@@ -68,20 +96,14 @@ export function createNativeGoogleAuth({ config, reporter, socialLogin }) {
    */
   function requestToken(options) {
     const silent = options?.prompt === '';
-
-    const obtain = async () => {
-      try {
-        const token = await silentToken();
-        if (token || silent) return token;
-      } catch (err) {
-        if (silent) throw err;
-      }
-      return interactiveToken();
-    };
+    const obtain = async () => (await silentToken()) ?? (silent ? null : interactiveToken());
 
     obtain().then(
       (token) => {
-        if (!token) throw new Error('no access token');
+        if (!token) {
+          if (silent) return;
+          throw new Error('no access token');
+        }
         accessToken = token;
         onTokenListener?.(token);
       },
@@ -97,12 +119,30 @@ export function createNativeGoogleAuth({ config, reporter, socialLogin }) {
     return accessToken;
   }
 
+  /**
+   * A current token for a Drive request: Play services hands back its cached
+   * token while valid and renews it when expired. Falls back to the last token;
+   * null before the user ever connected.
+   * @returns {Promise<string|null>}
+   */
+  async function getFreshAccessToken() {
+    if (!accessToken && !_readAccount()) return null;
+    const token = await silentToken();
+    if (token) accessToken = token;
+    return accessToken;
+  }
+
   function onTokenReceived(listener) {
     onTokenListener = listener;
   }
 
   async function signOut() {
     accessToken = null;
+    try {
+      storage?.removeItem(GOOGLE_DRIVE_ACCOUNT_KEY);
+    } catch (err) {
+      console.error('[native-google-auth] failed to forget the connected account', err);
+    }
     try {
       const google = await ensureInitialized();
       await google.logout({ provider: PROVIDER });
@@ -111,5 +151,5 @@ export function createNativeGoogleAuth({ config, reporter, socialLogin }) {
     }
   }
 
-  return { init, requestToken, getAccessToken, onTokenReceived, signOut };
+  return { init, requestToken, getAccessToken, getFreshAccessToken, onTokenReceived, signOut };
 }
