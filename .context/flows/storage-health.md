@@ -1,156 +1,84 @@
-# Flow: Storage Health — Protection Matrix, Silent Persist Gestures & Panel
+# Flow: Status Lights, Backup Pill & Storage Panel
 
-> Added: ST-013 — 2026-08-15 (replaces the ST-012 persistent-storage guidance modal)
+> ST-013 (2026-08-15) introduced a storage-protection badge and silent `navigator.storage.persist()`
+> gestures. ST-027 (2026-09-29) retired both: app storage is never evicted, and the web viewer's copy
+> can be re-downloaded from Drive (ST-023). What remains is below.
 
 <!-- context-meta
-verification-commit: HEAD
-generated-at: 2026-08-15T00:00:00Z
-confidence: medium
+verification-commit: HEAD (ST-027)
+generated-at: 2026-09-29T00:00:00Z
+confidence: high
 -->
 
 ## Overview
-Redefines what "protected" means for the app's local step data: instead of nagging the user with
-an eviction-risk modal whenever `navigator.storage.persisted()` is false, the app now treats an
-enabled Google Drive Cloud Auto-Sync as an equally valid safety net. A pure protection-matrix
-(`src/storage-health.js`) combines the `drive_backup_enabled` setting with the browser's persisted-
-storage grant into a single `#db-status` pill (Today's status line — the `.status-pills` group, which wraps to a second line rather than truncating) and a "Storage protection" panel
-(`src/storage-health-ui.js`) on the Backup & restore screen. `navigator.storage.persist()` is requested silently
-(no prompt, no modal) behind three explicit user gestures — Sync (`#sync-btn`), Connect/Reconnect Google
-Account, and toggling Drive auto-backup — plus directly via the panel's own button. This flow
-replaces `src/storage-modal.js` (deleted), which previously opened an explanatory popup on badge
-click; tapping the pill opens Backup & restore when unprotected.
+Today's status line has at most two pills, each a coloured **status light** (a glowing dot:
+green `ok`, amber `warn`, red `error`) and a short label; the full message is the pill's tooltip and
+accessible name (`src/status-light.js`).
+- **Connection** (`#auth-status`) — Health Connect access in the app, Google sign-in in the web
+  viewer: green **Connected** or amber/red **Disconnected**. Tap → Settings.
+- **Backup** (`#backup-status`, Android app only) — hidden while the phone's Google Drive backup is
+  fine; amber **Not backed up** when it needs attention. Tap → Backup & restore.
+Data messages (`reporter.db(text)` — load errors, "Backup saved to …") are short toasts, never pills.
+The Backup & restore screen keeps its **Storage protection** panel.
 
 ## Entry Points
-- **Type**: App lifecycle (browser) — badge computed at bootstrap, after `settings` is ready
-- **Type**: UI Event (browser) — `#auth-btn` click (Connect/Reconnect), `#sync-btn` click (Sync
-  Steps), `[data-action="toggle-drive-backup"]` change (Drive Cloud Sync panel) → each silently
-  requests `navigator.storage.persist()` and refreshes the header badge
-- **Type**: UI Event (browser) — `[data-action="request-storage-protection"]` click (Storage Health
-  panel button) → directly requests `navigator.storage.persist()`, no modal
-- **Type**: UI Event (browser) — `#db-status` click, only when its text reads "⚠️ Backup Disabled"
-  → `screens.go('backup')` (`src/navigation.js`); a no-op in any other badge state
-- **File**: `src/storage-health.js` (pure matrix + orchestration), `src/storage-health-ui.js`
-  (panel renderer), `src/drive-sync-ui.js` (toggle gesture + refresh-event dispatch), `src/main.js`
-  (bootstrap wiring, gesture wiring, badge-click navigation), `src/storage.js` (unchanged — the
-  underlying bootstrap-time `requestPersistentStorage` capability), `index.html`
-  (`#storage-health-controls`), `styles.css` (`.storage-health-*`)
+- **Type**: automatic — `reporter.auth(text)` from the connection (`src/platform/native/health-connect-connection.js`,
+  `src/auth.js`); `backupStatus.refresh()` at launch, after every sync, and on the
+  `data:drive-sync:refresh` / `data:storage-health:refresh` events (Drive panel connect, toggle,
+  upload, make primary, post-sync upload).
+- **Type**: UI Event — `#backup-status` click → `screens.go('backup')`; `#auth-status` click → Settings.
+- **File**: `src/status-light.js`, `src/ui-status.js`, `src/backup-status.js`, `src/storage-health-ui.js`,
+  `src/main.js`, `index.html`, `styles.css`
 
 ## Core Path
-
-### Protection matrix (`src/storage-health.js`)
-1. `computeBadgeText({ driveAutoSyncEnabled, persisted })` — pure function:
-   - `driveAutoSyncEnabled === true` → `CLOUD_SYNCED_TEXT` ("☁️ Cloud Synced"), regardless of
-     `persisted` (cloud backup alone is enough).
-   - `driveAutoSyncEnabled === false, persisted === true` → `PERSISTED_TEXT` ("🛡️ Storage Safe",
-     imported from `src/storage.js` — the existing single source of truth for that copy).
-   - `driveAutoSyncEnabled === false, persisted === false` → `BACKUP_DISABLED_TEXT`
-     ("⚠️ Backup Disabled").
-   `isProtected(...)` mirrors the same OR-logic as a boolean for any future consumer.
-2. `refreshStorageProtectionBadge(reporter, settings, nav = navigator)` re-reads
-   `settings.getDriveBackupEnabled()` and `nav.storage.persisted()` in parallel (each individually
-   fail-open — a rejected read defaults to `false` and is logged via
-   `console.error('[storage-health]', err)`, never blocking the other signal), then writes the
-   combined text via `reporter.db(...)`.
-3. `requestSilentPersistAndRefreshBadge(reporter, settings, nav = navigator)` calls
-   `nav.storage.persist()` with no UI feedback (errors caught/logged, never thrown), then always
-   calls `refreshStorageProtectionBadge` so the badge reflects the true resulting state whether the
-   grant succeeded, was silently declined, or errored.
-
-### Storage Health panel (`src/storage-health-ui.js`)
-4. `createStorageHealthUI(doc, settings, reporter, nav = navigator)` renders a "💾 Storage & Data
-   Health" panel into `#storage-health-controls` (mounted above the existing `.backup-grid` in
-   `#tab-backup`): a "Google Drive Cloud Backup:" row (`🟢 Active ([size])` when
-   `drive_backup_enabled` is on and a last-sync size is known, `🟢 Active` with no size before the
-   first sync, `⚪ Disabled` when off — reusing `formatBytes` from `backup-format.js`), a "Local
-   Browser Storage:" row (`🟢 Protected` / `🟡 Unpersisted` from `nav.storage.persisted()`), and a
-   `[ 🛡️ Request Browser Storage Protection ]` button.
-5. The button calls `nav.storage.persist()` directly — **no confirmation modal** — and on a grant
-   updates the Local Browser Storage row in place immediately; either way it then calls
-   `refreshStorageProtectionBadge` so the status pill never disagrees with the panel. All reads are
-   individually fail-open (a settings/Dexie error defaults the Drive row to "Disabled" and logs).
-   No innerHTML; AbortController-scoped listeners so re-render never accumulates handlers.
-   **In the Android app** (`{ appStorage: true }`, ST-026) the local row reads "On this phone:
-   🟢 Kept until the app is uninstalled" and neither the button nor the hint is rendered — browser
-   eviction doesn't apply to app-private storage, and the storage manager is never asked.
-
-### Cross-panel refresh (event-based, no direct references)
-6. The Storage Health panel and the Drive Cloud Sync panel are separate modules mounted into
-   separate containers. Rather than holding a reference to each other, `src/drive-sync-ui.js`
-   dispatches a `data:storage-health:refresh` custom event on `doc` after (a) a successful
-   `setDriveBackupEnabled` toggle write (alongside the silent persist request) and (b) a successful
-   manual "Back Up to Drive" push (so a freshly-recorded backup size shows up in the Drive row).
-   `src/main.js` listens for this event at bootstrap and re-renders `storageHealthUI` into
-   `#storage-health-controls`.
-
-### Removed: the ST-012 persistent-storage guidance modal
-7. `src/storage-modal.js` (and its dedicated `#db-status`-click-opens-a-modal behavior) has been
-   deleted. The badge is no longer a launcher for an explanatory popup — a click now either
-   opens the Backup & restore screen (unprotected state) or does nothing (already-safe states). Storage
-   protection is requested silently behind ordinary product gestures instead of being surfaced as a
-   dedicated ask.
+1. `levelOf(text)` maps a message's leading symbol to a light: ✅ → `ok`; ⚠️ ℹ️ → `warn`; 🔑 ❌ and
+   anything unrecognised → `error`. `stripSymbol` keeps the words.
+2. `reporter.auth(text)` → `renderStatusPill(doc, #auth-status, { level, label: 'Connected' |
+   'Disconnected', detail })` (light span + `.status-pill__label`, `title`, `aria-label`,
+   `data-level`), and still sets the auth button to "Reconnect" / the connect label. `index.html`
+   starts the pill as a red **Disconnected** ("Not connected").
+3. `createBackupStatus({ doc, settings, primaryDevice, isDriveConnected, onOpen })` → `refresh()`
+   reads `getDriveBackupEnabled()` (fail-open true), `getLastDriveSync()` (fail-open null) and
+   `primaryDevice.status()`, then `computeBackupStatus(...)`:
+   - another device is the primary → fine (it does the backing up);
+   - Drive not connected → "Google Drive is not connected";
+   - automatic backup off → "Automatic backup is off";
+   - never backed up → "This phone has not backed up to Google Drive yet";
+   - last backup older than `STALE_BACKUP_MS` (3 days) → "Last backup to Google Drive was N days ago";
+   - otherwise fine → the pill is `hidden`.
+   `main.js` counts Drive as connected when `driveConnection.isConnected()` **or** the
+   `google_drive_connected` flag is set, so the silent reconnect at launch never flashes a warning.
+4. `reporter.db(text)` → `showToast(doc, text)` (`src/toast.js`); `initDB` no longer announces
+   "DB ready".
+5. **Storage protection panel** (`src/storage-health-ui.js`, `createStorageHealthUI(doc, settings,
+   nav, { appStorage })`) on Backup & restore: a "Google Drive Cloud Backup:" row (`🟢 Active
+   ([size])` / `🟢 Active` / `⚪ Disabled`) and, in the app, "On this phone: 🟢 Kept until the app is
+   uninstalled" (ST-026). In a browser it shows "Local Browser Storage" (`🟢 Protected` /
+   `🟡 Unpersisted`) and a "Request Browser Storage Protection" button that calls
+   `nav.storage.persist()` and hints on a decline/error — reachable only for editors, so in practice
+   not shown since the web became a viewer. It re-renders on `data:storage-health:refresh`.
 
 ## Data Touchpoints
-- **Entities**: Reads `settings.drive_backup_enabled` (via `getDriveBackupEnabled()`,
-  `src/settings.js`) and `settings.last_drive_sync` (via `getLastDriveSync()`) — no new persisted
-  state introduced by this flow.
-- **Tables**: None written by this flow; `db.settings` reads only.
-- **UI Surface**: `#db-status` pill in Today's status line (`src/ui-status.js`'s `reporter.db(text)`), the
-  `#storage-health-controls` panel inside `#tab-backup`.
-- **Browser API**: `navigator.storage.persist()` (write/request) and `navigator.storage.persisted()`
-  (read) — Storage API, no network.
-
-## Integrations
-- **Type**: Browser API
-- **Target**: `navigator.storage.persist()` / `navigator.storage.persisted()`
-- **Channel**: N/A (in-browser only, no network)
-
-## Error / Retry Surface
-- Every read in `refreshStorageProtectionBadge` and the panel's `_refreshStatuses` is individually
-  try/catch-guarded and fails open (`false`/`⚪ Disabled` default) — one failing signal never
-  prevents the other from still producing a correct, informative state.
-- `requestSilentPersistAndRefreshBadge` and the panel's protection button both swallow
-  `persist()` rejections (logged via `console.error`, never surfaced to the user, never thrown) —
-  a declined or errored request is indistinguishable from a normal browser heuristic decline and
-  never blocks the calling gesture (auth, sync, toggle) from completing.
-- `data:storage-health:refresh` dispatch/handling is itself guarded (`try/catch` around
-  `dispatchEvent` in `drive-sync-ui.js`, around `render` in `main.js`) so a DOM/render failure never
-  breaks the triggering action (toggle write, manual backup).
+- `settings`: `drive_backup_enabled`, `last_drive_sync` (`{ at, bytes }`), `primary_device`.
+- localStorage `google_drive_connected` (the app's Drive connection flag).
 
 ## Scope
-- `src/storage-health.js` — pure matrix (`computeBadgeText`, `isProtected`) + orchestration
-  (`refreshStorageProtectionBadge`, `requestSilentPersistAndRefreshBadge`); exports
-  `CLOUD_SYNCED_TEXT`, `BACKUP_DISABLED_TEXT` (re-imports `PERSISTED_TEXT` from `src/storage.js`)
-- `src/storage-health-ui.js` — panel renderer (`createStorageHealthUI(doc, settings, reporter, nav = navigator)` → `{ render }`)
-- `src/drive-sync-ui.js` — silent-persist-on-toggle + `data:storage-health:refresh` dispatch (toggle
-  success, manual backup success); `createDriveSyncUI(..., driveBackupPrefs, nav = navigator)`
-- `src/main.js` — bootstrap badge refresh (after `settings` is ready), gesture wiring on
-  `#auth-btn`/`#sync-btn`, `storageHealthUI` mount + `data:storage-health:refresh` listener,
-  `#db-status` click → `screens.go('backup')` guard
-- `src/navigation.js` — `createNavigator(doc).go('backup')` (the navigation target; `tabs.js` was removed in ST-025)
-- `src/storage.js` — unchanged; `requestPersistentStorage` (bootstrap-time attempt) and
-  `PERSISTED_TEXT` remain the single source of truth for that one badge string
-- `index.html` — `#storage-health-controls` (first card inside `#tab-backup`)
-- `styles.css` — `.storage-health-panel`, `.storage-health-row`, `.storage-health-label`,
-  `.storage-health-value`, `.storage-health-action`
+- `src/status-light.js` — `levelOf`, `stripSymbol`, `renderStatusPill`, `STATUS_OK/WARN/ERROR`
+- `src/ui-status.js` — `auth` renders the light; `db` toasts
+- `src/backup-status.js` — `computeBackupStatus`, `createBackupStatus`, `STALE_BACKUP_MS`
+- `src/storage-health-ui.js` — the Storage protection panel
+- `src/drive-sync-ui.js` — dispatches `data:storage-health:refresh` / `data:drive-sync:refresh`
+- `src/main.js` — wiring (app-only backup pill, refresh triggers)
+- `index.html` (`#auth-status`, `#backup-status`), `styles.css` (`.status-pill`, `.status-light*`)
 
 ## Tests
-- `src/storage-health.test.js` — matrix truth table, badge-refresh fail-open behavior per signal,
-  silent-persist-then-refresh ordering and error tolerance.
-- `src/storage-health-ui.test.js` — panel rendering per drive/persisted state combination, button
-  grant/decline/error paths, in-place local-status update, header-badge refresh via the button,
-  pending/disabled button state, re-render listener scoping, no-innerHTML contract.
-- `src/drive-sync-ui.test.js` — toggle-triggered silent persist + badge refresh +
-  `data:storage-health:refresh` dispatch (including the failed-write path, which must trigger
-  neither), manual-backup-success `data:storage-health:refresh` dispatch.
-- `src/main.test.js` — "Storage Health wiring" describe block: bootstrap-time badge refresh call
-  shape, panel mount + fail-open when the container is missing, refresh-event re-render,
-  gesture-triggered persist calls on `#auth-btn`/`#sync-btn`, `#db-status` click navigation
-  (asserted by the Backup & restore screen becoming visible) gated on the exact badge text.
+- `src/status-light.test.js`, `src/backup-status.test.js`, `src/ui-status.test.js`,
+  `src/storage-health-ui.test.js`, `src/main.test.js` ("ST-027 backup pill"), `src/index.test.js`,
+  `src/styles.test.js`.
 
-## Notes
-- The status pill is deliberately **not** clickable in the two "safe" states (`Cloud Synced`,
-  `Storage Safe`) — only `Backup Disabled` responds to a click, mirroring the old modal's
-  "only opens when Unprotected" guard but opening Backup & restore instead of a popup.
-- `src/storage.js`'s bootstrap-time `requestPersistentStorage` call is unchanged and still runs
-  first; `refreshStorageProtectionBadge` runs immediately after (once `settings` exists) and
-  overwrites the badge with the drive-aware text, so the two never race in a user-visible way.
+## Removed in ST-027
+- `src/storage.js` (`requestPersistentStorage`, `PERSISTED_TEXT`), `src/storage-health.js`
+  (`computeBadgeText`, `isProtected`, `refreshStorageProtectionBadge`,
+  `requestSilentPersistAndRefreshBadge`, `CLOUD_SYNCED_TEXT`, `BACKUP_DISABLED_TEXT`), the
+  `#db-status` pill and its click handler, and the silent persist requests on Connect, Sync and the
+  auto-backup toggle.

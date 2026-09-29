@@ -28,16 +28,7 @@ vi.mock('./drive-sync-ui.js', () => ({
   createDriveSyncUI: vi.fn(() => mockDriveSyncUIInstance)
 }))
 
-// Storage Health: protection-matrix logic + panel (replaces storage-modal.js)
-const mockRefreshStorageProtectionBadge = vi.fn().mockResolvedValue(undefined)
-const mockRequestSilentPersistAndRefreshBadge = vi.fn().mockResolvedValue(undefined)
-vi.mock('./storage-health.js', () => ({
-  refreshStorageProtectionBadge: (...args) => mockRefreshStorageProtectionBadge(...args),
-  requestSilentPersistAndRefreshBadge: (...args) => mockRequestSilentPersistAndRefreshBadge(...args),
-  BACKUP_DISABLED_TEXT: '⚠️ Backup Disabled',
-  CLOUD_SYNCED_TEXT: '☁️ Cloud Synced',
-}))
-
+// Storage Health panel (Backup & restore)
 const mockStorageHealthUIInstance = { render: vi.fn().mockResolvedValue(undefined) }
 vi.mock('./storage-health-ui.js', () => ({
   createStorageHealthUI: vi.fn(() => mockStorageHealthUIInstance)
@@ -146,10 +137,6 @@ vi.mock('./db.js', () => ({
 const { mockWriteSnapshot } = vi.hoisted(() => ({ mockWriteSnapshot: vi.fn(async (fn) => fn()) }))
 vi.mock('./read-only.js', () => ({
   guardWrites: vi.fn(() => ({ writeSnapshot: mockWriteSnapshot })),
-}))
-
-vi.mock('./storage.js', () => ({
-  requestPersistentStorage: vi.fn(() => Promise.resolve())
 }))
 
 let mockOnTokenHandler
@@ -292,7 +279,6 @@ import { createProgressUI } from './progress-ui.js'
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
 import { guardWrites } from './read-only.js'
-import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { createCalendarWeekUI } from './calendar-week-ui.js'
 import { createOnboardingUI } from './onboarding-ui.js'
@@ -314,11 +300,6 @@ import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
 import { createDriveSync } from './drive-sync.js'
 import { createDriveSyncUI } from './drive-sync-ui.js'
-import {
-  refreshStorageProtectionBadge,
-  requestSilentPersistAndRefreshBadge,
-  BACKUP_DISABLED_TEXT,
-} from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
 import { createSwRegister } from './sw-register.js'
 import { createAnalytics } from './analytics.js'
@@ -344,8 +325,8 @@ const SHELL_HTML = `
     <span id="app-subtitle"></span>
     <section id="tab-today" data-screen>
       <button id="sync-btn" aria-label="Sync steps">Sync</button>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
+      <button id="backup-status" hidden></button>
       <span id="sync-status"></span>
       <span id="last-sync"></span>
     </section>
@@ -395,7 +376,6 @@ describe('main.js — composition root bootstrap', () => {
     vi.clearAllMocks()
     // Restore default resolved promise for initDB
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockSwRegistrar.register.mockResolvedValue(undefined)
   })
 
@@ -411,11 +391,6 @@ describe('main.js — composition root bootstrap', () => {
   it('invokes initDB exactly once on DOMContentLoaded', async () => {
     await boot()
     expect(initDB).toHaveBeenCalledTimes(1)
-  })
-
-  it('invokes requestPersistentStorage exactly once on DOMContentLoaded', async () => {
-    await boot()
-    expect(requestPersistentStorage).toHaveBeenCalledTimes(1)
   })
 
   it('invokes auth.init exactly once on DOMContentLoaded', async () => {
@@ -446,30 +421,6 @@ describe('main.js — composition root bootstrap', () => {
     expect(document.getElementById('app-version').textContent).toMatch(/^Step Tracker v\d+\.\d+\.\d+$/)
   })
 
-  it('invokes requestPersistentStorage after initDB resolves', async () => {
-    let initDBResolved = false
-    initDB.mockImplementation(() => {
-      return new Promise(resolve => setTimeout(() => {
-        initDBResolved = true
-        resolve()
-      }, 10))
-    })
-
-    let persistCalledAfterDB = false
-    requestPersistentStorage.mockImplementation(() => {
-      persistCalledAfterDB = initDBResolved
-      return Promise.resolve()
-    })
-
-    document.body.innerHTML = `
-      <button id="auth-btn">Connect</button>
-      <nav class="tab-bar"></nav>
-    `
-    await bootstrap(document)
-
-    expect(persistCalledAfterDB).toBe(true)
-  })
-
   it('clicking #auth-btn invokes auth.requestToken()', async () => {
     await boot()
     const btn = document.getElementById('auth-btn')
@@ -490,9 +441,6 @@ describe('main.js — composition root bootstrap', () => {
     expect(createStatusReporter).toHaveBeenCalledTimes(1)
     // initDB receives reporter as second arg
     expect(initDB).toHaveBeenCalledWith(expect.anything(), mockReporter)
-    // requestPersistentStorage receives reporter first and the platform
-    // storage manager (the browser navigator on web) second
-    expect(requestPersistentStorage).toHaveBeenCalledWith(mockReporter, navigator)
     // createAuth receives reporter as second arg
     expect(createAuth).toHaveBeenCalledWith(expect.anything(), mockReporter)
   })
@@ -520,12 +468,6 @@ describe('main.js — dependency injection contract (regression)', () => {
     expect(typeof reporterArg.auth).toBe('function')
   })
 
-  it('reporter is passed to requestPersistentStorage (not DOM accessed inside storage.js)', async () => {
-    await boot()
-    const [reporterArg] = requestPersistentStorage.mock.calls[0]
-    expect(typeof reporterArg.db).toBe('function')
-  })
-
   it('config with CLIENT_ID is passed to createAuth (not DOM accessed inside auth.js)', async () => {
     await boot()
     const [configArg] = createAuth.mock.calls[0]
@@ -537,7 +479,6 @@ describe('main.js — Task 11 step sync wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -588,7 +529,6 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -699,7 +639,6 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -781,7 +720,6 @@ describe('main.js — Task 10: streak engine wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -898,7 +836,6 @@ describe('main.js — Task 12: calendar wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1005,7 +942,6 @@ describe('main.js — Calendar month + week views', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1090,7 +1026,6 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1101,7 +1036,6 @@ describe('main.js — Task 5: records + processImage injection + mutation listen
       <button id="auth-btn">Connect</button>
       <button id="sync-btn">Sync Steps</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
     `
@@ -1169,7 +1103,6 @@ describe('main.js — Task 7: search engine wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1228,7 +1161,6 @@ describe('main.js — Task 12: createSearch decoupled from goal', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1270,7 +1202,6 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1281,7 +1212,6 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
       <button id="auth-btn">Connect</button>
       <button id="sync-btn">Sync Steps</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
     `
@@ -1386,8 +1316,7 @@ describe('main.js — Task 19: onGoalApplied three-way fan-out', () => {
         <button id="auth-btn">Connect</button>
         <button id="sync-btn">Sync Steps</button>
         <nav class="tab-bar"></nav>
-        <div id="db-status"></div>
-        <div id="auth-status"></div>
+          <div id="auth-status"></div>
         <span id="sync-status"></span>
         <div id="tab-dashboard"></div>
       `
@@ -1495,7 +1424,6 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1510,7 +1438,6 @@ describe('main.js — ST-015 Task 9: settings wiring + searchUI fan-out leg', ()
       <button id="sync-btn">Sync Steps</button>
       <button id="settings-btn">Settings</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
     `
@@ -1643,7 +1570,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1667,7 +1593,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       <button id="sync-btn">Sync Steps</button>
       <button id="settings-btn">Settings</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
       <div id="backup-controls"></div>
@@ -1723,7 +1648,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       mockReporter,
       mockConfirmAdapter,
       mockSettingsInstance,
-      navigator,
       expect.objectContaining({ primaryDevice: expect.anything() })
     )
   })
@@ -1768,7 +1692,6 @@ describe('main.js — ST-012 Task 7: backup + drive-sync wiring', () => {
       <button id="sync-btn">Sync Steps</button>
       <button id="settings-btn">Settings</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
     `
@@ -1859,7 +1782,6 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
   beforeEach(async () => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1880,7 +1802,6 @@ describe('main.js — ST-012 Task 23: separate mount containers for backup and c
       <button id="sync-btn">Sync Steps</button>
       <button id="settings-btn">Settings</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
       <div id="backup-controls"></div>
@@ -1967,7 +1888,6 @@ describe('main.js — Storage Health wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -1977,8 +1897,6 @@ describe('main.js — Storage Health wiring', () => {
     mockSettingsUIInstance.render.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     mockStorageHealthUIInstance.render.mockClear()
-    mockRefreshStorageProtectionBadge.mockClear()
-    mockRequestSilentPersistAndRefreshBadge.mockClear()
     mockDb.daily_records = { count: vi.fn().mockResolvedValue(5) }
     isolatedDoc = makeIsolatedDoc()
     document.body.innerHTML = `
@@ -1990,7 +1908,6 @@ describe('main.js — Storage Health wiring', () => {
       </nav>
       <div id="tab-dashboard"></div>
       <div id="tab-backup" style="display:none"></div>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
       <div id="storage-health-controls"></div>
@@ -2002,16 +1919,10 @@ describe('main.js — Storage Health wiring', () => {
     isolatedDoc = null
   })
 
-  it('refreshStorageProtectionBadge runs once during bootstrap, after settings is ready', async () => {
-    await bootstrap(isolatedDoc)
-    expect(mockRefreshStorageProtectionBadge).toHaveBeenCalledTimes(1)
-    expect(mockRefreshStorageProtectionBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
-  })
-
-  it('createStorageHealthUI is instantiated once with (doc, settings, reporter, navigator)', async () => {
+  it('createStorageHealthUI is instantiated once with (doc, settings, navigator)', async () => {
     await bootstrap(isolatedDoc)
     expect(createStorageHealthUI).toHaveBeenCalledTimes(1)
-    expect(createStorageHealthUI).toHaveBeenCalledWith(isolatedDoc, mockSettingsInstance, mockReporter, navigator, { appStorage: false })
+    expect(createStorageHealthUI).toHaveBeenCalledWith(isolatedDoc, mockSettingsInstance, navigator, { appStorage: false })
   })
 
   it('storageHealthUI.render is called with #storage-health-controls when present', async () => {
@@ -2032,40 +1943,6 @@ describe('main.js — Storage Health wiring', () => {
     isolatedDoc.dispatchEvent(new CustomEvent('data:storage-health:refresh'))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mockStorageHealthUIInstance.render).toHaveBeenCalledTimes(1)
-  })
-
-  it('clicking #auth-btn silently requests persist + badge refresh alongside auth.requestToken()', async () => {
-    await bootstrap(isolatedDoc)
-    mockRequestSilentPersistAndRefreshBadge.mockClear()
-    document.getElementById('auth-btn').click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
-  })
-
-  it('clicking #sync-btn silently requests persist + badge refresh alongside the sync pipeline', async () => {
-    asApp()
-    await bootstrap(isolatedDoc)
-    mockRequestSilentPersistAndRefreshBadge.mockClear()
-    document.getElementById('sync-btn').click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    // In the app the storage manager is the always-persisted one (src/platform/storage-manager.js).
-    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(
-      mockReporter, mockSettingsInstance, expect.objectContaining({ storage: expect.any(Object) }))
-    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
-  })
-
-  it('clicking #db-status when it reads "Backup Disabled" opens Backup & restore', async () => {
-    await boot()
-    document.getElementById('db-status').textContent = BACKUP_DISABLED_TEXT
-    document.getElementById('db-status').click()
-    expect(visibleScreen()).toBe('tab-backup')
-  })
-
-  it('clicking #db-status when it does NOT read "Backup Disabled" does nothing', async () => {
-    await boot()
-    document.getElementById('db-status').textContent = '☁️ Cloud Synced'
-    document.getElementById('db-status').click()
-    expect(visibleScreen()).toBe('tab-today')
   })
 
   it('invokes createSwRegister exactly once with a nav and a config.prod field', async () => {
@@ -2126,7 +2003,6 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockProgressUIInstance.render.mockResolvedValue(undefined)
     mockStreakUIInstance.render.mockResolvedValue(undefined)
     mockCalendarUIInstance.render.mockResolvedValue(undefined)
@@ -2144,7 +2020,6 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
       <button id="sync-btn">Sync Steps</button>
       <button id="settings-btn">Settings</button>
       <nav class="tab-bar"></nav>
-      <div id="db-status"></div>
       <div id="auth-status"></div>
       <span id="sync-status"></span>
       <div id="tab-lab" hidden>
@@ -2299,7 +2174,6 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockSwRegistrar.register.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     mockHealth.isAvailable.mockResolvedValue({ available: true })
@@ -2360,10 +2234,9 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
 
     it('treats app storage as always protected', async () => {
       await boot(makeStorage())
-      const manager = requestPersistentStorage.mock.calls[0][1]
+      const manager = createStorageHealthUI.mock.calls[0][2]
       expect(manager).not.toBe(navigator)
       await expect(manager.storage.persisted()).resolves.toBe(true)
-      expect(createStorageHealthUI.mock.calls[0][3]).toBe(manager)
     })
 
     it('the connect button asks Health Connect for access, then syncs', async () => {
@@ -2393,7 +2266,6 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockSwRegistrar.register.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     mockSettingsInstance.getPrimaryDevice.mockResolvedValue(null)
@@ -2409,7 +2281,7 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
     document.body.innerHTML = ''
   })
 
-  const driveUIOptions = () => createDriveSyncUI.mock.calls[0][7]
+  const driveUIOptions = () => createDriveSyncUI.mock.calls[0][6]
   const stepSyncPrimary = () => createStepSync.mock.calls[0][7]
 
   describe('in the browser', () => {
@@ -2486,7 +2358,7 @@ describe('main.js — ST-020 Drive sign-in and primary device wiring', () => {
 
     it('ST-026: the storage panel describes app storage', async () => {
       await boot(makeStorage())
-      expect(createStorageHealthUI.mock.calls.at(-1)[4]).toEqual({ appStorage: true })
+      expect(createStorageHealthUI.mock.calls.at(-1)[3]).toEqual({ appStorage: true })
     })
   })
 })
@@ -2495,7 +2367,6 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockSwRegistrar.register.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     mockStepSyncInstance.canSync.mockResolvedValue(true)
@@ -2576,7 +2447,6 @@ describe('main.js — mobile redesign: welcome screen and pull-to-refresh', () =
     vi.clearAllMocks()
     mockIsNativePlatform.mockReturnValue(false)
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
     mockStepSyncInstance.canSync.mockResolvedValue(true)
   })
@@ -2638,7 +2508,6 @@ describe('main.js — ST-023 read-only web viewer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     initDB.mockResolvedValue(undefined)
-    requestPersistentStorage.mockResolvedValue(undefined)
     Object.assign(mockDb, {
       daily_records: { clear: vi.fn(), bulkPut: vi.fn(), count: vi.fn().mockResolvedValue(0) },
       settings: { clear: vi.fn(), bulkPut: vi.fn(), put: vi.fn(), get: vi.fn().mockResolvedValue(undefined) },
@@ -2723,5 +2592,70 @@ describe('main.js — ST-023 read-only web viewer', () => {
   it('the goal chip is read-only', async () => {
     await boot(makeStorage())
     expect(createProgressUI.mock.calls.at(-1)[5]).toEqual({ canEdit: false })
+  })
+})
+
+describe('main.js — ST-027 backup pill', () => {
+  const pill = () => document.getElementById('backup-status')
+  const recent = () => ({ at: new Date(Date.now() - 3_600_000).toISOString(), bytes: 10 })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    mockSettingsInstance.getDriveBackupEnabled = vi.fn().mockResolvedValue(true)
+    mockSettingsInstance.getLastDriveSync = vi.fn().mockResolvedValue(recent())
+    mockSettingsInstance.getPrimaryDevice.mockResolvedValue(null)
+  })
+
+  afterEach(() => {
+    delete mockSettingsInstance.getDriveBackupEnabled
+    delete mockSettingsInstance.getLastDriveSync
+    document.body.innerHTML = ''
+  })
+
+  it('the web viewer never shows it', async () => {
+    await boot(makeStorage())
+    expect(pill().hidden).toBe(true)
+  })
+
+  it('in the app, warns "Not backed up" while Google Drive was never connected, and opens Backup & restore', async () => {
+    asApp()
+    await boot(makeStorage())
+    expect(pill().hidden).toBe(false)
+    expect(pill().textContent).toBe('Not backed up')
+    expect(pill().title).toBe('Google Drive is not connected')
+    pill().click()
+    expect(visibleScreen()).toBe('tab-backup')
+  })
+
+  it('in the app, stays hidden once Drive was connected here and backups are recent — no flash during the silent reconnect', async () => {
+    asApp()
+    const storage = makeStorage()
+    storage.setItem('google_drive_connected', '1')
+    await boot(storage)
+    expect(pill().hidden).toBe(true)
+  })
+
+  it('refreshes when the Drive panel changes (e.g. auto backup switched off)', async () => {
+    asApp()
+    const storage = makeStorage()
+    storage.setItem('google_drive_connected', '1')
+    await boot(storage)
+    mockSettingsInstance.getDriveBackupEnabled.mockResolvedValue(false)
+    document.dispatchEvent(new CustomEvent('data:storage-health:refresh'))
+    await vi.waitFor(() => expect(pill().hidden).toBe(false))
+    expect(pill().title).toBe('Automatic backup is off')
+  })
+
+  it('refreshes after a sync', async () => {
+    asApp()
+    const storage = makeStorage()
+    storage.setItem('google_drive_connected', '1')
+    await boot(storage)
+    mockSettingsInstance.getLastDriveSync.mockResolvedValue(null)
+    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    document.getElementById('sync-btn').click()
+    await vi.waitFor(() => expect(pill().hidden).toBe(false))
+    expect(pill().title).toMatch(/not backed up to Google Drive yet/)
   })
 })

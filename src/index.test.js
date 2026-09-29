@@ -61,7 +61,7 @@ describe('index.html — Today screen', () => {
   const today = document.getElementById('tab-today');
 
   it('keeps the status elements the status reporter writes to', () => {
-    for (const id of ['auth-status', 'db-status', 'last-sync', 'sync-status', 'sync-btn']) {
+    for (const id of ['auth-status', 'backup-status', 'last-sync', 'sync-status', 'sync-btn']) {
       expect(today.querySelector(`#${id}`), id).not.toBeNull();
     }
     expect(document.getElementById('sync-btn').getAttribute('aria-label')).toBe('Sync steps');
@@ -69,7 +69,7 @@ describe('index.html — Today screen', () => {
 
   it('groups the three statuses apart from the sync button, so they can wrap while it stays put', () => {
     const pills = [...today.querySelectorAll('.status-line > .status-pills > [id]')].map((el) => el.id);
-    expect(pills).toEqual(['auth-status', 'last-sync', 'db-status']);
+    expect(pills).toEqual(['auth-status', 'last-sync', 'backup-status']);
     expect(today.querySelector('.status-line > #sync-btn')).not.toBeNull();
   });
 
@@ -215,7 +215,7 @@ describe('index.html — platform and build contract', () => {
 
 describe('ST-023: markup gating for the read-only web viewer', () => {
   it('marks the controls that change data as editor-only', () => {
-    expect(document.getElementById('db-status').hasAttribute('data-editor-only')).toBe(true);
+    expect(document.getElementById('backup-status').hasAttribute('data-editor-only')).toBe(true);
     expect(document.querySelector('#tab-settings [data-go="backup"]').closest('[data-editor-only]')).not.toBeNull();
     expect(document.getElementById('settings-panel').hasAttribute('data-editor-only')).toBe(true);
     expect(document.getElementById('onboarding-restore').hasAttribute('data-editor-only')).toBe(true);
@@ -227,5 +227,24 @@ describe('ST-023: markup gating for the read-only web viewer', () => {
       expect(note, screen).not.toBeNull();
       expect(note.textContent).toContain('View only');
     }
+  });
+});
+
+describe('ST-027: status pills', () => {
+  it('the storage badge pill is gone', () => {
+    expect(document.getElementById('db-status')).toBeNull();
+  });
+
+  it('the connection pill starts as a red light reading "Disconnected"', () => {
+    const pill = document.getElementById('auth-status');
+    expect(pill.querySelector('.status-light--error')).not.toBeNull();
+    expect(pill.textContent.trim()).toBe('Disconnected');
+    expect(pill.getAttribute('title')).toBe('Not connected');
+  });
+
+  it('the backup pill is hidden until backup needs attention', () => {
+    const pill = document.getElementById('backup-status');
+    expect(pill.hidden).toBe(true);
+    expect(pill.tagName).toBe('BUTTON');
   });
 });

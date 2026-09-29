@@ -303,18 +303,10 @@ describe('initDB() - happy path', () => {
     expect(db.open).toHaveBeenCalledTimes(1);
   });
 
-  it('reporter.db called with ready string when count is 0', async () => {
-    const db = makeMockDb({ count: 0 });
+  it('ST-027: a successful open is not announced (no "DB ready" toast)', async () => {
     const reporter = makeReporter();
-    await initDB(db, reporter);
-    expect(reporter.db).toHaveBeenCalledWith('✅ DB ready (0 records)');
-  });
-
-  it('reporter.db called with ready string when count is 5', async () => {
-    const db = makeMockDb({ count: 5 });
-    const reporter = makeReporter();
-    await initDB(db, reporter);
-    expect(reporter.db).toHaveBeenCalledWith('✅ DB ready (5 records)');
+    await initDB(makeMockDb({ count: 5 }), reporter);
+    expect(reporter.db).not.toHaveBeenCalled();
   });
 });
 
@@ -339,19 +331,6 @@ describe('initDB() - error path', () => {
     const db = makeMockDb({ openRejects: true });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(initDB(db, makeReporter())).resolves.toBeUndefined();
-  });
-});
-
-describe('initDB() - edge case', () => {
-  it('resolves and calls reporter even when count() rejects', async () => {
-    const db = {
-      open: vi.fn().mockResolvedValue(undefined),
-      daily_records: { count: vi.fn().mockRejectedValue(new Error('count failed')) },
-    };
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const reporter = makeReporter();
-    await expect(initDB(db, reporter)).resolves.toBeUndefined();
-    expect(reporter.db).toHaveBeenCalled();
   });
 });
 

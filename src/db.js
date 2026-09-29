@@ -159,8 +159,6 @@ export function createDb(name = DB_NAME) {
 export async function initDB(db, reporter) {
   try {
     await db.open();
-    const count = await db.daily_records.count();
-    reporter.db(`✅ DB ready (${count} records)`);
   } catch (err) {
     console.error(`[initDB] Failed to open ${db.name ?? DB_NAME}`, err);
     reporter.db('❌ DB init failed');

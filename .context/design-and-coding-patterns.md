@@ -44,8 +44,8 @@ confidence: high
   in `src/db.js`; `createNavigator(doc, { onEnter, today, scrollTo })` in `src/navigation.js`.
 - **Fail-open guard clause at function entry**: functions validate preconditions and return/throw early
   before doing work. *Evidence (≥3)*: `src/config.js` (throw if `VITE_CLIENT_ID` missing);
-  `src/auth.js:requestToken()` (`if (!tokenClient) return`); `src/storage.js`
-  (`if (!nav?.storage?.persist) return`); `src/ui-status.js` element-missing guards.
+  `src/auth.js:requestToken()` (`if (!tokenClient) return`); `src/backup-status.js`
+  (`if (!el) return`); `src/ui-status.js` element-missing guards.
 - **Delegated event listener with AbortController cleanup**: a single listener on a container element
   reads `event.target.closest('[data-tab], [data-go], [data-back]')` rather than attaching per-button listeners. Re-calling
   the bind function aborts the old controller to prevent accumulation. *Evidence*: `src/navigation.js:bind`,
@@ -103,7 +103,7 @@ confidence: high
   *Evidence*: `index.html` (entry script tag); `src/main.js` import block at top of file.
 - **Module granularity**: One-concern-per-file enforced across `src/` — each module owns a single
   external surface or domain concept. *Evidence (≥3)*: `src/auth.js` (Google Identity only);
-  `src/db.js` (Dexie schema + open); `src/storage.js` (navigator.storage only); `src/navigation.js`
+  `src/db.js` (Dexie schema + open); `src/status-light.js` (status pill rendering only); `src/navigation.js`
   (screen navigation only); `src/ui-status.js` (DOM status reporter only); `src/config.js` (env var validation).
 - **Composition root**: `src/main.js` is the sole wiring point — it imports all concrete modules,
   instantiates them in sequence, and binds event handlers. No other module knows about the others.
@@ -118,14 +118,14 @@ confidence: high
 
 - **Symbol naming**: Tunable constants are `UPPER_SNAKE_CASE` (`CLIENT_ID`, `SCOPES`, `DB_NAME`,
   `DB_VERSION`); factory functions use `createXxx` (`createAuth`, `createDb`, `createStatusReporter`);
-  plain functions use `camelCase` (`mondayOf`, `computeWeekHits`, `requestPersistentStorage`).
+  plain functions use `camelCase` (`mondayOf`, `computeWeekHits`, `computeBackupStatus`).
   *Evidence (≥3 each)*: `src/config.js:1` (constant); `src/auth.js:1` (SCOPES); `src/db.js:1-2`
   (DB_NAME, DB_VERSION); factories across `src/auth.js`, `src/db.js`, `src/ui-status.js`.
 - **DOM-id-driven wiring**: elements are addressed by fixed string ids via `getElementById`; ids use
-  `kebab-case` (`auth-btn`, `auth-status`, `db-status`, `tab-today`, …). *Evidence (≥3)*:
-  `src/main.js:getElementById('auth-btn')`; `src/ui-status.js:getElementById('db-status')`
-  and `getElementById('auth-status')`; `src/navigation.js` (`#tab-<name>` screens, `#app-title`).
-- **Idiomatic constructs**: optional chaining for defensive reads (`src/storage.js:nav?.storage?.persist`);
+  `kebab-case` (`auth-btn`, `auth-status`, `backup-status`, `tab-today`, …). *Evidence (≥3)*:
+  `src/main.js:getElementById('auth-btn')`; `src/ui-status.js:getElementById('auth-status')`
+  and `src/backup-status.js:getElementById('backup-status')`; `src/navigation.js` (`#tab-<name>` screens, `#app-title`).
+- **Idiomatic constructs**: optional chaining for defensive reads (`src/storage-health-ui.js:nav?.storage?.persist`);
   data attributes for UI configuration (`data-tab="today"`, `data-go="settings"` in `index.html`);
   template literals for status strings (`src/ui-status.js`).
 
@@ -136,15 +136,15 @@ confidence: high
 - **Error propagation**: `throw new Error(...)` for hard failures with a descriptive message
   (`src/config.js` missing `VITE_CLIENT_ID`). Async I/O is wrapped in `try / catch` (fail-open in
   bootstrap steps so later modules still initialize). *Evidence*: `src/config.js:4-7`;
-  `src/main.js:bootstrap()` try/catch around `initDB` and `requestPersistentStorage`.
+  `src/main.js:bootstrap()` try/catch around `initDB` and each view factory.
 - **Status reporter abstraction**: user-facing status is routed through `createStatusReporter` rather
-  than written directly to DOM — `reporter.auth(text)` and `reporter.db(text)` update `#auth-status`
-  and `#db-status`. Emoji-prefix convention retained: `✅` success, `❌` failure, `⚠️` warning,
-  `💾` granted. Developer diagnostics go to `console.error` with a `[module]` context prefix.
-  *Evidence*: `src/ui-status.js`; `src/auth.js`; `src/db.js`; `src/storage.js`.
+  than written directly to DOM — `reporter.auth(text)` renders `#auth-status` as a status light
+  (ST-027: the message's leading symbol picks green/amber/red), `reporter.db(text)` shows a toast.
+  Emoji-prefix convention retained in messages: `✅` success, `❌` failure, `⚠️` warning. Developer diagnostics go to `console.error` with a `[module]` context prefix.
+  *Evidence*: `src/ui-status.js`; `src/status-light.js`; `src/auth.js`; `src/db.js`.
 - **Defaults**: **fail-closed** on missing config (throws at module load, `src/config.js`);
-  **fail-open/graceful** on runtime gaps — `src/main.js` catches DB and storage failures and
-  continues; `src/storage.js` handles missing `navigator.storage` gracefully.
+  **fail-open/graceful** on runtime gaps — `src/main.js` catches DB and view failures and
+  continues; `src/storage-health-ui.js` handles missing `navigator.storage` gracefully.
 
 ## Configuration & Dependency Conventions
 

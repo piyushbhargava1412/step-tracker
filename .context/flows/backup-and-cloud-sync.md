@@ -16,7 +16,7 @@ export/import a full local JSON backup of the Dexie database (`src/backup.js` en
 three cards, each rendering its own heading: "Storage protection" (storage-health panel), "Google
 Drive", and "File on this phone" — with each destructive restore action paired with an amber
 "Replaces the data on this device" guardrail badge. It is also reachable from the welcome screen's
-"Restore from a backup" and from the "Backup Disabled" status pill. A background hook in the step-sync engine also fires
+"Restore from a backup" and from Today's "Not backed up" pill (app, ST-027). A background hook in the step-sync engine also fires
 an automatic, silent post-sync push to Drive (opt-out via a persisted toggle), and a second hook in
 that same engine consumes `driveSync.pull()` / `backup.restoreBackup()` on the opposite end: when a
 sync starts against an empty local `daily_records` table, it restores the account's existing Drive
@@ -101,10 +101,8 @@ never misreads an already-active Google account as brand new. Google Drive acces
    on a persistence failure). Manual restore warns via the injected `confirmFn` before overwriting
    local data (last-write-wins), then re-validates defensively in `backup.restoreBackup` even though
    `driveSync.pull()` already validated, and dispatches `data:records:mutated` on success.
-   **ST-013**: a successful auto-upload toggle write also silently calls
-   `requestSilentPersistAndRefreshBadge` (`src/storage-health.js` — requests
-   `navigator.storage.persist()` with no UI feedback, then refreshes the `#db-status` header badge);
-   a failed toggle write skips both the persist request and the event below. Both a successful toggle
+   A failed toggle write skips the event below (ST-027 removed the silent persist request and the
+   `#db-status` badge it used to refresh). Both a successful toggle
    write and a successful manual backup dispatch `data:storage-health:refresh` on `doc` so the
    separately-mounted Storage Health panel (`src/storage-health-ui.js`, on the same Backup & restore screen) picks
    up the new Drive state without the two modules holding a direct reference to each other; see

@@ -54,9 +54,8 @@ Vitest globals (`describe`, `it`, `expect`, `vi`, etc.) are available without ex
 | ✅ DONE  | `createAuth` (`src/auth.js`)   | Factory + token callback — deterministic with injected GSI mock |
 | ✅ DONE  | `src/config.js`                | `VITE_CLIENT_ID` validation and export                          |
 | ✅ DONE  | `createDb` / `initDB`          | Dexie schema setup and DB open/count path                       |
-| ✅ DONE  | `requestPersistentStorage`     | Navigator mock, granted/denied branches                         |
 | ✅ DONE  | `createNavigator`              | Tabs, pushed screens, back order, overlays, delegated clicks    |
-| ✅ DONE  | `createStatusReporter`         | `#db-status` / `#auth-status` DOM mutation                      |
+| ✅ DONE  | `createStatusReporter`         | `#auth-status` status light, `db()` toast                      |
 | ✅ DONE  | `bootstrap()` (`src/main.js`)  | Composition root integration — module wiring                    |
 | ✅ DONE  | Step sync (`createStepSync`, `src/steps.js`) | Sync orchestrator — guards, window resolution, chunking, normalisation, retry/error contract, transactional upsert, `effective_*` high-water mark (never decreases), override preservation, backfill latch (`src/steps.test.js`, 156 tests) |
 | ✅ DONE  | `createGoal` (`src/goal.js`)                 | `getActiveStepGoal` (valid row, absent, corrupt, DB error), `setActiveStepGoal` (valid steps from `STEP_GOAL_OPTIONS`, invalid steps throws `TypeError`, DB write error graceful) |
@@ -99,7 +98,7 @@ Modules use dependency injection (DI) so external surfaces are **injected rather
 |-----------------------------|------------------------------------------------------------------------|
 | `google.accounts.oauth2`    | Pass a `mockGsi` object as the third arg to `createAuth(config, reporter, mockGsi)` |
 | `document` / DOM            | Pass `doc` param to factory functions; JSDOM auto-provides the default |
-| `navigator.storage`         | Pass a `nav` mock object to `requestPersistentStorage(reporter, nav)` |
+| `navigator.storage`         | Pass a `nav` mock object to `createStorageHealthUI(doc, settings, nav)` |
 | `dexie`                     | `vi.mock('dexie', ...)` module mock for `createDb`/`initDB` tests     |
 | `global.fetch`              | `vi.stubGlobal('fetch', vi.fn().mockResolvedValue({...}))` when needed |
 

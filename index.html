@@ -40,9 +40,9 @@
     <section id="tab-today" class="screen" data-screen aria-labelledby="app-title">
         <div class="status-line">
             <div class="status-pills">
-                <button id="auth-status" class="status-pill" type="button" data-go="settings">Not connected</button>
+                <button id="auth-status" class="status-pill" type="button" data-go="settings" data-level="error" title="Not connected" aria-label="Disconnected: Not connected"><span class="status-light status-light--error" aria-hidden="true"></span><span class="status-pill__label">Disconnected</span></button>
                 <span id="last-sync" class="status-text">Sync: —</span>
-                <button id="db-status" class="status-pill status-pill--db" type="button" data-editor-only></button>
+                <button id="backup-status" class="status-pill" type="button" data-editor-only hidden></button>
             </div>
             <button id="sync-btn" class="icon-btn icon-btn--small" type="button" aria-label="Sync steps" title="Sync steps">
                 <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>

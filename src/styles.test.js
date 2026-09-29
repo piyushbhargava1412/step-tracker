@@ -117,6 +117,29 @@ describe('styles.css — mobile shell', () => {
     expect(disabled).toContain('cursor: default');
   });
 
+  it('the ring shrinks with a narrow screen and keeps its text inside the stroke', () => {
+    const ring = rule('.ring');
+    expect(ring).toContain('width: min(236px, 100%)');
+    expect(ring).toContain('aspect-ratio: 1');
+    expect(rule('.ring__svg')).toContain('width: 100%');
+    // Proportional side padding: the text column is a share of the ring, at any size.
+    expect(rule('.ring__center')).toMatch(/padding: 0 1\d(\.\d+)?%/);
+  });
+
+  it('ST-027: status lights are round, glowing dots in green, amber and red', () => {
+    const light = rule('.status-light');
+    expect(light).toContain('border-radius: 50%');
+    expect(light).toContain('box-shadow');
+    expect(rule('.status-light--ok')).toContain('var(--accent-green)');
+    expect(rule('.status-light--warn')).toContain('var(--accent-amber)');
+    expect(rule('.status-light--error')).toContain('var(--accent-red)');
+  });
+
+  it('ST-027: a status pill lays its light and label out in a row', () => {
+    expect(rule('.status-pill')).toContain('display: inline-flex');
+    expect(rule('.status-pill')).toContain('align-items: center');
+  });
+
   it('touch targets are at least 44px', () => {
     expect(rule(':root')).toContain('--tap: 44px;');
     expect(rule('.icon-btn')).toContain('width: var(--tap)');

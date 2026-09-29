@@ -43,7 +43,7 @@ them under an **All time / per-year range switch** as: Hall of fame tiles, a ran
 ## Data Touchpoints
 - **Entities**: `daily_records` (`date`, `effective_steps`, `effective_distance_km`, `hourly_steps`, `screenshot_proof`); `settings` row `key = 'active_step_goal'` (read-only, for the streak-goal input to `computeHallOfFame`)
 - **Tables**: `daily_records` (Dexie, read-only); `settings` (Dexie, read-only). No new table, no writes.
-- **UI Surface**: `#lab-analytics` inside `#tab-insights`; errors surfaced via `reporter.db()` → `#db-status`.
+- **UI Surface**: `#lab-analytics` inside `#tab-insights`; errors surfaced via `reporter.db()` → a toast (ST-027).
 
 ## Integrations
 - None — entirely local (Dexie IndexedDB reads only, no network).

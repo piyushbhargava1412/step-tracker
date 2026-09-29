@@ -8,6 +8,7 @@
  */
 import { showToast } from './toast.js';
 import { showSyncProgressModal, hideSyncProgressModal } from './sync-progress-modal.js';
+import { levelOf, stripSymbol, renderStatusPill, STATUS_OK } from './status-light.js';
 
 /** Prefix steps.js uses to announce the start of a multi-minute backfill (see PHASE_FULL_HISTORY). */
 const FULL_HISTORY_SYNC_PREFIX = '⏳ Full history sync';
@@ -23,23 +24,20 @@ export const DEFAULT_CONNECT_LABEL = 'Connect Google Account';
 export function createStatusReporter(doc = document, { connectLabel = DEFAULT_CONNECT_LABEL } = {}) {
   return {
     /**
-     * Update the database status element.
-     * @param {string} text - The text to display
+     * Show a data message — a load error, "Backup saved to …" — as a short
+     * toast (ST-027: it no longer shares a pill with a status).
+     * @param {string} text - The message to show
      */
     db(text) {
-      const element = doc.getElementById('db-status');
-      if (!element) {
-        console.warn('[createStatusReporter] Missing element: #db-status');
-        return;
-      }
-      element.textContent = text;
+      showToast(doc, text);
     },
 
     /**
-     * Update the authentication status element and mirror the state onto the
-     * auth button label (a connected session reads as "Reconnect", anything
-     * else as the connect label).
-     * @param {string} text - The text to display
+     * Update the connection pill — a green/amber/red light with "Connected"
+     * or "Disconnected", the full message as its tooltip (ST-027) — and
+     * mirror the state onto the auth button label (a connected session reads
+     * as "Reconnect", anything else as the connect label).
+     * @param {string} text - The status message, e.g. "✅ Connected"
      */
     auth(text) {
       const element = doc.getElementById('auth-status');
@@ -47,7 +45,12 @@ export function createStatusReporter(doc = document, { connectLabel = DEFAULT_CO
         console.warn('[createStatusReporter] Missing element: #auth-status');
         return;
       }
-      element.textContent = text;
+      const level = levelOf(text);
+      renderStatusPill(doc, element, {
+        level,
+        label: level === STATUS_OK ? 'Connected' : 'Disconnected',
+        detail: stripSymbol(text),
+      });
 
       const authBtn = doc.getElementById('auth-btn');
       if (authBtn) {

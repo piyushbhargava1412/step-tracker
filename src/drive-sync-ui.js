@@ -20,12 +20,10 @@
  * The collaborator may be null (defaults to enabled, "No cloud backup found")
  * so legacy call sites still render.
  *
- * Toggling auto-backup is a storage-protection-relevant user gesture: it
- * silently requests navigator.storage.persist() and refreshes the shared
- * #db-status header badge (storage-health.js), then dispatches
- * `data:storage-health:refresh` so the Storage Health panel's Drive row
- * (and a manual backup's freshly-recorded size) stay in sync without a
- * cross-module reference between the two panels.
+ * Toggling auto-backup dispatches `data:storage-health:refresh` so the
+ * Storage Health panel's Drive row and Today's backup pill (ST-027) — and,
+ * after a manual backup, its freshly-recorded time and size — stay in sync
+ * without a cross-module reference between them.
  *
  * ST-020 options (all optional; without them the panel is unchanged):
  *  - driveConnection: `{ isConnected(), connect() }` — the Android app signs in
@@ -40,7 +38,6 @@
  */
 
 import { formatLastSyncLine } from './backup-format.js';
-import { requestSilentPersistAndRefreshBadge } from './storage-health.js';
 import { _formatReadableDate, _localDate } from './date-utils.js';
 
 export function createDriveSyncUI(
@@ -50,7 +47,6 @@ export function createDriveSyncUI(
   reporter,
   confirmFn,
   driveBackupPrefs = null,
-  nav = navigator,
   { driveConnection = null, primaryDevice = null, canMakePrimary = false } = {}
 ) {
   let controller = null;
@@ -320,9 +316,8 @@ export function createDriveSyncUI(
    * value is read straight off the element. A failed write is logged and the
    * checkbox is reverted so the UI never lies about the persisted state.
    *
-   * A successful change is a storage-protection-relevant gesture: it silently
-   * requests navigator.storage.persist() and refreshes the header badge, then
-   * notifies the Storage Health panel to re-read the (now-changed) Drive row.
+   * A successful change notifies the Storage Health panel and Today's backup
+   * pill to re-read it.
    * @param {HTMLInputElement} checkbox
    */
   async function _handleToggleBackup(checkbox) {
@@ -334,11 +329,6 @@ export function createDriveSyncUI(
       console.error('[drive-sync-ui]', err);
       checkbox.checked = !next;
       return;
-    }
-    try {
-      await requestSilentPersistAndRefreshBadge(reporter, driveBackupPrefs, nav);
-    } catch (err) {
-      console.error('[drive-sync-ui]', err);
     }
     _dispatchStorageHealthRefresh();
   }

@@ -28,45 +28,56 @@ describe('createStatusReporter', () => {
     consoleWarnSpy.mockRestore();
   });
 
-  it('db() sets #db-status textContent to the provided text', () => {
+  // --- ST-027: db() messages are toasts; auth() is a status light ---
+
+  it('db() shows the message as a toast and writes no pill', () => {
     const reporter = createStatusReporter(doc);
-    reporter.db('✅ DB ready (0 records)');
-    
-    const dbEl = doc.getElementById('db-status');
-    expect(dbEl.textContent).toBe('✅ DB ready (0 records)');
+    reporter.db('❌ Calendar load failed');
+
+    expect(doc.getElementById('app-toast').textContent).toBe('❌ Calendar load failed');
   });
 
-  it('auth() sets #auth-status textContent to the provided text', () => {
-    const reporter = createStatusReporter(doc);
-    reporter.auth('✅ Connected');
-    
-    const authEl = doc.getElementById('auth-status');
-    expect(authEl.textContent).toBe('✅ Connected');
-  });
-
-  it('repeated calls to db() overwrite the text, not append', () => {
+  it('a later db() message replaces the toast text', () => {
     const reporter = createStatusReporter(doc);
     reporter.db('A');
     reporter.db('B');
-    
-    const dbEl = doc.getElementById('db-status');
-    expect(dbEl.textContent).toBe('B');
+    expect(doc.getElementById('app-toast').textContent).toBe('B');
   });
 
-  it('repeated calls to auth() overwrite the text, not append', () => {
+  it('auth() shows a green light and "Connected" when connected', () => {
     const reporter = createStatusReporter(doc);
-    reporter.auth('A');
-    reporter.auth('B');
-    
-    const authEl = doc.getElementById('auth-status');
-    expect(authEl.textContent).toBe('B');
+    reporter.auth('✅ Connected');
+
+    const pill = doc.getElementById('auth-status');
+    expect(pill.textContent).toBe('Connected');
+    expect(pill.querySelector('.status-light--ok')).not.toBeNull();
+  });
+
+  it.each([
+    ['⚠️ Could not reach Health Connect', 'status-light--warn'],
+    ['🔑 Step access not allowed — allow it in Health Connect', 'status-light--error'],
+    ['Not connected', 'status-light--error'],
+  ])('auth(%s) shows "Disconnected" with the message as its tooltip', (text, light) => {
+    const reporter = createStatusReporter(doc);
+    reporter.auth(text);
+
+    const pill = doc.getElementById('auth-status');
+    expect(pill.textContent).toBe('Disconnected');
+    expect(pill.querySelector(`.${light}`)).not.toBeNull();
+    expect(pill.title).toBe(text.replace(/^[^A-Za-z]+/, ''));
+  });
+
+  it('repeated calls to auth() replace the pill, not append', () => {
+    const reporter = createStatusReporter(doc);
+    reporter.auth('Not connected');
+    reporter.auth('✅ Connected');
+    const pill = doc.getElementById('auth-status');
+    expect(pill.textContent).toBe('Connected');
+    expect(pill.querySelectorAll('.status-light')).toHaveLength(1);
   });
 
   it('createStatusReporter returns object with db, auth, and sync functions — and no syncBusy or status method', () => {
     const reporter = createStatusReporter(doc);
-    expect(reporter).toHaveProperty('db');
-    expect(reporter).toHaveProperty('auth');
-    expect(reporter).toHaveProperty('sync');
     expect(typeof reporter.db).toBe('function');
     expect(typeof reporter.auth).toBe('function');
     expect(typeof reporter.sync).toBe('function');
@@ -74,76 +85,18 @@ describe('createStatusReporter', () => {
     expect(reporter.status).toBeUndefined();
   });
 
-  it('missing #db-status element does not throw', () => {
-    const dom = new JSDOM(`
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <span id="auth-status"></span>
-        </body>
-      </html>
-    `);
-    const docWithoutDbStatus = dom.window.document;
-    
-    const reporter = createStatusReporter(docWithoutDbStatus);
-    expect(() => {
-      reporter.db('test');
-    }).not.toThrow();
+  it('db() needs no pill element at all', () => {
+    const dom = new JSDOM('<!DOCTYPE html><html><body><span id="auth-status"></span></body></html>');
+    const reporter = createStatusReporter(dom.window.document);
+    expect(() => reporter.db('test')).not.toThrow();
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
-  it('missing #auth-status element does not throw', () => {
-    const dom = new JSDOM(`
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <span id="db-status"></span>
-        </body>
-      </html>
-    `);
-    const docWithoutAuthStatus = dom.window.document;
-    
-    const reporter = createStatusReporter(docWithoutAuthStatus);
-    expect(() => {
-      reporter.auth('test');
-    }).not.toThrow();
-  });
-
-  it('missing #db-status element calls console.warn with a message containing db-status', () => {
-    const dom = new JSDOM(`
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <span id="auth-status"></span>
-        </body>
-      </html>
-    `);
-    const docWithoutDbStatus = dom.window.document;
-    
-    const reporter = createStatusReporter(docWithoutDbStatus);
-    reporter.db('test');
-    
-    expect(consoleWarnSpy).toHaveBeenCalled();
-    const warnMessage = consoleWarnSpy.mock.calls[0][0];
-    expect(warnMessage).toContain('db-status');
-  });
-
-  it('missing #auth-status element calls console.warn with a message containing auth-status', () => {
-    const dom = new JSDOM(`
-      <!DOCTYPE html>
-      <html>
-        <body>
-          <span id="db-status"></span>
-        </body>
-      </html>
-    `);
-    const docWithoutAuthStatus = dom.window.document;
-    
-    const reporter = createStatusReporter(docWithoutAuthStatus);
-    reporter.auth('test');
-    
-    expect(consoleWarnSpy).toHaveBeenCalled();
-    const warnMessage = consoleWarnSpy.mock.calls[0][0];
-    expect(warnMessage).toContain('auth-status');
+  it('missing #auth-status element does not throw, and warns', () => {
+    const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+    const reporter = createStatusReporter(dom.window.document);
+    expect(() => reporter.auth('test')).not.toThrow();
+    expect(consoleWarnSpy.mock.calls[0][0]).toContain('auth-status');
   });
 
   // --- sync() channel tests ---
@@ -203,14 +156,12 @@ describe('createStatusReporter', () => {
     expect(warnMessage).toContain('sync-status');
   });
 
-  it('db() and auth() channels still write to their own elements after adding sync()', () => {
+  it('auth() and sync() channels still write to their own elements', () => {
     const reporter = createStatusReporter(doc);
-    reporter.db('db-text');
-    reporter.auth('auth-text');
+    reporter.auth('✅ Connected');
     reporter.sync('sync-text');
 
-    expect(doc.getElementById('db-status').textContent).toBe('db-text');
-    expect(doc.getElementById('auth-status').textContent).toBe('auth-text');
+    expect(doc.getElementById('auth-status').textContent).toBe('Connected');
     expect(doc.getElementById('sync-status').textContent).toBe('sync-text');
   });
 

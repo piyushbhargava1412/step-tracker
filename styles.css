@@ -559,14 +559,15 @@ input.switch:checked::after {
     gap: 6px;
 }
 
+/* ST-027: a status light (src/status-light.js) and a short label. */
 .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     min-width: 0;
     max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     min-height: 28px;
-    padding: 2px 10px;
+    padding: 2px 11px 2px 9px;
     border-radius: 14px;
     border: 1px solid var(--line);
     background: var(--surface-sunken);
@@ -577,6 +578,34 @@ input.switch:checked::after {
 
 .status-pill:empty {
     display: none;
+}
+
+.status-pill__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-light {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--light);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--light) 22%, transparent), 0 0 8px 1px var(--light);
+}
+
+.status-light--ok {
+    --light: var(--accent-green);
+}
+
+.status-light--warn {
+    --light: var(--accent-amber);
+}
+
+.status-light--error {
+    --light: var(--accent-red);
 }
 
 .status-text {

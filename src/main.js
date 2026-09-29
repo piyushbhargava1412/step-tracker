@@ -12,7 +12,6 @@ import { guardWrites } from './read-only.js'
 import { selectAccess, applyAccess } from './platform/access.js'
 import { createViewer } from './viewer.js'
 import { renderViewerStatus } from './viewer-ui.js'
-import { requestPersistentStorage } from './storage.js'
 import { selectAuth } from './platform/auth.js'
 import { createGoogleDriveConnection } from './platform/native/google-drive-connection.js'
 import { createPrimaryDevice } from './primary-device.js'
@@ -54,12 +53,9 @@ import { createDriveSyncUI } from './drive-sync-ui.js'
 import { selectShare } from './platform/share.js'
 import { createOnboardingUI } from './onboarding-ui.js'
 import { createProofLightbox } from './override-form.js'
-import {
-  refreshStorageProtectionBadge,
-  requestSilentPersistAndRefreshBadge,
-  BACKUP_DISABLED_TEXT,
-} from './storage-health.js'
 import { createStorageHealthUI } from './storage-health-ui.js'
+import { createBackupStatus } from './backup-status.js'
+import { GOOGLE_DRIVE_CONNECTED_KEY } from './platform/native/google-drive-connection.js'
 import { createSwRegister } from './sw-register.js'
 import { createAnalytics } from './analytics.js'
 import { createAnalyticsUI } from './analytics-ui.js'
@@ -142,13 +138,6 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] initDB failed, continuing', err)
   }
 
-  // 4. Request persistent storage (fail-open)
-  try {
-    await requestPersistentStorage(reporter, storageManager)
-  } catch (err) {
-    console.error('[main] requestPersistentStorage failed, continuing', err)
-  }
-
   // 5. Auth (fail-open: a missing/late-loading GSI script must not abort bootstrap).
   //    Google Identity Services in the browser; native Google sign-in (Drive
   //    only) in the Android app — ST-020.
@@ -187,15 +176,6 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const gamificationEngine = createGamification(db)
   const gamificationUI = createGamificationUI(doc, gamificationEngine, reporter)
   const odysseyUI = createOdysseyUI(doc, { computeOdysseyProgress }, analyticsEngine, reporter)
-
-  // Redefine the #db-status badge to account for Drive Cloud Auto-Sync state
-  // now that settings is available (fail-open — a read error leaves whatever
-  // requestPersistentStorage already wrote in place).
-  try {
-    await refreshStorageProtectionBadge(reporter, settings, storageManager)
-  } catch (err) {
-    console.error('[main] refreshStorageProtectionBadge failed, continuing', err)
-  }
 
   // ST-012: Backup engine + UI (fail-open)
   let backup = null
@@ -243,7 +223,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // button already covers Google.
   const driveConnection = isNative ? createGoogleDriveConnection({ auth, storage }) : null
   try {
-    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, storageManager, {
+    driveSyncUI = createDriveSyncUI(doc, driveSync, backup, reporter, createConfirmAdapter(window), settings, {
       primaryDevice,
       driveConnection,
       canMakePrimary: isNative,
@@ -255,7 +235,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // Storage protection panel (fail-open) — a plain status panel + direct-action button.
   let storageHealthUI = null
   try {
-    storageHealthUI = createStorageHealthUI(doc, settings, reporter, storageManager, { appStorage: isNative })
+    storageHealthUI = createStorageHealthUI(doc, settings, storageManager, { appStorage: isNative })
   } catch (err) {
     console.error('[main] createStorageHealthUI failed, continuing', err)
   }
@@ -327,8 +307,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // 7. Connect button (Settings › Connections): Google sign-in in the
   // browser, Health Connect access in the Android app (the platform
-  // connection decides). Connect is a storage-protection-relevant user
-  // gesture: silently request persistence alongside it (fire-and-forget).
+  // connection decides).
   const sourceName = isNative ? 'Health Connect' : 'Google Drive'
   const sourceNameEl = doc.getElementById('step-source-name')
   if (sourceNameEl) sourceNameEl.textContent = sourceName
@@ -338,9 +317,6 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     authBtn.addEventListener('click', () => {
       Promise.resolve(connection.connect()).catch((err) => {
         console.error('[main] connect failed, continuing', err)
-      })
-      requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
-        console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
       })
     })
   }
@@ -380,10 +356,15 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // Every sync goes through `syncTrigger` (below) so the app knows when it
   // last synced — the sync button, pull-to-refresh, the auto-sync-on-connect
   // hook and the resume hook converge on the same refresh.
+  // Today's backup pill (app only, ST-027) — created with the navigator below.
+  let backupStatus = null
+
   const runSyncPipeline = async () => {
     await refresher.run()
     await _renderViews(dataViews(), 'sync')
     await renderRefreshStatus()
+    await backupStatus?.refresh().catch((err) =>
+      console.error('[main] backup status refresh failed, continuing', err))
   }
 
   const syncTrigger = createSyncTrigger({
@@ -458,15 +439,8 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   const versionEl = doc.getElementById('app-version')
   if (versionEl && APP_VERSION) versionEl.textContent = `Step Tracker v${APP_VERSION}`
 
-  // 8. Sync: the button in Today's status line and pull-to-refresh. Syncing
-  // is a storage-protection-relevant user gesture: silently request
-  // navigator.storage.persist() alongside it (fire-and-forget).
-  const requestSync = () => {
-    requestSilentPersistAndRefreshBadge(reporter, settings, storageManager).catch((err) => {
-      console.error('[main] requestSilentPersistAndRefreshBadge failed, continuing', err)
-    })
-    return syncTrigger.run()
-  }
+  // 8. Sync: the button in Today's status line and pull-to-refresh.
+  const requestSync = () => syncTrigger.run()
   doc.getElementById('sync-btn')?.addEventListener('click', () => { requestSync() })
   const ptrIndicator = doc.getElementById('ptr-indicator')
   if (ptrIndicator) {
@@ -498,15 +472,31 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     },
   })
 
-  // 9a. #db-status pill: when it reads "Backup Disabled" (unbacked-up state),
-  // tapping it opens Backup & restore; otherwise it is informational.
-  const dbStatusEl = doc.getElementById('db-status')
-  if (dbStatusEl) {
-    dbStatusEl.addEventListener('click', () => {
-      if (dbStatusEl.textContent === BACKUP_DISABLED_TEXT) {
-        screens.go('backup')
-      }
+  // 9a. ST-027: in the app, Today's backup pill — hidden while the Drive
+  // backup is fine, "Not backed up" (tap → Backup & restore) when it needs
+  // attention. Refreshed now, after every sync and whenever the Drive panel
+  // changes. Drive counts as connected once it was connected on this device,
+  // so the silent reconnect at launch does not flash a warning.
+  if (isNative) {
+    backupStatus = createBackupStatus({
+      doc,
+      settings,
+      primaryDevice,
+      isDriveConnected: () => {
+        try {
+          return Boolean(driveConnection?.isConnected()) || storage?.getItem(GOOGLE_DRIVE_CONNECTED_KEY) === '1'
+        } catch (err) {
+          console.error('[main] Drive connection flag read failed, continuing', err)
+          return Boolean(driveConnection?.isConnected())
+        }
+      },
+      onOpen: () => screens.go('backup'),
     })
+    const refreshBackupStatus = () => backupStatus.refresh().catch((err) =>
+      console.error('[main] backup status refresh failed, continuing', err))
+    doc.addEventListener('data:drive-sync:refresh', refreshBackupStatus)
+    doc.addEventListener('data:storage-health:refresh', refreshBackupStatus)
+    await refreshBackupStatus()
   }
 
   // 10. First render of every screen (fail-open), then the welcome screen.

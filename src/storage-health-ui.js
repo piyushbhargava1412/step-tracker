@@ -2,7 +2,7 @@
  * "💾 Storage & Data Health" panel — sole DOM writer for the Backup tab's
  * storage-health section.
  *
- * createStorageHealthUI(doc, settings, reporter, nav = navigator, { appStorage = false })
+ * createStorageHealthUI(doc, settings, nav = navigator, { appStorage = false })
  *   render(container): builds the panel showing Drive Cloud Backup status,
  *     Local Browser Storage status, and a "Request Browser Storage
  *     Protection" button that calls navigator.storage.persist() directly —
@@ -18,16 +18,11 @@
  * individually fail-open (default disabled / no size) so a Dexie error never
  * blocks the panel from rendering.
  *
- * The protection button re-reads the true post-request state via
- * refreshStorageProtectionBadge (storage-health.js) so the header pill and
- * this panel's Local Browser Storage row never disagree.
- *
  * No innerHTML — all DOM via createElement/textContent.
  * AbortController cleanup on re-render so listeners never accumulate.
  */
 
 import { formatBytes } from './backup-format.js';
-import { refreshStorageProtectionBadge } from './storage-health.js';
 
 const PROTECT_BUTTON_TEXT = '🛡️ Request Browser Storage Protection';
 
@@ -39,7 +34,7 @@ const ERROR_HINT = 'Something went wrong requesting protection. Please try again
 const APP_STORAGE_LABEL = 'On this phone:';
 const APP_STORAGE_TEXT = '🟢 Kept until the app is uninstalled';
 
-export function createStorageHealthUI(doc, settings, reporter, nav = navigator, { appStorage = false } = {}) {
+export function createStorageHealthUI(doc, settings, nav = navigator, { appStorage = false } = {}) {
   let controller = null;
   let driveStatusEl = null;
   let localStatusEl = null;
@@ -163,8 +158,7 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator, 
   /**
    * Handles the "Request Browser Storage Protection" button: calls
    * navigator.storage.persist() directly (no modal), updates the local row
-   * instantly on a grant, and refreshes the shared header badge either way
-   * so it always reflects the true current state.
+   * instantly on a grant.
    *
    * A grant is self-evident from the status row updating, but a decline or an
    * error leaves nothing else on the page visibly different — browsers decline
@@ -187,11 +181,6 @@ export function createStorageHealthUI(doc, settings, reporter, nav = navigator, 
       console.error('[storage-health-ui]', err);
       _setHint(ERROR_HINT);
     } finally {
-      try {
-        await refreshStorageProtectionBadge(reporter, settings, nav);
-      } catch (err) {
-        console.error('[storage-health-ui]', err);
-      }
       btn.disabled = false;
     }
   }

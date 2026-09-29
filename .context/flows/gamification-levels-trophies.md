@@ -36,7 +36,7 @@ Locked chips; locked tiles dimmed).
 ## Data Touchpoints
 - **Entities**: `daily_records` (`date`, `effective_steps`, `hourly_steps`); `settings` row `key = 'active_step_goal'` (read, for the Unstoppable trophy's goal input); `settings` row `key = 'achievements'` (write, snapshot of the last-computed trophy booleans)
 - **Tables**: `daily_records` (Dexie, read-only); `settings` (Dexie, read `active_step_goal`, write `achievements`)
-- **UI Surface**: `#lab-gamification` inside `#tab-journey`; errors surfaced via `reporter.db()` → `#db-status`.
+- **UI Surface**: `#lab-gamification` inside `#tab-journey`; errors surfaced via `reporter.db()` → a toast (ST-027).
 
 ## Integrations
 - None — entirely local (Dexie IndexedDB only, no network).

@@ -42,7 +42,7 @@ browser can change data, locally or on Drive.
    "Refresh from Google Drive". The same runs at startup from the cached snapshot.
 5. **Markup gating** (styles.css): `[data-access="viewer"] [data-editor-only] { display: none }`,
    `:root:not([data-access="viewer"]) [data-viewer-only] { display: none }`. Editor-only: the
-   `#db-status` pill, Settings › Backup row + `#settings-panel` (home city, history start, danger
+   `#backup-status` pill (ST-027), Settings › Backup row + `#settings-panel` (home city, history start, danger
    zone), welcome **Restore from a backup**, calendar **Correct steps** / **Revert to synced**,
    search **Edit Day**, challenge edit button + config form, and the "set up a challenge" summary.
    Viewer-only: `.viewer-note` on Today and Settings. The goal chip is rendered disabled
