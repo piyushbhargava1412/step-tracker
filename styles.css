@@ -682,14 +682,17 @@ input.switch:checked::after {
     opacity: 1;
 }
 
+/* Up to 236px, shrinking with a narrow screen; the SVG scales from its viewBox. */
 .ring {
     position: relative;
-    width: 220px;
-    height: 220px;
+    width: min(236px, 100%);
+    aspect-ratio: 1;
 }
 
 .ring__svg {
     display: block;
+    width: 100%;
+    height: auto;
 }
 
 .ring__track {
@@ -705,11 +708,12 @@ input.switch:checked::after {
     stroke: var(--accent-green);
 }
 
-/* Side padding keeps the text inside the ring's 168px inner circle with a margin. */
+/* The text column is 72% of the ring (170px at full size): inside the 210px
+   inner circle with a margin, at any ring size. */
 .ring__center {
     position: absolute;
     inset: 0;
-    padding: 0 34px;
+    padding: 0 14%;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -724,7 +728,7 @@ input.switch:checked::after {
     overflow: hidden;
     white-space: nowrap;
     font-family: var(--font-mono);
-    font-size: calc(40px * var(--fit, 1));
+    font-size: calc(42px * var(--fit, 1));
     line-height: 1.15;
     font-weight: 700;
     letter-spacing: -0.03em;

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { createProgressUI, RING_CIRCUMFERENCE } from './progress-ui.js';
+import { createProgressUI, RING_CIRCUMFERENCE, RING_SIZE, RING_RADIUS, RING_STROKE } from './progress-ui.js';
 
 const progressUiSource = fs.readFileSync(path.resolve(__dirname, 'progress-ui.js'), 'utf8');
 
@@ -296,5 +296,27 @@ describe('ST-023: goal chip for a viewer', () => {
   it('editors can change it (the default)', async () => {
     const doc = await renderWith({ effective_steps: 10 });
     expect(doc.getElementById('goal-select').disabled).toBe(false);
+  });
+});
+
+describe('ring geometry — room for a six-digit day (999,999)', () => {
+  it('draws a thin stroke that stays inside the ring', () => {
+    expect(RING_STROKE).toBeLessThanOrEqual(10);
+    expect(RING_RADIUS + RING_STROKE / 2).toBeLessThanOrEqual(RING_SIZE / 2);
+  });
+
+  it('leaves at least 200px inside the stroke for the numbers', () => {
+    expect(2 * (RING_RADIUS - RING_STROKE / 2)).toBeGreaterThanOrEqual(200);
+  });
+
+  it('scales from its viewBox, so a narrow screen shrinks the whole ring', async () => {
+    const doc = await renderWith({ effective_steps: 999999 });
+    const svg = doc.querySelector('.ring__svg');
+    expect(svg.getAttribute('viewBox')).toBe(`0 0 ${RING_SIZE} ${RING_SIZE}`);
+    for (const circle of doc.querySelectorAll('.ring__svg circle')) {
+      expect(circle.getAttribute('stroke-width')).toBe(String(RING_STROKE));
+      expect(circle.getAttribute('r')).toBe(String(RING_RADIUS));
+    }
+    expect(doc.querySelector('.ring__steps').textContent).toBe('999,999');
   });
 });

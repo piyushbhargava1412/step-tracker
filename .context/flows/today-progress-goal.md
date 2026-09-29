@@ -32,11 +32,14 @@ the calendar immediately.
    - `.today-head`: "Today's progress" label + `label.goal-chip > select#goal-select` (`aria-label`
      "Daily step goal"), options from `STEP_GOAL_OPTIONS` labelled "Goal 10k · ~8 km".
    - `.ring[role=progressbar]` (`aria-valuenow` = pct): SVG track + `.ring__fill` arc whose
-     `stroke-dasharray` is `pct% × RING_CIRCUMFERENCE` (`.ring__fill--full` when met), centre text
+     `stroke-dasharray` is `pct% × RING_CIRCUMFERENCE` (`.ring__fill--full` when met). Geometry
+     (`RING_SIZE` 236, `RING_RADIUS` 110, `RING_STROKE` 10, exported) leaves a 210px inner circle — room
+     for a six-digit day; the ring is `min(236px, 100%)` wide and scales from its viewBox, and the text
+     column is 72% of it (`.ring__center` padding `0 14%`). Centre text
      `.ring__steps`, `.ring__goal` ("of 10,000 steps"), `.ring__pct`. `.ring__steps` is kept on one
      line inside the ring by `keepTextFitted` (`src/fit-text.js`): a `ResizeObserver` on
      `.ring__center` re-fits it whenever the ring gets a size (e.g. the Today screen is shown again),
-     shrinking it through the `--fit` custom property (`font-size: calc(40px * var(--fit, 1))`, floor
+     shrinking it through the `--fit` custom property (`font-size: calc(42px * var(--fit, 1))`, floor
      `MIN_FIT_SCALE` 0.5) so the Android WebView's system-font-size text zoom is applied once.
    - `.remaining-hint` "2,588 steps to go" or `.goal-met-badge` "Goal met"; `#goal-error[role=alert]`.
 4. `#tile-distance` gets Distance / "5.6" + unit "km" / "today" via `fillStatTile` (`src/stat-tile.js`).

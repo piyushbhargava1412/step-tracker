@@ -18,9 +18,11 @@ import { fillStatTile } from './stat-tile.js';
 import { keepTextFitted } from './fit-text.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const RING_SIZE = 220;
-const RING_RADIUS = 92;
-const RING_STROKE = 16;
+// A thin stroke leaves 210px inside the ring — room for a six-digit day
+// (999,999). CSS scales the ring down on narrow screens (viewBox geometry).
+export const RING_SIZE = 236;
+export const RING_RADIUS = 110;
+export const RING_STROKE = 10;
 export const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 const GOAL_SAVE_ERROR = '⚠️ Failed to save goal — please try again';

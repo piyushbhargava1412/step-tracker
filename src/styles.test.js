@@ -100,7 +100,7 @@ describe('styles.css — mobile shell', () => {
 
   it('the ring step count scales through --fit and clips on one line', () => {
     const steps = rule('.ring__steps');
-    expect(steps).toContain('font-size: calc(40px * var(--fit, 1))');
+    expect(steps).toContain('font-size: calc(42px * var(--fit, 1))');
     expect(steps).toContain('white-space: nowrap');
     expect(steps).toContain('overflow: hidden');
     expect(steps).toContain('max-width: 100%');
