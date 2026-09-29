@@ -7,6 +7,7 @@
  */
 
 import { computeToleranceStreaks } from './streak.js';
+import { isReadOnlyError } from './read-only-error.js';
 import { DEFAULT_STEP_GOAL } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -295,7 +296,13 @@ export function createGamification(db) {
 
         const achievements = evaluateAchievements(records, activeStepGoal);
 
-        await db.settings.put({ key: 'achievements', value: achievements });
+        // A cache of the evaluation, not the source of truth: a refused write
+        // (the read-only web viewer, ST-023) must not fail the Journey render.
+        try {
+          await db.settings.put({ key: 'achievements', value: achievements });
+        } catch (err) {
+          if (!isReadOnlyError(err)) console.error('[gamification]', err);
+        }
 
         return { xp, level, levelLabel, achievements };
       } catch (err) {

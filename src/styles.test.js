@@ -106,6 +106,17 @@ describe('styles.css — mobile shell', () => {
     expect(steps).toContain('max-width: 100%');
   });
 
+  it('ST-023: viewers never see editor-only controls; editors never see viewer notes', () => {
+    expect(css).toMatch(/\[data-access="viewer"\] \[data-editor-only\]\s*\{\s*display: none !important;\s*\}/);
+    expect(css).toMatch(/:root:not\(\[data-access="viewer"\]\) \[data-viewer-only\]\s*\{\s*display: none !important;\s*\}/);
+  });
+
+  it('ST-023: a read-only goal chip reads as a label, not a dropdown', () => {
+    const disabled = rule('.goal-chip .goal-select:disabled');
+    expect(disabled).toContain('background-image: none');
+    expect(disabled).toContain('cursor: default');
+  });
+
   it('touch targets are at least 44px', () => {
     expect(rule(':root')).toContain('--tap: 44px;');
     expect(rule('.icon-btn')).toContain('width: var(--tap)');

@@ -770,6 +770,7 @@ describe('createSearchUI — Edit Day override from missed search results', () =
     const btn = rows[0].querySelector('[data-action="edit-day"]');
     expect(btn).not.toBeNull();
     expect(btn.dataset.date).toBe('2025-10-02');
+    expect(btn.hasAttribute('data-editor-only')).toBe(true);
   });
 
   it('no Edit Day button when outcome is not missed', async () => {

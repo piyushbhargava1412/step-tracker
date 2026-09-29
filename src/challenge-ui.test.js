@@ -142,6 +142,8 @@ describe('render() — mockup card, no challenge configured', () => {
     await ui.render();
     const gear = doc.querySelector('[data-action="toggle-challenge-config"]');
     expect(gear).not.toBeNull();
+    expect(gear.hasAttribute('data-editor-only')).toBe(true);
+    expect(doc.querySelector('.challenge-config').hasAttribute('data-editor-only')).toBe(true);
   });
 
   it('renders the Copy Update button (data-action="copy-challenge")', async () => {
@@ -720,6 +722,15 @@ describe('mobile redesign', () => {
     const summary = doc.querySelector('#today-challenge .challenge-summary');
     expect(summary.querySelector('.challenge-summary__title').textContent).toBe('Group challenge');
     expect(summary.querySelector('.challenge-summary__sub').textContent).toBe('Set up a step challenge with friends');
+    // ST-023: an invitation to set one up is for the app only.
+    expect(summary.hasAttribute('data-editor-only')).toBe(true);
+  });
+
+  it('a configured challenge summary is shown to viewers too', async () => {
+    const doc = makeDoc();
+    const ui = createChallengeUI(doc, makeChallengeEngine({ challenge: ACTIVE }), makeDb(), makeReporter());
+    await ui.render();
+    expect(doc.querySelector('#today-challenge .challenge-summary').hasAttribute('data-editor-only')).toBe(false);
   });
 
   it('re-rendering keeps one summary', async () => {

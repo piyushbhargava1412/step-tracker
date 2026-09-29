@@ -243,6 +243,7 @@ export function createSearchUI(doc, search, exporter, reporter, computeNearMisse
       editBtn.type = 'button';
       editBtn.className = 'row-edit-btn';
       editBtn.dataset.action = 'edit-day';
+      editBtn.dataset.editorOnly = ''; // ST-023: hidden in the read-only web viewer
       editBtn.dataset.date = record.date;
       editBtn.textContent = 'Edit Day';
       row.appendChild(editBtn);

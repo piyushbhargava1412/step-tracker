@@ -9,6 +9,8 @@
  * injected by the composition root.
  */
 
+import { isReadOnlyError } from './read-only-error.js';
+
 export const STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000];
 
 /**
@@ -50,7 +52,8 @@ export function createGoal(db) {
     try {
       await db.settings.put({ key: ACTIVE_STEP_GOAL_KEY, target_steps: targetSteps });
     } catch (err) {
-      console.error('[goal]', err);
+      // The read-only web viewer (ST-023) refuses the lazy default write by design.
+      if (!isReadOnlyError(err)) console.error('[goal]', err);
     }
   }
 

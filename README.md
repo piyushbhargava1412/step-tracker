@@ -1,6 +1,7 @@
 # step-tracker
 
-A step streak tracker with no backend: an Android app (Health Connect) and a browser PWA (Google Fit).
+A step streak tracker with no backend: an Android app that reads your steps from Health Connect, and a
+read-only web viewer (PWA) of the backup the app keeps in your Google Drive.
 
 ## App layout (v0.2.0)
 
@@ -141,9 +142,18 @@ The same code also ships as an Android app (Capacitor). In the app, steps and di
 **Health Connect** instead of Google Fit: tap **Connect Health Connect**, allow Steps and Distance
 (and access to past data), and the app syncs — automatically on every later launch, and again whenever you come back to it after 10 minutes or more. Exports and
 backups are saved to `Documents/Step Tracker/` on the phone. For Google Drive backup, open
-Settings › **Backup & restore** → **Connect Google Drive**; it uses the same Drive backup as the web app, so
-**Restore from Drive** brings your history across. Then tap **Make this the primary device**: from
-then on only the phone backs up to Drive automatically, and the web app asks before overwriting it.
+Settings › **Backup & restore** → **Connect Google Drive**; it uses the same Drive backup the web
+viewer reads, so **Restore from Drive** brings older web history across. Then tap **Make this the
+primary device** so the phone backs up to Drive automatically.
+
+## Web Viewer (read-only)
+
+The website shows the latest backup the Android app made to your Google Drive (ST-023). Tap
+**Connect Google Account**, and every screen fills from that backup; the ↻ button (or pull down)
+downloads it again, and Today shows **Data as of …**. The website cannot change anything — goals,
+corrections, challenges and backups are managed in the app — and it keeps its copy in its own
+browser database (`StepTrackerViewerDB`). If there is no backup yet, it tells you to connect Google
+Drive in the app. See [.context/flows/read-only-web-viewer.md](.context/flows/read-only-web-viewer.md).
 
 Quick start (Android Studio + JDK 21 installed):
 

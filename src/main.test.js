@@ -137,8 +137,15 @@ const mockDb = {}
 vi.mock('./db.js', () => ({
   createDb: vi.fn(() => mockDb),
   initDB: vi.fn(() => Promise.resolve()),
+  dbNameFor: vi.fn((access) => (access.canEdit ? 'StepTrackerDB' : 'StepTrackerViewerDB')),
   DB_NAME: 'StepTrackerDB',
   DB_VERSION: 2
+}))
+
+// ST-023: the read-only backstop needs a real Dexie; main only wires it.
+const { mockWriteSnapshot } = vi.hoisted(() => ({ mockWriteSnapshot: vi.fn(async (fn) => fn()) }))
+vi.mock('./read-only.js', () => ({
+  guardWrites: vi.fn(() => ({ writeSnapshot: mockWriteSnapshot })),
 }))
 
 vi.mock('./storage.js', () => ({
@@ -288,6 +295,7 @@ import { createGoal } from './goal.js'
 import { createProgressUI } from './progress-ui.js'
 import { createStatusReporter } from './ui-status.js'
 import { createDb, initDB } from './db.js'
+import { guardWrites } from './read-only.js'
 import { requestPersistentStorage } from './storage.js'
 import { createAuth } from './auth.js'
 import { createCalendarWeekUI } from './calendar-week-ui.js'
@@ -326,6 +334,12 @@ import { createOdysseyUI } from './odyssey-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
+
+// Tests that switch to the Android app (the editor) put the browser back after.
+afterEach(() => { mockIsNativePlatform.mockReturnValue(false) })
+
+/** ST-023: the step-sync pipeline runs in the app; the browser refreshes the Drive snapshot. */
+const asApp = () => mockIsNativePlatform.mockReturnValue(true)
 
 // Helper: set up DOM and call bootstrap directly
 /** A small slice of the mobile shell: two tabs, Settings and Backup. */
@@ -433,7 +447,7 @@ describe('main.js — composition root bootstrap', () => {
 
   it('names the step source and shows the app version in Settings', async () => {
     await boot()
-    expect(document.getElementById('step-source-name').textContent).toBe('Google Fit')
+    expect(document.getElementById('step-source-name').textContent).toBe('Google Drive')
     expect(document.getElementById('app-version').textContent).toMatch(/^Step Tracker v\d+\.\d+\.\d+$/)
   })
 
@@ -561,6 +575,7 @@ describe('main.js — Task 11 step sync wiring', () => {
   })
 
   it('clicking #sync-btn invokes stepSync.sync() exactly once', async () => {
+    asApp()
     await boot()
     const btn = document.getElementById('sync-btn')
     btn.click()
@@ -627,14 +642,15 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
     errorSpy.mockRestore()
   })
 
-  it('the onTokenReceived hook persists the connection flag and triggers a sync', async () => {
+  it('the onTokenReceived hook persists the connection flag and refreshes the Drive snapshot (ST-023)', async () => {
     const storage = makeStorage()
     await boot(storage)
     vi.clearAllMocks()
-    mockStepSyncInstance.sync.mockResolvedValue(undefined)
+    mockAuthInstance.getAccessToken.mockReturnValueOnce('tok')
     await mockOnTokenHandler()
     expect(storage.setItem).toHaveBeenCalledWith('google_connected', '1')
-    expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
+    expect(mockDriveSyncInstance.pull).toHaveBeenCalledTimes(1)
+    expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
   })
 
   it('the onTokenReceived hook runs the full post-sync re-render pipeline', async () => {
@@ -655,12 +671,13 @@ describe('main.js — auto-sync on connect + silent session restore', () => {
     expect(mockOnboardingInstance.dismiss).toHaveBeenCalledTimes(1)
   })
 
-  it('the onTokenReceived hook runs the sync before re-rendering (ordering)', async () => {
+  it('the onTokenReceived hook loads the snapshot before re-rendering (ordering)', async () => {
     await boot(makeStorage())
     vi.clearAllMocks()
+    mockAuthInstance.getAccessToken.mockReturnValueOnce('tok')
     let syncResolved = false
-    mockStepSyncInstance.sync.mockImplementation(() =>
-      new Promise(res => setTimeout(() => { syncResolved = true; res() }, 10))
+    mockDriveSyncInstance.pull.mockImplementationOnce(() =>
+      new Promise(res => setTimeout(() => { syncResolved = true; res(null) }, 10))
     )
     let progressRenderedAfterSync = false
     mockProgressUIInstance.render.mockImplementation(() => {
@@ -711,7 +728,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
   it('createProgressUI is invoked once with (document, goalInstance, mockDb, mockReporter, onGoalApplied)', async () => {
     await boot()
     expect(createProgressUI).toHaveBeenCalledTimes(1)
-    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter, expect.any(Function))
+    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter, expect.any(Function), { canEdit: false })
   })
 
   it('progressUI.render() called exactly once on bootstrap', async () => {
@@ -732,6 +749,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
   })
 
   it('clicking #sync-btn calls stepSync.sync() once then progressUI.render() once', async () => {
+    asApp()
     await boot()
     vi.clearAllMocks()
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
@@ -748,6 +766,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
   })
 
   it('render() is called only after sync() resolves (ordering enforced)', async () => {
+    asApp()
     await boot()
     vi.clearAllMocks()
     let syncResolved = false
@@ -823,6 +842,7 @@ describe('main.js — Task 10: streak engine wiring', () => {
   })
 
   it('sync click calls sync() then progressUI.render() then streakUI.render()', async () => {
+    asApp()
     await boot()
     vi.clearAllMocks()
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
@@ -931,6 +951,7 @@ describe('main.js — Task 12: calendar wiring', () => {
   })
 
   it('clicking #sync-btn triggers progressUI.render, streakUI.render and calendarUI.render in order', async () => {
+    asApp()
     await boot()
     vi.clearAllMocks()
     mockStepSyncInstance.sync.mockResolvedValue(undefined)
@@ -2030,11 +2051,14 @@ describe('main.js — Storage Health wiring', () => {
   })
 
   it('clicking #sync-btn silently requests persist + badge refresh alongside the sync pipeline', async () => {
+    asApp()
     await bootstrap(isolatedDoc)
     mockRequestSilentPersistAndRefreshBadge.mockClear()
     document.getElementById('sync-btn').click()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(mockReporter, mockSettingsInstance, navigator)
+    // In the app the storage manager is the always-persisted one (src/platform/storage-manager.js).
+    expect(mockRequestSilentPersistAndRefreshBadge).toHaveBeenCalledWith(
+      mockReporter, mockSettingsInstance, expect.objectContaining({ storage: expect.any(Object) }))
     expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1)
   })
 
@@ -2506,6 +2530,7 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
   })
 
   it('a resume syncs when connected', async () => {
+    asApp()
     await boot(makeStorage())
 
     resume()
@@ -2515,6 +2540,7 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
   })
 
   it('does not sync again on a quick second resume (cooldown)', async () => {
+    asApp()
     await boot(makeStorage())
 
     resume()
@@ -2526,6 +2552,7 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
   })
 
   it('a manual Sync Steps also starts the cooldown', async () => {
+    asApp()
     await boot(makeStorage())
     document.getElementById('sync-btn').click()
     await vi.waitFor(() => expect(mockStepSyncInstance.sync).toHaveBeenCalledTimes(1))
@@ -2537,6 +2564,7 @@ describe('main.js — ST-021 sync when the app comes back to the foreground', ()
   })
 
   it('stays silent on resume when the step source is not connected', async () => {
+    asApp()
     mockStepSyncInstance.canSync.mockResolvedValue(false)
     await boot(makeStorage())
 
@@ -2568,7 +2596,7 @@ describe('main.js — mobile redesign: welcome screen and pull-to-refresh', () =
     const deps = createOnboardingUI.mock.calls[0][1]
     expect(createOnboardingUI.mock.calls[0][0]).toBe(document)
     expect(deps.storage).toBe(storage)
-    expect(deps.sourceName).toBe('Google Fit')
+    expect(deps.sourceName).toBe('Google Drive')
     expect(deps.connection.label).toBe('Connect Google Account')
     expect(mockOnboardingInstance.start).toHaveBeenCalledTimes(1)
     expect(mockOnboardingInstance.start.mock.invocationCallOrder[0])
@@ -2601,5 +2629,104 @@ describe('main.js — mobile redesign: welcome screen and pull-to-refresh', () =
     touch('touchend')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mockStepSyncInstance.sync).toHaveBeenCalled()
+  })
+})
+
+describe('main.js — ST-023 read-only web viewer', () => {
+  const SNAPSHOT = {
+    schema_version: 1,
+    exported_at: '2026-09-28T17:01:00.000Z',
+    daily_records: [{ date: '2026-09-28', effective_steps: 17498 }],
+    settings: [],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    initDB.mockResolvedValue(undefined)
+    requestPersistentStorage.mockResolvedValue(undefined)
+    Object.assign(mockDb, {
+      daily_records: { clear: vi.fn(), bulkPut: vi.fn(), count: vi.fn().mockResolvedValue(0) },
+      settings: { clear: vi.fn(), bulkPut: vi.fn(), put: vi.fn(), get: vi.fn().mockResolvedValue(undefined) },
+    })
+  })
+
+  afterEach(() => {
+    delete mockDb.daily_records
+    delete mockDb.settings
+    document.body.innerHTML = ''
+    delete document.documentElement.dataset.access
+  })
+
+  const isReadOnly = () => guardWrites.mock.calls.at(-1)[1].isReadOnly()
+  const clickRefresh = async () => {
+    document.getElementById('sync-btn').click()
+    await vi.waitFor(() => expect(mockDriveSyncInstance.pull).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  it('the browser is a viewer: its own cache database, every write refused', async () => {
+    await boot(makeStorage())
+    expect(document.documentElement.dataset.access).toBe('viewer')
+    expect(createDb).toHaveBeenCalledWith('StepTrackerViewerDB')
+    expect(guardWrites).toHaveBeenCalledWith(mockDb, expect.any(Object))
+    expect(isReadOnly()).toBe(true)
+  })
+
+  it('the Android app edits its own database', async () => {
+    asApp()
+    await boot(makeStorage())
+    expect(document.documentElement.dataset.access).toBe('editor')
+    expect(createDb).toHaveBeenCalledWith('StepTrackerDB')
+    expect(isReadOnly()).toBe(false)
+  })
+
+  it('↻ loads the Drive snapshot through the backstop and re-renders — no step sync', async () => {
+    await boot(makeStorage())
+    mockAuthInstance.getAccessToken.mockReturnValue('tok')
+    mockDriveSyncInstance.pull.mockResolvedValueOnce(SNAPSHOT)
+    mockProgressUIInstance.render.mockClear()
+
+    await clickRefresh()
+
+    expect(mockWriteSnapshot).toHaveBeenCalledTimes(1)
+    expect(mockDb.daily_records.bulkPut).toHaveBeenCalledWith(SNAPSHOT.daily_records)
+    expect(mockStepSyncInstance.sync).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(mockProgressUIInstance.render).toHaveBeenCalled())
+    mockAuthInstance.getAccessToken.mockReset()
+  })
+
+  it('never writes to Drive: no upload, no primary-device read, across connect, refresh and resume', async () => {
+    await boot(makeStorage())
+    mockAuthInstance.getAccessToken.mockReturnValue('tok')
+    mockDriveSyncInstance.pull.mockResolvedValue(SNAPSHOT)
+    await mockOnTokenHandler()
+    await clickRefresh()
+    mockOnAppResume.mock.calls.at(-1)[1]()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(mockDriveSyncInstance.pull).toHaveBeenCalled()
+    expect(mockDriveSyncInstance.push).not.toHaveBeenCalled()
+    expect(mockDriveSyncInstance.readPrimaryDevice).not.toHaveBeenCalled()
+    mockAuthInstance.getAccessToken.mockReset()
+    mockDriveSyncInstance.pull.mockReset()
+    mockDriveSyncInstance.pull.mockResolvedValue(null)
+  })
+
+  it('the status line shows the snapshot time and a Drive refresh button', async () => {
+    mockDb.settings.get.mockImplementation(async (key) =>
+      key === 'viewer_snapshot_at' ? { key, value: new Date(2026, 8, 28, 22, 31).toISOString() } : undefined)
+    await boot(makeStorage())
+    expect(document.getElementById('last-sync').textContent).toBe('Data as of Sep 28, 2026 · 22:31')
+    expect(document.getElementById('sync-btn').getAttribute('aria-label')).toBe('Refresh from Google Drive')
+  })
+
+  it('the welcome screen introduces the viewer', async () => {
+    await boot(makeStorage())
+    expect(createOnboardingUI.mock.calls.at(-1)[1].intro).toMatch(/backs up to your Google Drive/)
+  })
+
+  it('the goal chip is read-only', async () => {
+    await boot(makeStorage())
+    expect(createProgressUI.mock.calls.at(-1)[5]).toEqual({ canEdit: false })
   })
 })

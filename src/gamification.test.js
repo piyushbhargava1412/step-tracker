@@ -391,6 +391,13 @@ describe('createGamification', () => {
     );
   });
 
+  it('ST-023: a refused achievements write (the read-only viewer) does not fail the render', async () => {
+    const db = makeDb([], 8000);
+    db.settings.put.mockRejectedValue(Object.assign(new Error('view only'), { name: 'ReadOnlyError' }));
+    const result = await createGamification(db).compute();
+    expect(result).toHaveProperty('achievements');
+  });
+
   it('uses active_step_goal from settings for achievement evaluation', async () => {
     // 30-day streak meeting goal 8000
     const records = [];

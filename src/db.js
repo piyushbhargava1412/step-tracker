@@ -2,14 +2,24 @@ import Dexie from 'dexie';
 import { _localDate } from './date-utils.js';
 
 export const DB_NAME = 'StepTrackerDB';
+/** ST-023: the browser's read-only viewer caches the app's Drive snapshot in its own database. */
+export const VIEWER_DB_NAME = 'StepTrackerViewerDB';
 export const DB_VERSION = 6;
 
 const DAILY_RECORDS_STORES = 'date,effective_steps,effective_distance_km,is_overridden,synced_at';
 const SETTINGS_STORES = 'key';
 const GOAL_HISTORY_STORES = 'effective_from,target_distance_km,target_steps';
 
-export function createDb() {
-  const db = new Dexie(DB_NAME);
+/**
+ * @param {{ canEdit: boolean }} access  from src/platform/access.js
+ * @returns {string}
+ */
+export function dbNameFor(access) {
+  return access.canEdit ? DB_NAME : VIEWER_DB_NAME;
+}
+
+export function createDb(name = DB_NAME) {
+  const db = new Dexie(name);
 
   // v2: migrate goal settings to goal_history table
   db.version(2)
@@ -152,7 +162,7 @@ export async function initDB(db, reporter) {
     const count = await db.daily_records.count();
     reporter.db(`✅ DB ready (${count} records)`);
   } catch (err) {
-    console.error('[initDB] Failed to open StepTrackerDB', err);
+    console.error(`[initDB] Failed to open ${db.name ?? DB_NAME}`, err);
     reporter.db('❌ DB init failed');
   }
 }

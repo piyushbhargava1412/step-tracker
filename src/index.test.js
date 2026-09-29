@@ -212,3 +212,20 @@ describe('index.html — platform and build contract', () => {
     expect(document.querySelector('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
   });
 });
+
+describe('ST-023: markup gating for the read-only web viewer', () => {
+  it('marks the controls that change data as editor-only', () => {
+    expect(document.getElementById('db-status').hasAttribute('data-editor-only')).toBe(true);
+    expect(document.querySelector('#tab-settings [data-go="backup"]').closest('[data-editor-only]')).not.toBeNull();
+    expect(document.getElementById('settings-panel').hasAttribute('data-editor-only')).toBe(true);
+    expect(document.getElementById('onboarding-restore').hasAttribute('data-editor-only')).toBe(true);
+  });
+
+  it('tells viewers where to edit, on Today and in Settings', () => {
+    for (const screen of ['tab-today', 'tab-settings']) {
+      const note = document.querySelector(`#${screen} [data-viewer-only]`);
+      expect(note, screen).not.toBeNull();
+      expect(note.textContent).toContain('View only');
+    }
+  });
+});
