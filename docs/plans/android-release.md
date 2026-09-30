@@ -22,6 +22,7 @@ older one — Android refuses a lower or equal code.
 | 0.2.0 | 3 | Mobile redesign (ST-025) — the owner chose to restart the version name at 0.2.0 |
 | 0.3.0 | 4 | Stay connected to Drive (ST-026), read-only web viewer (ST-023), Google Fit retired (ST-024) |
 | 0.3.1 | 5 | Six-digit step ring (ST-025 polish), status lights and the backup pill (ST-027) |
+| 0.4.0 | 6 | Insights "Longest streak" and the Unstoppable trophy use your step goal instead of 10,000 |
 
 ## Prerequisites
 
