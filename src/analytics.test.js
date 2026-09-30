@@ -347,24 +347,23 @@ describe('computeYearlyMonthlyComparison', () => {
 // ── createAnalytics factory ───────────────────────────────────────────────────
 
 describe('createAnalytics', () => {
-  function makeDb(records = [], settingValue = 10000) {
+  function makeDb(records = []) {
     return {
       daily_records: {
         toArray: vi.fn().mockResolvedValue(records),
       },
-      settings: {
-        get: vi.fn().mockResolvedValue(
-          settingValue !== null ? { key: 'active_step_goal', value: settingValue } : undefined,
-        ),
-      },
     };
+  }
+
+  function makeGoal(activeStepGoal = 10000) {
+    return { getActiveStepGoal: vi.fn().mockResolvedValue(activeStepGoal) };
   }
 
   it('compute() returns an object with all five result keys', async () => {
     const db = makeDb([
       makeRecord({ date: MONDAY, effective_steps: 10000, effective_distance_km: 8 }),
     ]);
-    const analytics = createAnalytics(db);
+    const analytics = createAnalytics(db, makeGoal());
     const result = await analytics.compute();
     expect(result).toHaveProperty('lifetimeMetrics');
     expect(result).toHaveProperty('topRecords');
@@ -373,19 +372,35 @@ describe('createAnalytics', () => {
     expect(result).toHaveProperty('yearlyMonthly');
   });
 
-  it('compute() calls db.daily_records.toArray() and db.settings.get()', async () => {
+  it('compute() reads the records from db and the goal from the goal collaborator', async () => {
     const db = makeDb();
-    await createAnalytics(db).compute();
+    const goal = makeGoal();
+    await createAnalytics(db, goal).compute();
     expect(db.daily_records.toArray).toHaveBeenCalled();
-    expect(db.settings.get).toHaveBeenCalledWith('active_step_goal');
+    expect(goal.getActiveStepGoal).toHaveBeenCalled();
   });
 
-  it('compute() uses fallback goal 10000 when settings record is undefined', async () => {
-    const db = makeDb([], null); // get returns undefined
-    const analytics = createAnalytics(db);
-    // Should not throw
-    const result = await analytics.compute();
-    expect(result.lifetimeMetrics.totalSteps).toBe(0);
+  it('compute() measures the longest streak at the active goal, not the 10k default', async () => {
+    // Four straight days over 6k, only the first two over 10k.
+    const records = [
+      makeRecord({ date: MONDAY,    effective_steps: 12000 }),
+      makeRecord({ date: TUESDAY,   effective_steps: 11000 }),
+      makeRecord({ date: WEDNESDAY, effective_steps: 7000 }),
+      makeRecord({ date: THURSDAY,  effective_steps: 6500 }),
+    ];
+    const result = await createAnalytics(makeDb(records), makeGoal(6000)).compute();
+    expect(result.activeStepGoal).toBe(6000);
+    expect(result.lifetimeMetrics.longestStreak).toBe(4);
+  });
+
+  it('compute() falls back to the 10000 goal when the collaborator returns a non-goal', async () => {
+    const records = [
+      makeRecord({ date: MONDAY,  effective_steps: 12000 }),
+      makeRecord({ date: TUESDAY, effective_steps: 7000 }),
+    ];
+    const result = await createAnalytics(makeDb(records), makeGoal(undefined)).compute();
+    expect(result.activeStepGoal).toBe(10000);
+    expect(result.lifetimeMetrics.longestStreak).toBe(1);
   });
 
   it('compute() rethrows when db.daily_records.toArray() rejects', async () => {
@@ -393,12 +408,9 @@ describe('createAnalytics', () => {
       daily_records: {
         toArray: vi.fn().mockRejectedValue(new Error('DB_FAIL')),
       },
-      settings: {
-        get: vi.fn().mockResolvedValue(undefined),
-      },
     };
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const analytics = createAnalytics(db);
+    const analytics = createAnalytics(db, makeGoal());
     await expect(analytics.compute()).rejects.toThrow('DB_FAIL');
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
@@ -409,19 +421,16 @@ describe('createAnalytics', () => {
       daily_records: {
         toArray: vi.fn().mockRejectedValue(new Error('FAIL')),
       },
-      settings: {
-        get: vi.fn().mockResolvedValue(undefined),
-      },
     };
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    await createAnalytics(db).compute().catch(() => {});
+    await createAnalytics(db, makeGoal()).compute().catch(() => {});
     expect(consoleSpy).toHaveBeenCalledWith('[analytics]', expect.any(Error));
     consoleSpy.mockRestore();
   });
 
   it('yearlyMonthly uses the current year when called with empty records', async () => {
     const db = makeDb([]);
-    const result = await createAnalytics(db).compute();
+    const result = await createAnalytics(db, makeGoal()).compute();
     // yearlyMonthly should be a 12-element array
     expect(result.yearlyMonthly).toHaveLength(12);
   });
@@ -432,7 +441,7 @@ describe('createAnalytics', () => {
       makeRecord({ date: TUESDAY,  effective_steps: 8000,  effective_distance_km: 6 }),
     ];
     const db = makeDb(records);
-    const result = await createAnalytics(db).compute();
+    const result = await createAnalytics(db, makeGoal()).compute();
     expect(result).toHaveProperty('records');
     expect(result.records).toEqual(records);
   });
@@ -493,9 +502,9 @@ describe('computeInsights — Insights range (All time / a year)', () => {
   it('compute() also reports the active goal and the years with data', async () => {
     const db = {
       daily_records: { toArray: vi.fn().mockResolvedValue(RECS) },
-      settings: { get: vi.fn().mockResolvedValue({ key: 'active_step_goal', value: 8500 }) },
     };
-    const result = await createAnalytics(db).compute();
+    const goal = { getActiveStepGoal: vi.fn().mockResolvedValue(8500) };
+    const result = await createAnalytics(db, goal).compute();
     expect(result.activeStepGoal).toBe(8500);
     expect(result.years).toEqual([2026, 2025]);
   });

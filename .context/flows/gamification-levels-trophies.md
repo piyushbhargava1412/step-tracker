@@ -24,7 +24,7 @@ Locked chips; locked tiles dimmed).
 - **File**: `src/gamification-ui.js` (renderer), `src/gamification.js` (engine + pure XP/level/achievement helpers), `src/main.js` (wiring)
 
 ## Core Path
-1. `createGamification(db).compute()` reads `db.daily_records.toArray()` and `db.settings.get('active_step_goal')` (fallback `DEFAULT_STEP_GOAL` from `src/config.js`) in parallel, sums `effective_steps` into `totalSteps`, and derives `xp`/`level`/`levelLabel`/`achievements`.
+1. `createGamification(db, goal).compute()` reads `db.daily_records.toArray()` and `goal.getActiveStepGoal()` (the injected goal engine, `src/goal.js`; fallback `DEFAULT_STEP_GOAL` from `src/config.js` when it returns a non-goal) in parallel, sums `effective_steps` into `totalSteps`, and derives `xp`/`level`/`levelLabel`/`achievements`.
 2. `computeXP(lifetimeSteps)` = `Math.floor(lifetimeSteps / 100)`, guarded to `0` for non-finite or negative input.
 3. `computeLevel(xp)` = `Math.min(Math.floor(Math.sqrt(xp / 10)) + 1, 50)` — a square-root curve capped at level 50.
 4. `getLevelLabel(lifetimeSteps)` looks up `LEVEL_RANKS[level - 1]` (50 flavour-text entries, "Couch Potato" → "Globe Trotter") and appends `" (MAX)"` when the *uncapped* raw level would exceed 50.
@@ -34,7 +34,7 @@ Locked chips; locked tiles dimmed).
 8. A render failure is caught: logged via `console.error('[gamification-ui]', err)`, `reporter.db('⚠️ Could not render Gamification')`, and an error `<p>` replaces the container contents — `render()` never throws.
 
 ## Data Touchpoints
-- **Entities**: `daily_records` (`date`, `effective_steps`, `hourly_steps`); `settings` row `key = 'active_step_goal'` (read, for the Unstoppable trophy's goal input); `settings` row `key = 'achievements'` (write, snapshot of the last-computed trophy booleans)
+- **Entities**: `daily_records` (`date`, `effective_steps`, `hourly_steps`); `settings` row `key = 'active_step_goal'` (`{ key, target_steps }`, read only through `goal.getActiveStepGoal()`, for the Unstoppable trophy's goal input); `settings` row `key = 'achievements'` (write, snapshot of the last-computed trophy booleans)
 - **Tables**: `daily_records` (Dexie, read-only); `settings` (Dexie, read `active_step_goal`, write `achievements`)
 - **UI Surface**: `#lab-gamification` inside `#tab-journey`; errors surfaced via `reporter.db()` → a toast (ST-027).
 
@@ -47,7 +47,7 @@ Locked chips; locked tiles dimmed).
 - Fail-open at bootstrap/post-sync/post-mutation: `src/main.js` renders through `_renderViews`, which logs `[main] gamificationUI.render failed[ after <context>], continuing` and carries on.
 
 ## Scope
-- `src/gamification.js` — `LEVEL_RANKS` (50 entries), pure `computeXP`, `computeLevel`, `getLevelLabel`, `evaluateAchievements`, plus `createGamification(db)` factory (`compute()`)
+- `src/gamification.js` — `LEVEL_RANKS` (50 entries), pure `computeXP`, `computeLevel`, `getLevelLabel`, `evaluateAchievements`, plus `createGamification(db, goal)` factory (`compute()`)
 - `src/gamification-ui.js` — `createGamificationUI(doc, engine, reporter)` → `{ render() }`
 - `src/main.js` — composition-root wiring (bootstrap render, post-sync render, `data:records:mutated` re-render)
 - `styles.css` — `.rpg-level-card`, `.rpg-progress-bar`/`.rpg-progress-bar__fill`, `.trophy-grid`, `.trophy-card`/`.trophy-card--locked`

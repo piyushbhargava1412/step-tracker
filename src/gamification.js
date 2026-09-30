@@ -269,20 +269,24 @@ export function evaluateAchievements(records, activeStepGoal) {
 /**
  * Factory that binds the pure engine to a Dexie database instance.
  *
+ * The goal collaborator is injected, matching `createStreak(db, goal)`, so the
+ * Unstoppable trophy is judged at the same goal as the Today streak tiles.
+ *
  * @param {{ daily_records: object, settings: object }} db  Dexie db instance
+ * @param {{ getActiveStepGoal: Function }} goal
  * @returns {{ compute(): Promise<{ xp: number, level: number, levelLabel: string, achievements: object }> }}
  */
-export function createGamification(db) {
+export function createGamification(db, goal) {
   return {
     async compute() {
       try {
-        const [records, goalSetting] = await Promise.all([
+        const [records, storedStepGoal] = await Promise.all([
           db.daily_records.toArray(),
-          db.settings.get('active_step_goal'),
+          goal.getActiveStepGoal(),
         ]);
         const activeStepGoal =
-          goalSetting && Number.isFinite(goalSetting.value) && goalSetting.value > 0
-            ? goalSetting.value
+          Number.isFinite(storedStepGoal) && storedStepGoal > 0
+            ? storedStepGoal
             : DEFAULT_STEP_GOAL;
 
         const totalSteps = records.reduce(

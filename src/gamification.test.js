@@ -357,24 +357,24 @@ describe('Level label (MAX) suffix', () => {
 // createGamification factory
 // ---------------------------------------------------------------------------
 describe('createGamification', () => {
-  function makeDb(records, goalValue) {
+  function makeDb(records) {
     return {
       daily_records: {
         toArray: vi.fn().mockResolvedValue(records),
       },
       settings: {
-        get: vi.fn().mockImplementation((key) => {
-          if (key === 'active_step_goal') return Promise.resolve({ value: goalValue });
-          return Promise.resolve(undefined);
-        }),
         put: vi.fn().mockResolvedValue(undefined),
       },
     };
   }
 
+  function makeGoal(activeStepGoal) {
+    return { getActiveStepGoal: vi.fn().mockResolvedValue(activeStepGoal) };
+  }
+
   it('returns xp, level, levelLabel, achievements from compute()', async () => {
-    const db = makeDb([], 8000);
-    const gamification = createGamification(db);
+    const db = makeDb([]);
+    const gamification = createGamification(db, makeGoal(8000));
     const result = await gamification.compute();
     expect(result).toHaveProperty('xp');
     expect(result).toHaveProperty('level');
@@ -383,8 +383,8 @@ describe('createGamification', () => {
   });
 
   it('persists achievements to db.settings with key "achievements"', async () => {
-    const db = makeDb([], 8000);
-    const gamification = createGamification(db);
+    const db = makeDb([]);
+    const gamification = createGamification(db, makeGoal(8000));
     await gamification.compute();
     expect(db.settings.put).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'achievements' }),
@@ -392,13 +392,13 @@ describe('createGamification', () => {
   });
 
   it('ST-023: a refused achievements write (the read-only viewer) does not fail the render', async () => {
-    const db = makeDb([], 8000);
+    const db = makeDb([]);
     db.settings.put.mockRejectedValue(Object.assign(new Error('view only'), { name: 'ReadOnlyError' }));
-    const result = await createGamification(db).compute();
+    const result = await createGamification(db, makeGoal(8000)).compute();
     expect(result).toHaveProperty('achievements');
   });
 
-  it('uses active_step_goal from settings for achievement evaluation', async () => {
+  it('uses the active step goal for achievement evaluation', async () => {
     // 30-day streak meeting goal 8000
     const records = [];
     const d = new Date('2026-01-01T00:00:00Z');
@@ -406,21 +406,28 @@ describe('createGamification', () => {
       records.push(makeRecord(d.toISOString().slice(0, 10), 9000));
       d.setUTCDate(d.getUTCDate() + 1);
     }
-    const db = makeDb(records, 8000);
-    const gamification = createGamification(db);
+    const db = makeDb(records);
+    const gamification = createGamification(db, makeGoal(8000));
     const result = await gamification.compute();
     expect(result.achievements.unstoppable).toBe(true);
   });
 
-  it('handles missing active_step_goal setting gracefully', async () => {
-    const db = {
-      daily_records: { toArray: vi.fn().mockResolvedValue([]) },
-      settings: {
-        get: vi.fn().mockResolvedValue(undefined),
-        put: vi.fn().mockResolvedValue(undefined),
-      },
-    };
-    const gamification = createGamification(db);
+  it('Unstoppable is judged at the active goal, not the 10k default', async () => {
+    // 30 straight days that clear 6k but never 10k.
+    const records = [];
+    const d = new Date('2026-01-01T00:00:00Z');
+    for (let i = 0; i < 30; i++) {
+      records.push(makeRecord(d.toISOString().slice(0, 10), 7000));
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    const goal = makeGoal(6000);
+    const result = await createGamification(makeDb(records), goal).compute();
+    expect(goal.getActiveStepGoal).toHaveBeenCalled();
+    expect(result.achievements.unstoppable).toBe(true);
+  });
+
+  it('falls back to the default goal when the collaborator returns a non-goal', async () => {
+    const gamification = createGamification(makeDb([]), makeGoal(undefined));
     await expect(gamification.compute()).resolves.toBeDefined();
   });
 });

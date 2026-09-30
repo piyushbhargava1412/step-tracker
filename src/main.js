@@ -171,9 +171,9 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
 
   // Insights (analytics) and Journey (gamification + odyssey)
   const proofLightbox = createProofLightbox(doc)
-  const analyticsEngine = createAnalytics(db)
+  const analyticsEngine = createAnalytics(db, goal)
   const analyticsUI = createAnalyticsUI(doc, analyticsEngine, reporter, proofLightbox)
-  const gamificationEngine = createGamification(db)
+  const gamificationEngine = createGamification(db, goal)
   const gamificationUI = createGamificationUI(doc, gamificationEngine, reporter)
   const odysseyUI = createOdysseyUI(doc, { computeOdysseyProgress }, analyticsEngine, reporter)
 

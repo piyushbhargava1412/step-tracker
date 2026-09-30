@@ -243,13 +243,18 @@ export function extractYears(records) {
 /**
  * Creates an analytics instance backed by a Dexie db reference.
  *
- * @param {{ daily_records: { toArray: Function }, settings: { get: Function } }} db
+ * The goal collaborator is injected, matching `createStreak(db, goal)`: the
+ * Insights "Longest streak" and the Today "Best run" tile must share one lens,
+ * so neither reads the `active_step_goal` row's shape on its own.
+ *
+ * @param {{ daily_records: { toArray: Function } }} db
+ * @param {{ getActiveStepGoal: Function }} goal
  * @returns {{ compute: Function }}
  */
-export function createAnalytics(db) {
+export function createAnalytics(db, goal) {
   /**
-   * Reads all daily_records and the active_step_goal setting, calls all five
-   * pure functions, and returns the combined result.
+   * Reads all daily_records and the active step goal, calls all five pure
+   * functions, and returns the combined result.
    *
    * SF-13: wraps in try/catch; logs [analytics] and rethrows on failure.
    *
@@ -257,12 +262,14 @@ export function createAnalytics(db) {
    */
   async function compute() {
     try {
-      const [records, settingRecord] = await Promise.all([
+      const [records, storedStepGoal] = await Promise.all([
         db.daily_records.toArray(),
-        db.settings.get('active_step_goal'),
+        goal.getActiveStepGoal(),
       ]);
 
-      const activeStepGoal = settingRecord?.value ?? DEFAULT_STEP_GOAL;
+      const activeStepGoal = Number.isFinite(storedStepGoal) && storedStepGoal > 0
+        ? storedStepGoal
+        : DEFAULT_STEP_GOAL;
       const currentYear = new Date().getFullYear();
 
       const lifetimeMetrics = computeLifetimeMetrics(records, activeStepGoal);

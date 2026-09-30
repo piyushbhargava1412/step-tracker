@@ -2039,10 +2039,10 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
     await expect(bootstrap(isolatedDoc)).resolves.toBeUndefined()
   })
 
-  it('createAnalytics is instantiated once with db during bootstrap', async () => {
+  it('createAnalytics is instantiated once with db and the goal engine during bootstrap', async () => {
     await bootstrap(isolatedDoc)
     expect(createAnalytics).toHaveBeenCalledTimes(1)
-    expect(createAnalytics).toHaveBeenCalledWith(mockDb)
+    expect(createAnalytics).toHaveBeenCalledWith(mockDb, mockGoalInstance)
   })
 
   it('createAnalyticsUI is instantiated once during bootstrap', async () => {
@@ -2050,10 +2050,10 @@ describe('main.js — ST-009 Task 12: analytics/gamification/odyssey wiring', ()
     expect(createAnalyticsUI).toHaveBeenCalledTimes(1)
   })
 
-  it('createGamification is instantiated once with db during bootstrap', async () => {
+  it('createGamification is instantiated once with db and the goal engine during bootstrap', async () => {
     await bootstrap(isolatedDoc)
     expect(createGamification).toHaveBeenCalledTimes(1)
-    expect(createGamification).toHaveBeenCalledWith(mockDb)
+    expect(createGamification).toHaveBeenCalledWith(mockDb, mockGoalInstance)
   })
 
   it('createGamificationUI is instantiated once during bootstrap', async () => {

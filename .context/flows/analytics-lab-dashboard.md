@@ -26,10 +26,10 @@ them under an **All time / per-year range switch** as: Hall of fame tiles, a ran
   - `.insights-range [data-range]` click → re-draws every section for "All time" or that year from the cached result (no re-fetch)
   - `#lab-analytics` → `[data-action="open-proof"]` click (Top days row, camera icon button) → `proofLightbox.open(record)` (only rendered when a `proofLightbox` collaborator is injected AND the record carries `screenshot_proof`)
   - `#lab-analytics` → `[data-action="change-year"]` change (yearly section `<select>`) → rebuilds only the monthly bar chart for the selected year from the cached record set (no re-fetch)
-- **File**: `src/analytics-ui.js` (renderer), `src/analytics.js` (pure engine + `createAnalytics(db)` factory), `src/main.js` (wiring)
+- **File**: `src/analytics-ui.js` (renderer), `src/analytics.js` (pure engine + `createAnalytics(db, goal)` factory), `src/main.js` (wiring)
 
 ## Core Path
-1. `createAnalytics(db).compute()` reads `db.daily_records.toArray()` and `db.settings.get('active_step_goal')` in parallel (fallback `DEFAULT_STEP_GOAL` from `src/config.js` when the setting is absent), then runs five pure functions over the records and returns `{ records, lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly }`. Any read error is logged (`console.error('[analytics]', err)`) and rethrown — `compute()` never fails silently. It also returns `activeStepGoal` and `years` (years with data, newest first, via `extractYears`).
+1. `createAnalytics(db, goal).compute()` reads `db.daily_records.toArray()` and `goal.getActiveStepGoal()` (the injected goal engine, `src/goal.js` — the same lens as `createStreak(db, goal)`, so "Longest streak" always equals the Today screen's "Best run" tile) in parallel (fallback `DEFAULT_STEP_GOAL` from `src/config.js` when the collaborator returns a non-goal), then runs five pure functions over the records and returns `{ records, lifetimeMetrics, topRecords, dayOfWeek, hourly, yearlyMonthly }`. Any read error is logged (`console.error('[analytics]', err)`) and rethrown — `compute()` never fails silently. It also returns `activeStepGoal` and `years` (years with data, newest first, via `extractYears`).
 2. `computeLifetimeMetrics(records, activeStepGoal)` sums `effective_steps`/`effective_distance_km` and computes `dailyAverage`; `longestStreak` **delegates to `computeHallOfFame`** (from `src/streak.js`) rather than re-implementing streak logic, reporting the best-ever historical run at the active goal — deliberately distinct from `computeToleranceStreaks.actual` (the dashboard's in-progress "Actual" streak), which resets on the first missed day and is not a lifetime-best metric.
 3. `computeTopRecords(records, n=5)` sorts a shallow copy descending by `effective_steps` and slices the top N.
 4. `computeDayOfWeekDistribution(records)` buckets by ISO weekday (0=Monday…6=Sunday, converted from a component-built `new Date(y, m-1, d).getDay()` — never `new Date(dateStr)`, which UTC-parses the string and rolls the weekday back by one in timezones west of UTC), averages per slot, and picks `powerDay`/`lazyDay` with lowest-index-wins tie-breaking.
@@ -41,7 +41,7 @@ them under an **All time / per-year range switch** as: Hall of fame tiles, a ran
 9. A render failure (thrown by `engine.compute()`) is caught: logged via `console.error('[analytics-ui]', err)`, `reporter.db('⚠️ Could not render Analytics')`, and an error `<p>` replaces the panel contents — `render()` never throws.
 
 ## Data Touchpoints
-- **Entities**: `daily_records` (`date`, `effective_steps`, `effective_distance_km`, `hourly_steps`, `screenshot_proof`); `settings` row `key = 'active_step_goal'` (read-only, for the streak-goal input to `computeHallOfFame`)
+- **Entities**: `daily_records` (`date`, `effective_steps`, `effective_distance_km`, `hourly_steps`, `screenshot_proof`); `settings` row `key = 'active_step_goal'` (`{ key, target_steps }`, read only through `goal.getActiveStepGoal()`, for the streak-goal input to `computeHallOfFame`)
 - **Tables**: `daily_records` (Dexie, read-only); `settings` (Dexie, read-only). No new table, no writes.
 - **UI Surface**: `#lab-analytics` inside `#tab-insights`; errors surfaced via `reporter.db()` → a toast (ST-027).
 
@@ -54,7 +54,7 @@ them under an **All time / per-year range switch** as: Hall of fame tiles, a ran
 - Fail-open at bootstrap/post-sync/post-mutation: `src/main.js` renders through `_renderViews`, which logs `[main] analyticsUI.render failed[ after <context>], continuing` and carries on.
 
 ## Scope
-- `src/analytics.js` — pure engine (`computeLifetimeMetrics`, `computeTopRecords`, `computeDayOfWeekDistribution`, `computeHourlyDistribution`, `computeYearlyMonthlyComparison`, `computeInsights`, `extractYears`) + `createAnalytics(db)` factory (`compute()`)
+- `src/analytics.js` — pure engine (`computeLifetimeMetrics`, `computeTopRecords`, `computeDayOfWeekDistribution`, `computeHourlyDistribution`, `computeYearlyMonthlyComparison`, `computeInsights`, `extractYears`) + `createAnalytics(db, goal)` factory (`compute()`)
 - `src/analytics-ui.js` — `createAnalyticsUI(doc, engine, reporter, proofLightbox=null)` → `{ render() }`
 - `src/main.js` — composition-root wiring (bootstrap render, post-sync render, `data:records:mutated` re-render)
 - `styles.css` — `.insights-section`, `.hof-grid`/`.hof-tile*`, `.rank-list*`, `.bar-chart*`, `.chart-ticks`, `.hbar*`, `.segmented--scroll`
