@@ -1,6 +1,6 @@
 {
   "appId": "com.piyushbhargava.steptracker",
-  "appName": "Step Tracker",
+  "appName": "Walkaholic",
   "webDir": "dist",
   "android": {
     "backgroundColor": "#020617"

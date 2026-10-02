@@ -47,10 +47,21 @@ the calendar immediately.
 6. The goal chip's `change` listener (on the freshly built `<select>`, so re-renders never stack
    listeners) saves the goal as a number, re-renders, then calls `onGoalApplied` (errors logged);
    a failed save writes "⚠️ Failed to save goal — please try again" into `#goal-error`.
+7. Goal celebration (ST-029): a render that shows the goal met calls the injected `onGoalMet`
+   (errors logged) → `celebration.goalMet()` (`src/goal-celebration.js`). Once per local day
+   (`localStorage.goal_celebrated_on`), and only when `canPlay()` — Today is the current screen,
+   the splash has gone and no welcome is open — it appends a fixed, `aria-hidden`,
+   `pointer-events: none` `.goal-flame` at the centre of `#today-progress .ring__steps`: a
+   translucent lit brand flame (`createBrandFlame`, 120px, `mix-blend-mode: screen`) falls from
+   above the screen (`--goal-flame-drop`), squashes on the count as a radial amber glow blooms,
+   then lifts and fades; removed after `GOAL_FLAME_MS` (2800ms). A met goal that cannot play yet
+   stays pending: main.js calls `flush()` on `splash:gone` and on entering Today. Reduced motion →
+   `.goal-flame--still` (fades in place, no fall). Storage failures are logged and never block it.
 
 ## Data Touchpoints
 - `daily_records` row: `date`, `effective_steps`, `effective_distance_km` (read-only here)
 - `settings` row `active_step_goal` (read + lazy default write)
+- `localStorage.goal_celebrated_on` — the last local date the goal-met flame played (ST-029)
 
 ## Integrations
 - None — local Dexie data only.
@@ -58,15 +69,16 @@ the calendar immediately.
 ## Scope
 - `src/goal.js` — `createGoal`, `getActiveStepGoal`, `setActiveStepGoal`, `STEP_GOAL_OPTIONS`, `STEP_GOAL_KM_HINTS`, `DEFAULT_STEP_GOAL`
 - `src/progress.js` — `getTodayRecord`, `computeProgress`
-- `src/progress-ui.js` — `createProgressUI`, `RING_CIRCUMFERENCE`, `_goalOptionLabel`
+- `src/progress-ui.js` — `createProgressUI` (options `canEdit`, `onGoalMet`), `RING_CIRCUMFERENCE`, `_goalOptionLabel`
+- `src/goal-celebration.js` — `createGoalCelebration` (`goalMet`, `flush`), `CELEBRATED_KEY`, `GOAL_FLAME_MS` (ST-029)
 - `src/stat-tile.js` — `fillStatTile` (Distance tile content)
 - `src/fit-text.js` — `fitText`, `keepTextFitted`, `MIN_FIT_SCALE` (ring step count fit-to-width)
 - `src/main.js` — wiring; goal-change fan-out (`streakUI`, `calendarUI`, `weekUI`)
 - `index.html` — `.today-card` with `#today-progress` and the six tile slots (`#tile-distance`, `#tile-strict`, `#tile-lifetime`, `#tile-tol99`, `#tile-tol95`, `#tile-best`)
-- `styles.css` — `.today-card`, `.today-head`, `.goal-chip`, `.ring*`, `.remaining-hint`, `.goal-met-badge`, `.today-tiles`, `.stat-tile*`
+- `styles.css` — `.today-card`, `.today-head`, `.goal-chip`, `.ring*`, `.remaining-hint`, `.goal-met-badge`, `.today-tiles`, `.stat-tile*`, `.goal-flame*` (+ `@keyframes goal-flame-*`)
 
 ## Tests
-- `src/goal.test.js`, `src/progress.test.js` (incl. `distance_km`), `src/progress-ui.test.js` (ring values and arc, goal met, zero state, Distance tile, goal chip options / change order / failed save / no stacked listeners, no emoji)
+- `src/goal.test.js`, `src/progress.test.js` (incl. `distance_km`), `src/progress-ui.test.js` (ring values and arc, goal met, zero state, Distance tile, goal chip options / change order / failed save / no stacked listeners, no emoji, `onGoalMet`), `src/goal-celebration.test.js` (placement, drop distance, cleanup, reduced motion, once a day, waits for Today, storage failures), `src/main.test.js` (celebration wiring: `canPlay`, `splash:gone`, entering Today), `src/styles.test.js` (flame overlay and animation timing)
 
 ## Notes
 - Goal constants: `STEP_GOAL_OPTIONS = [4000, 6000, 8500, 10000]`; `DEFAULT_STEP_GOAL = 10000`; `STEP_GOAL_KM_HINTS = { 4000: 3, 6000: 5, 8500: 7, 10000: 8 }`.

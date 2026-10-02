@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Step Tracker</title>
+    <title>Walkaholic</title>
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0ea5e9" />
@@ -11,6 +12,30 @@
     <script src="https://accounts.google.com/gsi/client" defer></script>
 </head>
 <body data-active-screen="today">
+<!-- LAUNCH SPLASH: the Walkaholic mark animates from the first paint. src/splash.js then fades it
+     into the app, or holds it for the first-launch welcome (#onboarding, run by onboarding-ui.js). -->
+<div id="splash" class="splash" aria-hidden="true">
+    <div class="splash__hero">
+        <svg class="splash__mark" viewBox="-50 -50 100 100" width="148" height="148" aria-hidden="true">
+            <circle class="splash__track" r="40" fill="none" stroke="#1e293b" stroke-width="10"/>
+            <circle class="splash__ring" r="40" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round" pathLength="100" transform="rotate(-90)"/>
+            <g class="splash__flame">
+                <g transform="scale(1.15)">
+                    <path d="M0 -26 C10 -12 18 -4 16 10 C14 22 8 26 0 26 C-8 26 -15 21 -16 12 C-17 2 -11 -4 -8 -12 C-6 -4 -3 0 0 2 C-2 -8 -4 -18 0 -26 Z" fill="#f59e0b"/>
+                    <path class="splash__core" d="M0 4 C5 9 8 13 7 18 C6 22 3 24 0 24 C-3 24 -6 22 -6 18 C-6 13 -2 9 0 4 Z" fill="#fcd34d"/>
+                </g>
+            </g>
+        </svg>
+        <p class="splash__word" aria-label="Walkaholic"><span class="splash__walk">walk</span><span class="splash__aholic">aholic</span></p>
+        <p id="splash-tagline" class="splash__tagline">Every step. Every streak.</p>
+    </div>
+    <section id="onboarding" class="splash__welcome" hidden>
+        <p id="onboarding-text" class="splash__intro">Walkaholic reads your daily steps and keeps everything on this device.</p>
+        <button id="onboarding-connect" class="btn btn-primary btn-block" type="button">Connect</button>
+        <button id="onboarding-restore" class="btn btn-secondary btn-block" type="button" data-editor-only>Restore from a backup</button>
+        <button id="onboarding-skip" class="btn-link" type="button">Not now</button>
+    </section>
+</div>
 <div id="app-toast" class="toast" role="status" aria-live="polite"></div>
 <div id="ptr-indicator" class="ptr" aria-hidden="true">
     <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>
@@ -21,6 +46,15 @@
     <button id="app-back" class="icon-btn" type="button" data-back aria-label="Back" hidden>
         <svg class="icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
     </button>
+    <!-- The Walkaholic mark on the tab screens: left on Today, right corner elsewhere (styles.css) — ST-029 -->
+    <svg class="app-bar__mark" viewBox="-50 -50 100 100" width="34" height="34" aria-hidden="true">
+        <circle r="40" fill="none" stroke="#1e293b" stroke-width="10"/>
+        <circle r="40" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round" pathLength="100" stroke-dasharray="85 100" transform="rotate(-90)"/>
+        <g transform="scale(1.15)">
+            <path d="M0 -26 C10 -12 18 -4 16 10 C14 22 8 26 0 26 C-8 26 -15 21 -16 12 C-17 2 -11 -4 -8 -12 C-6 -4 -3 0 0 2 C-2 -8 -4 -18 0 -26 Z" fill="#f59e0b"/>
+            <path d="M0 4 C5 9 8 13 7 18 C6 22 3 24 0 24 C-3 24 -6 22 -6 18 C-6 13 -2 9 0 4 Z" fill="#fcd34d"/>
+        </g>
+    </svg>
     <div class="app-bar__titles">
         <span id="app-subtitle" class="app-bar__subtitle"></span>
         <h1 id="app-title" class="app-bar__title">Today</h1>
@@ -49,7 +83,7 @@
             </button>
         </div>
         <p id="sync-status" class="sync-status" aria-live="polite"></p>
-        <p class="viewer-note" data-viewer-only>View only — your steps come from the Step Tracker app on your phone. Edit them there.</p>
+        <p class="viewer-note" data-viewer-only>View only — your steps come from the Walkaholic app on your phone. Edit them there.</p>
 
         <section class="card today-card" aria-label="Today's progress">
             <div id="today-progress"></div>
@@ -112,7 +146,7 @@
             </div>
         </div>
 
-        <p class="viewer-note" data-viewer-only>View only — goals, challenges, corrections and backups are managed in the Step Tracker app on your phone.</p>
+        <p class="viewer-note" data-viewer-only>View only — goals, challenges, corrections and backups are managed in the Walkaholic app on your phone.</p>
 
         <h2 class="list-label" data-editor-only>Backup</h2>
         <div class="list-group" data-editor-only>
@@ -132,7 +166,7 @@
         <div id="settings-panel" data-editor-only></div>
         <!-- update-ui.js builds (Android app only): App › Updates, check and install -->
         <div id="app-update" hidden></div>
-        <p id="app-version" class="app-version">Step Tracker</p>
+        <p id="app-version" class="app-version">Walkaholic</p>
     </section>
 
     <!-- BACKUP & RESTORE (pushed from Settings) -->
@@ -163,25 +197,6 @@
         <span class="bottom-nav__label">Journey</span>
     </button>
 </nav>
-
-<!-- FIRST LAUNCH — onboarding-ui.js shows it until a connection or restore -->
-<section id="onboarding" class="onboarding" aria-labelledby="onboarding-title" hidden>
-    <div class="onboarding__hero">
-        <svg class="onboarding__rings" width="200" height="200" viewBox="0 0 220 220" aria-hidden="true">
-            <circle cx="110" cy="110" r="92" fill="none" stroke="rgba(56,189,248,.12)" stroke-width="16"/>
-            <circle cx="110" cy="110" r="92" fill="none" stroke="#38bdf8" stroke-width="16" stroke-linecap="round" stroke-dasharray="520 578" transform="rotate(-90 110 110)"/>
-            <circle cx="110" cy="110" r="66" fill="none" stroke="rgba(245,158,11,.14)" stroke-width="10"/>
-            <circle cx="110" cy="110" r="66" fill="none" stroke="#f59e0b" stroke-width="10" stroke-linecap="round" stroke-dasharray="250 415" transform="rotate(-90 110 110)"/>
-        </svg>
-        <h1 id="onboarding-title" class="onboarding__title">Every step.<br />Every streak.</h1>
-        <p id="onboarding-text" class="onboarding__text">Step Tracker reads your daily steps and keeps everything on this device.</p>
-    </div>
-    <div class="onboarding__actions">
-        <button id="onboarding-connect" class="btn btn-primary btn-block" type="button">Connect</button>
-        <button id="onboarding-restore" class="btn btn-secondary btn-block" type="button" data-editor-only>Restore from a backup</button>
-        <button id="onboarding-skip" class="btn-link" type="button">Not now</button>
-    </div>
-</section>
 
 <script type="module" src="/src/main.js"></script>
 </body>

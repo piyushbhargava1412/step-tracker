@@ -46,7 +46,7 @@ function _yearSpan(startDate, endDate) {
 
 /**
  * The tiles to draw, from a streak.compute() result.
- * @returns {Array<{ id: string, label: string, num: string, unit?: string, sub: string, good?: boolean }>}
+ * @returns {Array<{ id: string, label: string, num: string, unit?: string, sub: string, good?: boolean, flame?: 'lit'|'out' }>}
  */
 export function _buildTiles(result) {
   const tolerance = result.tolerance ?? _zeroState().tolerance;
@@ -55,7 +55,14 @@ export function _buildTiles(result) {
   const best = Array.isArray(result.hallOfFame) ? result.hallOfFame[0] : undefined;
 
   return [
-    { id: 'tile-strict', label: 'Strict', ...days(tolerance.actual ?? 0), sub: 'every day at 100%' },
+    {
+      id: 'tile-strict',
+      label: 'Strict',
+      ...days(tolerance.actual ?? 0),
+      sub: 'every day at 100%',
+      // The brand flame: lit while the streak is alive, out when it is broken (ST-029).
+      flame: (tolerance.actual ?? 0) > 0 ? 'lit' : 'out',
+    },
     {
       id: 'tile-lifetime',
       label: 'Lifetime',

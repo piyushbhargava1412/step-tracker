@@ -1,6 +1,10 @@
 import { Directory, Encoding } from '@capacitor/filesystem';
 
-/** Sub-folder of the phone's public Documents folder that exports land in. */
+/**
+ * Sub-folder of the phone's public Documents folder that exports land in.
+ * Kept as "Step Tracker" through the Walkaholic rebrand: earlier backups and
+ * exports live there, and a second folder would split them.
+ */
 export const NATIVE_EXPORT_FOLDER = 'Step Tracker';
 
 const UNSAFE_FILE_NAME_CHARS = /[\\/:*?"<>|]/g;

@@ -51,7 +51,7 @@ worker updates the PWA (see [pwa-offline-install.md](pwa-offline-install.md)).
 5. Notes: `## What's new` = commit subjects since the previous `v*` tag (no merges, no
    `chore(release)`), then install steps, then version/build/commit, APK SHA-256, signing-cert SHA-256.
 6. `gh release create` with the built-in token (`permissions: contents: write`), `--verify-tag`;
-   `--prerelease` and title "Step Tracker vX.Y.Z (Android, pre-release)" while major is 0.
+   `--prerelease` and title "Walkaholic vX.Y.Z (Android, pre-release)" (ST-029; the asset keeps the `step-tracker-` name) while major is 0.
 
 ## Update check (`src/app-update.js`)
 - `createUpdateChecker({ installedVersion, fetchFn })` — throws at construction without a parseable

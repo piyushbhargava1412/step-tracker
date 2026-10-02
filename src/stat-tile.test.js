@@ -46,4 +46,23 @@ describe('fillStatTile', () => {
     expect(el.children).toHaveLength(3);
     expect(part(el, 'label').textContent).toBe('B');
   });
+
+  it('can lead the value with the brand flame, lit or out, keeping the value text', () => {
+    const el = makeTile();
+    fillStatTile(document, el, { label: 'Strict', num: '12', unit: 'days', sub: 'x', flame: 'lit' });
+    const flame = part(el, 'value').querySelector('.brand-flame');
+    expect(flame.classList.contains('brand-flame--lit')).toBe(true);
+    expect(flame.classList.contains('stat-tile__flame')).toBe(true);
+    expect(part(el, 'value').firstElementChild).toBe(flame);
+    expect(part(el, 'value').textContent).toBe('12 days');
+
+    fillStatTile(document, el, { label: 'Strict', num: '0', unit: 'days', sub: 'x', flame: 'out' });
+    expect(el.querySelector('.brand-flame--out')).not.toBeNull();
+  });
+
+  it('has no flame unless asked', () => {
+    const el = makeTile();
+    fillStatTile(document, el, { label: 'Lifetime', num: '87%', sub: 'x' });
+    expect(el.querySelector('.brand-flame')).toBeNull();
+  });
 });

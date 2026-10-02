@@ -61,6 +61,18 @@ describe('streak tiles', () => {
     expect(t).toMatchObject({ label: 'Strict', value: '1 day', sub: 'every day at 100%' });
   });
 
+  it('Strict streak carries the brand flame: lit while the streak is alive, out at 0', async () => {
+    const alive = tile(await renderWith(RESULT), 'tile-strict').el;
+    expect(alive.querySelector('.brand-flame--lit')).not.toBeNull();
+    const zero = tile(await renderWith(ZERO_RESULT), 'tile-strict').el;
+    expect(zero.querySelector('.brand-flame--out')).not.toBeNull();
+  });
+
+  it('only the Strict streak has the flame', async () => {
+    const doc = await renderWith(RESULT);
+    expect(doc.querySelectorAll('.brand-flame')).toHaveLength(1);
+  });
+
   it('pluralises days', async () => {
     const t = tile(await renderWith({ ...RESULT, tolerance: { ...RESULT.tolerance, actual: 12 } }), 'tile-strict');
     expect(t.value).toBe('12 days');

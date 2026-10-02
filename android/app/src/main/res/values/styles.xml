@@ -16,7 +16,10 @@
     </style>
 
 
+    <!-- Launch: Android 12+ draws the launcher icon on windowSplashScreenBackground; older
+         versions show @drawable/splash. Both match the web splash that follows (index.html). -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
     </style>
 </resources>

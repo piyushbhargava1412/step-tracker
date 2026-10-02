@@ -5,7 +5,7 @@
 
 export class ReadOnlyError extends Error {
   constructor() {
-    super('View only — edit your data in the Step Tracker app');
+    super('View only — edit your data in the Walkaholic app');
     this.name = 'ReadOnlyError';
   }
 }

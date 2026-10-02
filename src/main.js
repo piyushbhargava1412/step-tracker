@@ -66,6 +66,8 @@ import { createGamification } from './gamification.js'
 import { createGamificationUI } from './gamification-ui.js'
 import { createOdysseyUI } from './odyssey-ui.js'
 import { computeOdysseyProgress } from './odyssey.js'
+import { createSplash } from './splash.js'
+import { createGoalCelebration } from './goal-celebration.js'
 
 const MS_PER_DAY = 86_400_000
 
@@ -115,6 +117,10 @@ export async function _renderLastSyncLabel(db, doc = document) {
 }
 
 export async function bootstrap(doc = document, storage = window.localStorage) {
+  // The launch splash is already animating (index.html). After step 10 it
+  // leaves into the app, or holds for the first-launch welcome inside it.
+  const splash = createSplash({ doc })
+
   // 0. Platform: the Android app (Capacitor) or a browser. Everything that
   //    differs between them is chosen here, through src/platform/*.
   const isNative = isNativePlatform()
@@ -291,10 +297,20 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   doc.addEventListener('data:drive-sync:refresh', () =>
     _renderViews([['driveSyncUI', cloudView]], 'refresh event'))
 
+  // ST-029: the goal-met flame — once a day, when Today is on screen with no
+  // splash or welcome over it; a met goal waits for the splash to go, or for
+  // the next visit to Today (navigation below).
+  const celebration = createGoalCelebration({
+    doc,
+    storage,
+    canPlay: () => screens.current() === 'today' && !splash.isShowing() && !onboarding.isOpen(),
+  })
+  doc.addEventListener('splash:gone', () => celebration.flush())
+
   // A goal change re-scores streaks and the calendar.
   const progressUI = createProgressUI(doc, goal, db, reporter, () =>
     _renderViews([['streakUI', streakUI], ['calendarUI', calendarUI], ['weekUI', weekUI]], 'goal change'),
-  { canEdit: access.canEdit })
+  { canEdit: access.canEdit, onGoalMet: () => celebration.goalMet() })
 
   // Views that show step data, in screen order; re-rendered after every sync.
   const dataViews = () => [
@@ -379,6 +395,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   // the Android back button. Settings loads its stored values each time it opens.
   const screens = createNavigator(doc, {
     onEnter: {
+      today: () => celebration.flush(),
       settings: () => {
         Promise.resolve(settingsUI.open()).catch((err) => console.error('[main] settingsUI.open failed, continuing', err))
       },
@@ -387,16 +404,18 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   screens.bind()
   onBackButton({ isNative }, () => screens.back())
 
-  // 7''. First launch: a welcome screen until the user connects, restores a
-  // backup or skips. The connection keeps one onConnected listener, so this
-  // hook both closes the welcome screen and syncs.
+  // 7''. First launch: the splash's welcome panel until the user connects,
+  // restores a backup or skips; closing it lets the splash go. The connection
+  // keeps one onConnected listener, so that hook (7b) both closes the welcome
+  // and syncs.
   const onboarding = createOnboardingUI(doc, {
     storage,
     connection,
     sourceName,
     hasData: async () => (await db.daily_records.count()) > 0,
     onRestore: () => screens.go('backup'),
-    intro: viewer ? 'See the steps your Step Tracker app backs up to your Google Drive.' : undefined,
+    intro: viewer ? 'Your steps. Your Drive. Your wins — big and small, every one worth celebrating.' : undefined,
+    onClose: () => splash.dismiss(),
   })
 
   // 7b. Auto-sync the moment a connection succeeds — from the first connect
@@ -440,7 +459,7 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     console.error('[main] settingsUI.render failed, continuing', err)
   }
   const versionEl = doc.getElementById('app-version')
-  if (versionEl && APP_VERSION) versionEl.textContent = `Step Tracker v${APP_VERSION}`
+  if (versionEl && APP_VERSION) versionEl.textContent = `Walkaholic v${APP_VERSION}`
 
   // ST-028: in the app, Settings › App checks GitHub Releases for a newer APK and installs it.
   // The web viewer has no such row: its service worker updates the PWA.
@@ -519,13 +538,16 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
     await refreshBackupStatus()
   }
 
-  // 10. First render of every screen (fail-open), then the welcome screen.
+  // 10. First render of every screen (fail-open), then the splash either
+  //     holds for the first-launch welcome or leaves into the app.
   await _renderViews([...dataViews(), ['searchUI', searchUI]])
   try {
     await onboarding.start()
   } catch (err) {
     console.error('[main] onboarding.start failed, continuing', err)
   }
+  if (onboarding.isOpen()) splash.hold()
+  else splash.dismiss()
 }
 
 // Register the bootstrap listener when running as the real app entry point.

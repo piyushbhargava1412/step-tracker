@@ -256,3 +256,67 @@ describe('ST-027: status pills', () => {
     expect(pill.tagName).toBe('BUTTON');
   });
 });
+
+describe('Walkaholic branding', () => {
+  it('names the app Walkaholic, with the mark as its favicon', () => {
+    expect(document.title).toBe('Walkaholic');
+    expect(document.querySelector('link[rel="icon"]').getAttribute('href')).toBe('/icons/icon.svg');
+    expect(html).not.toContain('Step Tracker');
+  });
+
+  describe('launch splash', () => {
+    const splash = () => document.getElementById('splash');
+
+    it('is the first thing in the body, so it covers the app from the first paint', () => {
+      expect(document.body.firstElementChild).toBe(splash());
+    });
+
+    it('is decorative: hidden from screen readers', () => {
+      expect(splash().getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('draws the mark: a track, the streak ring and the flame with its core', () => {
+      for (const part of ['.splash__track', '.splash__ring', '.splash__flame', '.splash__core']) {
+        expect(splash().querySelector(part), part).not.toBeNull();
+      }
+      expect(splash().querySelector('.splash__ring').getAttribute('pathLength')).toBe('100');
+    });
+
+    it('spells "walk" + "aholic" as two halves that slide in from either side', () => {
+      expect(splash().querySelector('.splash__walk').textContent).toBe('walk');
+      expect(splash().querySelector('.splash__aholic').textContent).toBe('aholic');
+    });
+
+    it('ends on the catchline, which labels it when it holds for the welcome', () => {
+      const tagline = splash().querySelector('#splash-tagline');
+      expect(tagline.textContent.replace(/\s+/g, ' ').trim()).toBe('Every step. Every streak.');
+    });
+
+    it('holds the first-launch welcome as its bottom panel — no separate welcome screen', () => {
+      const welcome = document.getElementById('onboarding');
+      expect(welcome.parentElement).toBe(splash());
+      expect(welcome.classList.contains('splash__welcome')).toBe(true);
+      expect(welcome.hidden).toBe(true);
+      expect(document.querySelector('.onboarding__rings')).toBeNull();
+      expect(document.getElementById('onboarding-title')).toBeNull();
+    });
+  });
+
+  describe('Today app bar mark', () => {
+    const mark = () => document.querySelector('header.app-bar .app-bar__mark');
+
+    it('sits in the app bar before the titles, decorative', () => {
+      expect(mark()).not.toBeNull();
+      expect(mark().getAttribute('aria-hidden')).toBe('true');
+      expect(mark().nextElementSibling.classList.contains('app-bar__titles')).toBe(true);
+    });
+
+    it('is the logo: track, 85% ring and flame', () => {
+      const [track, ring] = mark().querySelectorAll('circle');
+      expect(track.getAttribute('stroke')).toBe('#1e293b');
+      expect(ring.getAttribute('pathLength')).toBe('100');
+      expect(ring.getAttribute('stroke-dasharray')).toBe('85 100');
+      expect(mark().querySelectorAll('path')).toHaveLength(2);
+    });
+  });
+});

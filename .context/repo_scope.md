@@ -6,10 +6,10 @@
   - confidence: `high`
 
 ## Purpose
-This repository is a client-side step streak tracker with no backend: an Android app (Capacitor) that reads daily steps from Health Connect and backs them up to the user's Google Drive, and a read-only web viewer (PWA) of that backup. It computes and displays streaks against a daily goal. The codebase is structured as an ES module tree built and served by Vite, with Dexie-backed IndexedDB persistence and a Vitest unit-test suite.
+This repository is **Walkaholic** (ST-029 rebrand; the repo, package and Android application id keep the `step-tracker` name), a client-side step streak tracker with no backend: an Android app (Capacitor) that reads daily steps from Health Connect and backs them up to the user's Google Drive, and a read-only web viewer (PWA) of that backup. It computes and displays streaks against a daily goal. The codebase is structured as an ES module tree built and served by Vite, with Dexie-backed IndexedDB persistence and a Vitest unit-test suite.
 
 ## In-Scope Responsibilities
-- Mobile UI shell (ST-025) — app bar, one screen at a time, four bottom tabs (Today, Calendar, Insights, Journey), pushed Search / Group challenge / Settings / Backup & restore screens, first-launch welcome (`index.html`, `styles.css`)
+- Mobile UI shell (ST-025) — app bar, one screen at a time, four bottom tabs (Today, Calendar, Insights, Journey), pushed Search / Group challenge / Settings / Backup & restore screens, launch splash with the first-launch welcome as its bottom panel (`index.html`, `styles.css`, `src/splash.js` — ST-029)
 - Google OAuth token acquisition in-browser (`src/auth.js`, `src/config.js`)
 - Screen navigation, Android back button and pull-to-refresh (`src/navigation.js`, `src/platform/app-lifecycle.js`, `src/pull-to-refresh.js`); line icons (`src/icons.js`); welcome screen (`src/onboarding-ui.js`); Calendar Week view (`src/week.js`, `src/calendar-week-ui.js`, `src/calendar-view-switch.js`); platform share (`src/platform/share.js`)
 - UI status reporting abstraction (`src/ui-status.js`)

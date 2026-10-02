@@ -121,7 +121,7 @@ describe('ST-028: Settings › App updates', () => {
   it('explains a missing "Install unknown apps" permission instead of falling back', async () => {
     checker.check.mockResolvedValue(UPDATE);
     installer.downloadAndInstall.mockRejectedValue(
-      new InstallPermissionError('Allow installs from Step Tracker, then tap Install again.'),
+      new InstallPermissionError('Allow installs from Walkaholic, then tap Install again.'),
     );
     mount();
     button('check-update').click();
@@ -129,7 +129,7 @@ describe('ST-028: Settings › App updates', () => {
     button('install-update').click();
     await flush();
     expect(container.querySelector('[data-install-message]').textContent).toBe(
-      'Allow installs from Step Tracker, then tap Install again.',
+      'Allow installs from Walkaholic, then tap Install again.',
     );
     expect(openExternal).not.toHaveBeenCalled();
   });

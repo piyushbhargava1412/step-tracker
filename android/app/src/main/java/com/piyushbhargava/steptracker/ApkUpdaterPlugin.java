@@ -38,7 +38,7 @@ public class ApkUpdaterPlugin extends Plugin {
             Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
             settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(settings);
-            call.reject("Allow installs from Step Tracker, then tap Install again.", "INSTALL_PERMISSION");
+            call.reject("Allow installs from Walkaholic, then tap Install again.", "INSTALL_PERMISSION");
             return;
         }
 

@@ -320,3 +320,34 @@ describe('ring geometry — room for a six-digit day (999,999)', () => {
     expect(doc.querySelector('.ring__steps').textContent).toBe('999,999');
   });
 });
+
+describe('ST-029: reports a met goal (the goal celebration)', () => {
+  const renderReporting = async (record, onGoalMet, doc = buildDoc()) => {
+    const ui = createProgressUI(doc, makeGoal(GOAL_10K), makeDb(record), { db: vi.fn() }, () => {}, { onGoalMet });
+    await ui.render();
+    return doc;
+  };
+
+  it('calls onGoalMet after a render that shows the goal met, with the step count on the page', async () => {
+    const doc = buildDoc();
+    let stepsAtCall;
+    const onGoalMet = vi.fn(() => { stepsAtCall = doc.querySelector('.ring__steps')?.textContent; });
+    await renderReporting({ effective_steps: 12000 }, onGoalMet, doc);
+    expect(onGoalMet).toHaveBeenCalledTimes(1);
+    expect(stepsAtCall).toBe('12,000');
+  });
+
+  it('stays quiet while the goal is not met', async () => {
+    const onGoalMet = vi.fn();
+    await renderReporting({ effective_steps: 7412 }, onGoalMet);
+    expect(onGoalMet).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onGoalMet is logged, never breaks the render', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const doc = await renderReporting({ effective_steps: 12000 }, () => { throw new Error('boom'); });
+    expect(doc.querySelector('.goal-met-badge')).not.toBeNull();
+    expect(spy).toHaveBeenCalledWith('[progress]', expect.any(Error));
+    spy.mockRestore();
+  });
+});
