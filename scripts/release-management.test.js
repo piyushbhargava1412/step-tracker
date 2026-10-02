@@ -17,6 +17,7 @@ const MANIFEST = read('android/app/src/main/AndroidManifest.xml');
 const FILE_PATHS = read('android/app/src/main/res/xml/file_paths.xml');
 const APP_GRADLE = read('android/app/build.gradle');
 const WORKFLOW = read('.github/workflows/release-android.yml');
+const TAGGER = read('.github/workflows/tag-release.yml');
 const PKG = JSON.parse(read('package.json'));
 
 describe('ST-028: ApkUpdater native plugin', () => {
@@ -71,8 +72,9 @@ describe('ST-028: package.json is the single source of the app version', () => {
 });
 
 describe('ST-028: release workflow', () => {
-  it('runs on v* tags and can publish releases with the built-in token', () => {
+  it('runs on v* tags, or when dispatched on a tag by the tagger, and can publish with the built-in token', () => {
     expect(WORKFLOW).toMatch(/tags:\s*\[\s*'v\*'\s*\]/);
+    expect(WORKFLOW).toMatch(/^\s*workflow_dispatch:/m);
     expect(WORKFLOW).toMatch(/permissions:\s*\n\s*contents:\s*write/);
   });
 
@@ -89,5 +91,29 @@ describe('ST-028: release workflow', () => {
   it('attaches step-tracker-<version>.apk, the asset the update check looks for', () => {
     expect(WORKFLOW).toContain('APK="$RUNNER_TEMP/step-tracker-$VERSION.apk"');
     expect(WORKFLOW).toContain('gh release create "$TAG" "${{ steps.apk.outputs.path }}"');
+  });
+});
+
+describe('ST-028: the version bump ships with the branch; merging it to main releases', () => {
+  it('npm run release bumps package.json without committing or tagging', () => {
+    expect(PKG.scripts.release).toBe('npm version --no-git-tag-version');
+  });
+
+  it('tag-release runs on pushes to main that touch package.json', () => {
+    expect(TAGGER).toMatch(/branches:\s*\[\s*main\s*\]/);
+    expect(TAGGER).toMatch(/paths:\s*\[\s*package\.json\s*\]/);
+    expect(TAGGER).toMatch(/permissions:\s*\n\s*contents:\s*write\s*\n\s*actions:\s*write/);
+  });
+
+  it('does nothing when the tag already exists, and refuses a version below the latest tag', () => {
+    expect(TAGGER).toContain('git rev-parse -q --verify "refs/tags/$TAG"');
+    expect(TAGGER).toMatch(/is lower than the latest tag/);
+  });
+
+  it('tags the merged commit with a lightweight tag (an unsigned annotated tag shows "Unverified") and dispatches the release', () => {
+    expect(TAGGER).toContain('git tag "$TAG" "$GITHUB_SHA"');
+    expect(TAGGER).not.toMatch(/git tag (-a|--annotate|-m)/);
+    expect(TAGGER).toContain('git push origin "$TAG"');
+    expect(TAGGER).toContain('gh workflow run release-android.yml --ref "$TAG"');
   });
 });

@@ -20,9 +20,11 @@
   `.context/flows/pwa-offline-install.md`)
 - `.github/workflows/deploy.yml` — GitHub Actions: test-gated Cloudflare Pages deploy on push to
   `main` (ST-013)
+- `.github/workflows/tag-release.yml` — GitHub Actions: when a push to `main` raises `package.json`'s
+  version above the latest tag, tag it and dispatch the Android release (ST-028)
 - `.github/workflows/release-android.yml` — GitHub Actions: on a `v*` tag, build the signed APK and
   publish it as a GitHub Release on this repo (ST-028)
-- `package.json` — npm manifest; its `version` is the single source of the app version (ST-028): shown in Settings via Vite `define` → `__APP_VERSION__`, read by `android/app/build.gradle` for `versionName`/`versionCode`, and bumped + tagged by `npm run release`; declares Vite, Vitest, Dexie, Capacitor and bundled-font dependencies
+- `package.json` — npm manifest; its `version` is the single source of the app version (ST-028): shown in Settings via Vite `define` → `__APP_VERSION__`, read by `android/app/build.gradle` for `versionName`/`versionCode`, and bumped (no commit, no tag) by `npm run release` on the feature branch; declares Vite, Vitest, Dexie, Capacitor and bundled-font dependencies
 - `package-lock.json` — lockfile
 - `vite.config.js` — Vite dev/build config (mode-aware: `--mode native` adds `scripts/native-html.js`) and Vitest test config (`jsdom` environment)
 - `capacitor.config.json` — Capacitor config for the Android app (`appId` `com.piyushbhargava.steptracker`, `webDir: dist`) (ST-017)
@@ -141,7 +143,12 @@
   (`npm ci` → `npm test` → `npm run build` with `VITE_CLIENT_ID` from the `GOOGLE_CLIENT_ID` secret)
   → `cloudflare/wrangler-action@v3` deploys `dist/` to the Cloudflare Pages project `step-tracker`
   using `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets; `permissions: contents: read` (ST-013)
-- `.github/workflows/release-android.yml` (ST-028) — triggers on `v*` tags; refuses a tag that doesn't
+- `.github/workflows/tag-release.yml` (ST-028) — on `push` to `main` touching `package.json`: if the
+  version has no tag and is above the latest `v*` tag, creates a lightweight `vX.Y.Z` tag on the merged
+  commit (so the release shows the commit's signature, not an unsigned tag object) and runs `gh workflow run release-android.yml --ref vX.Y.Z`; `permissions: contents: write,
+  actions: write`
+- `.github/workflows/release-android.yml` (ST-028) — triggers on `v*` tags and `workflow_dispatch`
+  (from the tagger); refuses a tag that doesn't
   match `package.json` → `npm ci` → `npm test` → `npm run cap:sync` → `./gradlew assembleRelease` signed
   from the `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` /
   `ANDROID_KEY_PASSWORD` secrets → `apksigner` check → `gh release create` on this repo with
@@ -162,7 +169,7 @@
 | Android open / run | `npm run android:open` / `npm run android:run` | `cap open android` / `cap:sync` + `cap run android` |
 | Android icons | `npm run android:assets` | `scripts/generate-android-assets.sh` |
 | Debug APK | `cd android && ./gradlew assembleDebug` | see `docs/plans/android-release.md` |
-| Cut a release | `npm run release -- patch\|minor\|major` then `git push --follow-tags` | scripts.release = `npm version -m "chore(release): v%s"`; the tag runs `release-android.yml` (ST-028) |
+| Bump the version (on the feature branch) | `npm run release -- patch\|minor\|major`, commit `chore(release): vX.Y.Z` with the work | scripts.release = `npm version --no-git-tag-version`; merging to `main` runs `tag-release.yml` → `release-android.yml` (ST-028) |
 | lint | Not found | no eslint/prettier config detected |
 | typecheck | Not found | no TypeScript config detected |
 

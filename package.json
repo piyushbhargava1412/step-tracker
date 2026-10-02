@@ -13,7 +13,7 @@
     "android:open": "cap open android",
     "android:run": "npm run cap:sync && cap run android",
     "android:assets": "sh scripts/generate-android-assets.sh",
-    "release": "npm version -m \"chore(release): v%s\""
+    "release": "npm version --no-git-tag-version"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

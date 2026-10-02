@@ -11,7 +11,8 @@ confidence: high
 -->
 
 ## Overview
-A release is a `vX.Y.Z` tag. Pushing it builds the signed APK in GitHub Actions and publishes it as a
+A release starts as a version bump committed on the feature branch with the work. Merging it to `main`
+makes `tag-release.yml` create the `vX.Y.Z` tag, which builds the signed APK in GitHub Actions and publishes it as a
 GitHub Release on `piyushbhargava1412/step-tracker` with `step-tracker-X.Y.Z.apk` attached. In the
 Android app, **Settings › App › Check** lists the repo's releases, and when one is newer than the
 installed version it shows the "What's new" notes and **Install version X.Y.Z**, which downloads
@@ -19,9 +20,15 @@ the APK in the app and opens Android's installer. The web viewer has no update r
 worker updates the PWA (see [pwa-offline-install.md](pwa-offline-install.md)).
 
 ## Entry Points
-- **Type**: CLI — `npm run release -- patch|minor|major` (`npm version -m "chore(release): v%s"`:
-  bumps `package.json`/`package-lock.json`, commits, tags) → `git push --follow-tags`.
-- **Type**: CI — `.github/workflows/release-android.yml` on `push` of a `v*` tag.
+- **Type**: CLI — `npm run release -- patch|minor|major` (`npm version --no-git-tag-version`: bumps
+  `package.json`/`package-lock.json` only) on the feature branch, committed as `chore(release): vX.Y.Z`.
+- **Type**: Agent — when finishing work on a branch, coding agents propose a bump level and, on the
+  owner's yes, commit the bump on that branch via the `/release` skill (`.claude/skills/release/SKILL.md`,
+  required by AGENTS.md › Releases).
+- **Type**: CI — `.github/workflows/tag-release.yml` on `push` to `main` touching `package.json`: tags
+  `vX.Y.Z` when the version is above the latest tag (exists → no-op; lower → fail) and dispatches
+  `release-android.yml --ref vX.Y.Z` (a `GITHUB_TOKEN` tag push doesn't fire the tag trigger).
+- **Type**: CI — `.github/workflows/release-android.yml` on `push` of a `v*` tag or `workflow_dispatch`.
 - **Type**: UI Event — `[data-action="check-update"]` / `[data-action="install-update"]` in
   `#app-update` (delegated click listener in `src/update-ui.js`).
 - **File**: `src/app-update.js`, `src/update-ui.js`, `src/platform/native/apk-installer.js`,

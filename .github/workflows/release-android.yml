@@ -1,13 +1,15 @@
 name: Release Android APK
 run-name: Release Android ${{ github.ref_name }}
 
-# ST-028. Bump package.json with `npm run release -- patch|minor|major` (commits and tags vX.Y.Z),
-# then `git push --follow-tags`. This builds the signed APK from that tag and publishes it as a
-# GitHub Release on this repo, which the app's Settings › App › Check reads (src/app-update.js).
-# See docs/plans/android-release.md.
+# ST-028. Builds the signed APK from a vX.Y.Z tag and publishes it as a GitHub Release on this repo,
+# which the app's Settings › App › Check reads (src/app-update.js). Normally tag-release.yml creates
+# the tag when a merge to main bumps package.json and starts this through workflow_dispatch on the
+# tag (a tag pushed with GITHUB_TOKEN doesn't fire the push trigger). Dispatched on a branch, the
+# tag check below fails. See docs/plans/android-release.md.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write

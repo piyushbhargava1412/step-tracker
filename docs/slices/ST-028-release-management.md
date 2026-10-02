@@ -16,7 +16,9 @@ The owner asked to bring over the tuition-manager app's release management and i
 
 * **One version source** — `package.json`. Gradle derives `versionName` and
   `versionCode = major×10000 + minor×100 + patch`.
-* **`npm run release`** — `npm version` with a `chore(release): v%s` message: bump, commit, tag.
+* **`npm run release`** — bumps the version on the feature branch (no commit, no tag); the bump ships
+  in the PR with the work. Merging to `main` runs `tag-release.yml`, which tags and dispatches the
+  release (as in tuition-manager).
 * **Release workflow** — on a `v*` tag: check tag = package.json, test, build, sign, verify the
   signature, publish a GitHub Release on this repo with `step-tracker-<version>.apk`, notes from
   commit subjects plus checksums. Pre-release while the major version is 0.
@@ -42,8 +44,8 @@ The owner asked to bring over the tuition-manager app's release management and i
 
 ## Acceptance Criteria
 
-* `npm run release -- patch` then `git push --follow-tags` produces a signed GitHub Release
-  without manual steps; a tag that disagrees with `package.json` fails the run.
+* Merging a branch that bumped `package.json` produces the tag and a signed GitHub Release without
+  manual steps; a tag that disagrees with `package.json` fails the run.
 * Settings in the app shows App › Updates with the installed version; Check reports latest, newer
   (with notes and Install) or a failure; the web viewer shows no such row.
 * Install downloads in the app, explains a missing "Install unknown apps" permission, and falls back
@@ -65,3 +67,6 @@ The owner asked to bring over the tuition-manager app's release management and i
   0.3.9 → "Version 0.4.0 is available." with the What's new bullets).
 * Not yet verified: a full tag → release run (needs the four `ANDROID_*` secrets) and an on-device
   install from a release build.
+* Follow-up (2026-10-02): v0.4.1 was cut the first way (`npm version` committing and tagging on
+  `main`). The owner then asked for the bump to ship inside the feature branch, so the script became
+  `npm version --no-git-tag-version` and `tag-release.yml` tags on merge, as in tuition-manager.

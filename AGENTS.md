@@ -51,6 +51,7 @@ backup.
 | Android app: Health Connect connection & sync, platform layer | [flows/android-health-connect.md](.context/flows/android-health-connect.md) |
 | Android build, signing, install & emulator testing | [docs/plans/android-release.md](docs/plans/android-release.md) |
 | Release management & in-app update check (ST-028): versioning, tag → GitHub Release, Settings › App | [flows/app-updates.md](.context/flows/app-updates.md) |
+| Cutting a release / offering a version bump | [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md) |
 
 ## Business Flows
 
@@ -77,6 +78,18 @@ relevant to your current task.**
 - [Release Management & In-App Updates](.context/flows/app-updates.md)
 
 <!-- repo-agentifier:managed:end -->
+
+## Releases
+
+- `package.json` `version` is the release source of truth, and the bump is part of the work: it is
+  committed on the feature branch, in the same PR. Merging a bump to `main` triggers
+  `.github/workflows/tag-release.yml`, which tags `vX.Y.Z` and dispatches `release-android.yml` to
+  publish the signed APK as a GitHub Release that the app's Settings › App › Check offers. Never
+  create or push tags by hand.
+- When you finish a task on a branch that leaves unreleased changes since the latest tag, offer a
+  version bump: suggest a level from the commit types, ask the user to confirm, and only then bump
+  and commit it on that branch. Follow the `/release` skill (`.claude/skills/release/SKILL.md`),
+  including verifying the published release after the user says it was merged.
 
 ## Working Agreement
 

@@ -200,19 +200,25 @@ The workflow needs no personal access token: the built-in `GITHUB_TOKEN` (with
 
 ### Cutting a release
 
-From an up-to-date, clean `main`:
+The version bump is part of the work: commit it on the feature branch, before the PR is merged.
 
 ```bash
-npm run release -- patch
+npm run release -- minor
 ```
 
 ```bash
-git push --follow-tags
+git commit -am "chore(release): v0.5.0"
 ```
 
 `npm run release -- patch|minor|major` (or an explicit `0.5.0`) bumps `package.json` and
-`package-lock.json`, commits `chore(release): vX.Y.Z` and tags `vX.Y.Z`. Pushing the tag runs
-[release-android.yml](../../.github/workflows/release-android.yml), which:
+`package-lock.json` only — no commit, no tag. Pick the level from the branch's commits: `feat` →
+minor; only `fix` / `chore` / `refactor` / `docs` / `test` → patch; a breaking change → major.
+
+When the PR is merged, [tag-release.yml](../../.github/workflows/tag-release.yml) sees `package.json`
+change on `main`, and if its version is above the latest `v*` tag it tags the merged commit and
+dispatches [release-android.yml](../../.github/workflows/release-android.yml) on that tag. (A tag
+already present → nothing to do; a version below the latest tag → the run fails.) Never create or
+push tags by hand. The release workflow:
 
 1. refuses a tag that doesn't match `package.json`;
 2. runs the tests, then `npm run cap:sync` and `./gradlew assembleRelease` with the release key
