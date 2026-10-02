@@ -6,7 +6,7 @@ import pkg from './package.json' with { type: 'json' };
 // (npm run build:native). It strips PWA-only tags; the web build is unchanged.
 export default defineConfig(({ mode } = {}) => ({
   plugins: [mode === 'native' && nativeHtmlPlugin()],
-  // Shown on the Settings screen ("Step Tracker v0.2.0").
+  // Shown on the Settings screen ("Walkaholic v0.2.0").
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

@@ -13,12 +13,12 @@ describe('ST-028: in-app APK installer (ApkUpdater native plugin)', () => {
   it('turns the plugin\'s INSTALL_PERMISSION rejection into an InstallPermissionError', async () => {
     const plugin = {
       downloadAndInstall: vi.fn().mockRejectedValue(
-        Object.assign(new Error('Allow installs from Step Tracker, then tap Install again.'), { code: INSTALL_PERMISSION }),
+        Object.assign(new Error('Allow installs from Walkaholic, then tap Install again.'), { code: INSTALL_PERMISSION }),
       ),
     };
     const attempt = createApkInstaller(plugin).downloadAndInstall(URL);
     await expect(attempt).rejects.toBeInstanceOf(InstallPermissionError);
-    await expect(attempt).rejects.toThrow('Allow installs from Step Tracker');
+    await expect(attempt).rejects.toThrow('Allow installs from Walkaholic');
   });
 
   it('passes any other failure through unchanged', async () => {

@@ -50,11 +50,12 @@ test-gated (`npm ci` → `npm test` → `npm run build` → Pages deploy).
 ### Manifest & install (`public/manifest.json`, `index.html`)
 1. `index.html` `<head>` links `<link rel="manifest" href="/manifest.json" />` and sets
    `<meta name="theme-color" content="#0ea5e9" />` (exactly one of each).
-2. `public/manifest.json` declares `name: "step-tracker"`, `short_name: "Step Tracker"`,
+2. `public/manifest.json` declares `name: "Walkaholic"`, `short_name: "Walkaholic"` (ST-029),
    `display: "standalone"`, `start_url: "/"`, `scope: "/"`, `background_color: "#020617"`,
    `theme_color: "#0ea5e9"`, and two icons (`/icons/icon-192.png` 192x192, `/icons/icon-512.png`
    512x512, both `image/png`, `purpose: "any"` on the 512 icon) — enabling the native install
-   prompt/menu entry on supporting browsers.
+   prompt/menu entry on supporting browsers. Both PNGs are rendered from the mark,
+   `public/icons/icon.svg`, which `index.html` also links as the favicon (`npm run android:assets`).
 
 ### Registration (`src/sw-register.js`, wired from `src/main.js`)
 3. `createSwRegister({ nav, config, log })` returns `{ register() }`. `register()` is a no-op that

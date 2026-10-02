@@ -49,7 +49,7 @@ progress panel (ST-025).
 writes `.stat-tile__label` / `.stat-tile__value` (`.stat-tile__num` + optional `.stat-tile__unit`,
 e.g. "1,910" + "days") / `.stat-tile__sub`. The value is a wrapping flex row, so on a narrow tile or a
 large system font size the unit drops under the number instead of overflowing the card:
-- `#tile-strict` (amber `.stat-tile--hot`) — "Strict" · `tolerance.actual` days · "every day at 100%"
+- `#tile-strict` (amber `.stat-tile--hot`) — "Strict" · `tolerance.actual` days · "every day at 100%"; the value leads with the brand flame (`createBrandFlame`, ST-029) — `.brand-flame--lit` (amber) while `tolerance.actual > 0`, `.brand-flame--out` (grey) at 0
 - `#tile-lifetime` — "Lifetime" · rounded `lifetime.pct`% · "488 of 900 days"
 - `#tile-tol99` / `#tile-tol95` — "99% tol" / "95% tol" · allowance days · "N misses used"
   (`.stat-tile__sub--good` when none were used)

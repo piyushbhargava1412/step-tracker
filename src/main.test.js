@@ -164,6 +164,11 @@ vi.mock('./onboarding-ui.js', () => ({
   createOnboardingUI: vi.fn(() => mockOnboardingInstance)
 }))
 
+const mockSplash = { dismiss: vi.fn(), hold: vi.fn(), isShowing: vi.fn(() => true) }
+const mockCelebration = { goalMet: vi.fn(), flush: vi.fn() }
+vi.mock('./goal-celebration.js', () => ({ createGoalCelebration: vi.fn(() => mockCelebration) }))
+vi.mock('./splash.js', () => ({ createSplash: vi.fn(() => mockSplash) }))
+
 const mockStepSyncInstance = { sync: vi.fn(), canSync: vi.fn().mockResolvedValue(true) }
 vi.mock('./steps.js', () => ({
   createStepSync: vi.fn(() => mockStepSyncInstance)
@@ -315,6 +320,8 @@ import { createGamification } from './gamification.js'
 import { createGamificationUI } from './gamification-ui.js'
 import { createOdysseyUI } from './odyssey-ui.js'
 import { createUpdateUI } from './update-ui.js'
+import { createSplash } from './splash.js'
+import { createGoalCelebration } from './goal-celebration.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -432,7 +439,101 @@ describe('main.js — composition root bootstrap', () => {
   it('names the step source and shows the app version in Settings', async () => {
     await boot()
     expect(document.getElementById('step-source-name').textContent).toBe('Google Drive')
-    expect(document.getElementById('app-version').textContent).toMatch(/^Step Tracker v\d+\.\d+\.\d+$/)
+    expect(document.getElementById('app-version').textContent).toMatch(/^Walkaholic v\d+\.\d+\.\d+$/)
+  })
+
+  it('the launch splash leaves into the app once every screen has rendered and no welcome is needed', async () => {
+    mockOnboardingInstance.isOpen.mockReturnValue(false)
+    await boot()
+    expect(createSplash).toHaveBeenCalledWith({ doc: document })
+    expect(mockSplash.dismiss).toHaveBeenCalledTimes(1)
+    expect(mockSplash.hold).not.toHaveBeenCalled()
+    expect(mockSplash.dismiss.mock.invocationCallOrder[0])
+      .toBeGreaterThan(mockOnboardingInstance.start.mock.invocationCallOrder[0])
+  })
+
+  it('the launch splash stays for the welcome when it opened', async () => {
+    mockOnboardingInstance.isOpen.mockReturnValue(true)
+    try {
+      await boot()
+      expect(mockSplash.hold).toHaveBeenCalledTimes(1)
+      expect(mockSplash.dismiss).not.toHaveBeenCalled()
+    } finally {
+      mockOnboardingInstance.isOpen.mockReturnValue(false)
+    }
+  })
+
+  it('closing the welcome lets the launch splash go', async () => {
+    await boot()
+    mockSplash.dismiss.mockClear()
+    createOnboardingUI.mock.calls[0][1].onClose()
+    expect(mockSplash.dismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failing welcome still lets the launch splash go', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockOnboardingInstance.start.mockRejectedValueOnce(new Error('boom'))
+    await boot()
+    expect(mockSplash.dismiss).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  describe('ST-029: goal celebration', () => {
+    const canPlay = () => createGoalCelebration.mock.calls.at(-1)[0].canPlay
+
+    it('is created with the document and storage, and fed by the progress panel', async () => {
+      const storage = makeStorage()
+      await boot(storage)
+      const deps = createGoalCelebration.mock.calls.at(-1)[0]
+      expect(deps.doc).toBe(document)
+      expect(deps.storage).toBe(storage)
+      createProgressUI.mock.calls.at(-1)[5].onGoalMet()
+      expect(mockCelebration.goalMet).toHaveBeenCalledTimes(1)
+    })
+
+    it('may play only on Today, with no splash or welcome over it', async () => {
+      await boot(makeStorage())
+      mockSplash.isShowing.mockReturnValue(false)
+      mockOnboardingInstance.isOpen.mockReturnValue(false)
+      try {
+        expect(canPlay()()).toBe(true)
+
+        mockSplash.isShowing.mockReturnValue(true)
+        expect(canPlay()()).toBe(false)
+        mockSplash.isShowing.mockReturnValue(false)
+
+        mockOnboardingInstance.isOpen.mockReturnValue(true)
+        expect(canPlay()()).toBe(false)
+        mockOnboardingInstance.isOpen.mockReturnValue(false)
+
+        document.querySelector('[data-tab="calendar"]').click()
+        expect(canPlay()()).toBe(false)
+      } finally {
+        mockSplash.isShowing.mockReturnValue(true)
+      }
+    })
+
+    it('plays a held celebration once the splash has gone', async () => {
+      const addListener = vi.spyOn(document, 'addEventListener')
+      try {
+        await boot(makeStorage())
+        const onGone = addListener.mock.calls.find(([type]) => type === 'splash:gone')?.[1]
+        mockCelebration.flush.mockClear()
+        onGone()
+        expect(mockCelebration.flush).toHaveBeenCalledTimes(1)
+      } finally {
+        addListener.mockRestore()
+      }
+    })
+
+    it('plays a held celebration on coming back to Today', async () => {
+      await boot(makeStorage())
+      document.querySelector('[data-tab="calendar"]').click()
+      mockCelebration.flush.mockClear()
+      document.querySelector('[data-tab="today"]').click()
+      // Earlier boots' navigators share this document, so at least once.
+      expect(mockCelebration.flush).toHaveBeenCalled()
+    })
   })
 
   it('clicking #auth-btn invokes auth.requestToken()', async () => {
@@ -673,7 +774,7 @@ describe('main.js — Task 6: composition-root wiring (createGoal + createProgre
   it('createProgressUI is invoked once with (document, goalInstance, mockDb, mockReporter, onGoalApplied)', async () => {
     await boot()
     expect(createProgressUI).toHaveBeenCalledTimes(1)
-    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter, expect.any(Function), { canEdit: false })
+    expect(createProgressUI).toHaveBeenCalledWith(document, mockGoalInstance, mockDb, mockReporter, expect.any(Function), { canEdit: false, onGoalMet: expect.any(Function) })
   })
 
   it('progressUI.render() called exactly once on bootstrap', async () => {
@@ -2613,12 +2714,13 @@ describe('main.js — ST-023 read-only web viewer', () => {
 
   it('the welcome screen introduces the viewer', async () => {
     await boot(makeStorage())
-    expect(createOnboardingUI.mock.calls.at(-1)[1].intro).toMatch(/backs up to your Google Drive/)
+    expect(createOnboardingUI.mock.calls.at(-1)[1].intro)
+      .toBe('Your steps. Your Drive. Your wins — big and small, every one worth celebrating.')
   })
 
   it('the goal chip is read-only', async () => {
     await boot(makeStorage())
-    expect(createProgressUI.mock.calls.at(-1)[5]).toEqual({ canEdit: false })
+    expect(createProgressUI.mock.calls.at(-1)[5]).toMatchObject({ canEdit: false })
   })
 })
 

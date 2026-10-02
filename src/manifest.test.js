@@ -15,9 +15,10 @@ const ihdrDimensions = (pngBuffer) => ({
 
 describe('public/manifest.json', () => {
   describe('Happy Path', () => {
-    it('matches the SF-9 identity: name "step-tracker" and short_name "Step Tracker"', () => {
-      expect(manifest.name).toBe('step-tracker');
-      expect(manifest.short_name).toBe('Step Tracker');
+    it('is branded Walkaholic: the name the install prompt and home screen show', () => {
+      expect(manifest.name).toBe('Walkaholic');
+      expect(manifest.short_name).toBe('Walkaholic');
+      expect(manifest.description).toMatch(/^Walkaholic — /);
     });
 
     it('declares standalone display with start_url "/" and scope "/"', () => {

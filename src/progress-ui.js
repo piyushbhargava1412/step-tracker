@@ -45,11 +45,12 @@ export function _goalOptionLabel(steps) {
  * @param {object} db
  * @param {{ db: Function }} reporter
  * @param {Function} [onGoalApplied]  invoked after a goal change is saved and re-rendered
- * @param {{ canEdit?: boolean }} [options]  canEdit false (ST-023, the read-only
- *   web viewer) shows the goal chip disabled.
+ * @param {{ canEdit?: boolean, onGoalMet?: Function }} [options]  canEdit false (ST-023,
+ *   the read-only web viewer) shows the goal chip disabled; onGoalMet runs after
+ *   a render that shows the goal met (ST-029, the goal celebration).
  * @returns {{ render: Function }}
  */
-export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}, { canEdit = true } = {}) {
+export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => {}, { canEdit = true, onGoalMet = () => {} } = {}) {
   // Stops fitting the previous render's step count (its node is replaced).
   let stopFittingSteps = () => {};
 
@@ -175,6 +176,9 @@ export function createProgressUI(doc, goal, db, reporter, onGoalApplied = () => 
     // listeners go with it.
     mount.replaceChildren(_buildHead(progress), _buildRing(progress), status, error);
     _fillDistanceTile(progress.distance_km);
+    if (progress.goalMet) {
+      try { onGoalMet(); } catch (err) { console.error('[progress]', err); }
+    }
   }
 
   async function _onGoalChange(event) {

@@ -1,6 +1,8 @@
-# step-tracker
+# Walkaholic
 
-A step streak tracker with no backend: an Android app that reads your steps from Health Connect, and a
+<img src="public/icons/icon.svg" alt="" width="96" align="right" />
+
+Walkaholic (repo: `step-tracker`) is a step streak tracker with no backend: an Android app that reads your steps from Health Connect, and a
 read-only web viewer (PWA) of the backup the app keeps in your Google Drive.
 
 ## App layout (v0.2.0)

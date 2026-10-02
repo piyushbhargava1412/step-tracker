@@ -52,11 +52,11 @@ describe('createOnboardingUI', () => {
     expect(doc.body.classList.contains('has-onboarding')).toBe(true);
     expect(doc.getElementById('onboarding-connect').textContent).toBe('Connect Health Connect');
     expect(doc.getElementById('onboarding-text').textContent)
-      .toBe('Step Tracker reads your daily steps from Health Connect. Everything stays on this device.');
+      .toBe('Walkaholic reads your daily steps from Health Connect. Everything stays on this device.');
   });
 
   it('ST-023: a custom introduction (the read-only web viewer)', async () => {
-    const intro = 'See the steps your Step Tracker app backs up to Google Drive.';
+    const intro = 'See the steps your Walkaholic app backs up to Google Drive.';
     await createOnboardingUI(doc, { storage, connection, sourceName: 'Google Drive', intro, hasData: vi.fn().mockResolvedValue(false) }).start();
     expect(doc.getElementById('onboarding-text').textContent).toBe(intro);
   });
@@ -132,5 +132,32 @@ describe('createOnboardingUI', () => {
     const ui = createOnboardingUI(empty, { storage, connection, sourceName: 'x', hasData: vi.fn().mockResolvedValue(false) });
     await expect(ui.start()).resolves.toBeUndefined();
     expect(() => ui.dismiss()).not.toThrow();
+  });
+
+  describe('closing hands back to the launch splash (onClose)', () => {
+    const createWithClose = (onClose) => createOnboardingUI(doc, {
+      storage, connection, sourceName: 'Health Connect', hasData: vi.fn().mockResolvedValue(false), onRestore, onClose,
+    });
+
+    it.each(['onboarding-skip', 'onboarding-restore'])('%s closes it and calls onClose once', async (id) => {
+      const onClose = vi.fn();
+      await createWithClose(onClose).start();
+      doc.getElementById(id).click();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('a successful connection (dismiss from main.js) calls onClose', async () => {
+      const onClose = vi.fn();
+      const ui = createWithClose(onClose);
+      await ui.start();
+      ui.dismiss();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call onClose when it was never open', () => {
+      const onClose = vi.fn();
+      createWithClose(onClose).dismiss();
+      expect(onClose).not.toHaveBeenCalled();
+    });
   });
 });

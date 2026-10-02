@@ -11,7 +11,7 @@ need for the task at hand; do not read everything up front.
 
 ## Project Context
 
-Step-tracker is a step streak tracker with no backend: an Android app (Capacitor) that reads daily
+Step-tracker — branded **Walkaholic** since ST-029 — is a step streak tracker with no backend: an Android app (Capacitor) that reads daily
 steps from Health Connect and backs them up to Google Drive, and a read-only web viewer (PWA) of that
 backup.
 
@@ -34,7 +34,8 @@ backup.
 | Testing conventions | [testing-patterns.md](.context/testing-patterns.md) |
 | Design & coding patterns | [design-and-coding-patterns.md](.context/design-and-coding-patterns.md) |
 | Commit convention signal | [repo_map.md#commit-convention](.context/repo_map.md#commit-convention) |
-| Mobile navigation: bottom tabs, screens, back button, pull-to-refresh, welcome screen | [flows/mobile-navigation.md](.context/flows/mobile-navigation.md) |
+| Mobile navigation: bottom tabs, screens, back button, pull-to-refresh, welcome screen, launch splash | [flows/mobile-navigation.md](.context/flows/mobile-navigation.md) |
+| Walkaholic brand: name, mark (`public/icons/icon.svg`), icons & launch splash (ST-029) | [docs/slices/ST-029-walkaholic-rebrand.md](docs/slices/ST-029-walkaholic-rebrand.md) |
 | Mobile redesign scope & as-built (ST-025, v0.2.0) | [docs/slices/ST-025-mobile-redesign.md](docs/slices/ST-025-mobile-redesign.md) |
 | Search / filter / export flow | [flows/search-lab-export.md](.context/flows/search-lab-export.md) |
 | Insights (analytics) flow | [flows/analytics-lab-dashboard.md](.context/flows/analytics-lab-dashboard.md) |

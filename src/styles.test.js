@@ -9,6 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { TAB_SCREENS } from './navigation.js';
+import { GOAL_FLAME_MS } from './goal-celebration.js';
 
 const root = path.resolve(__dirname, '..');
 const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
@@ -217,3 +219,105 @@ describe('styles.css — every emitted class is styled', () => {
     expect(stale).toEqual([]);
   });
 });
+
+describe('styles.css — launch splash (src/splash.js)', () => {
+  it('covers the whole app on the page background, above everything', () => {
+    const splash = rule('.splash');
+    expect(splash).toContain('position: fixed');
+    expect(splash).toContain('inset: 0');
+    expect(splash).toContain('background: var(--bg-body)');
+    expect(splash).toContain('z-index: 200');
+  });
+
+  it('fades out when leaving, in the time splash.js waits before removing it', () => {
+    expect(rule('.splash')).toContain('transition: opacity 350ms');
+    expect(rule('.splash--leaving')).toContain('opacity: 0');
+    expect(rule('.splash--leaving')).toContain('pointer-events: none');
+  });
+
+  it('fills the ring, lights the flame and slides the two halves of the name in', () => {
+    expect(rule('.splash__ring')).toContain('animation: splash-ring');
+    expect(rule('.splash__flame')).toContain('animation: splash-flame-in');
+    expect(rule('.splash__flame')).toContain('splash-flicker');
+    expect(rule('.splash__walk')).toContain('animation: splash-from-left');
+    expect(rule('.splash__aholic')).toContain('animation: splash-from-right');
+    expect(css).toMatch(/@keyframes splash-from-left\s*\{\s*from\s*\{[^}]*translateX\(-/);
+    expect(css).toMatch(/@keyframes splash-from-right\s*\{\s*from\s*\{[^}]*translateX\(\d/);
+  });
+
+  it('the animations start from their keyframes, so the resting state is the finished mark', () => {
+    expect(rule('.splash__ring')).toContain('stroke-dashoffset: 0');
+    expect(rule('.splash__ring')).not.toContain('opacity: 0');
+    expect(rule('.splash__flame')).not.toContain('scale(0)');
+  });
+
+  it('the catchline rises in after the name', () => {
+    expect(rule('.splash__tagline')).toContain('animation: splash-rise');
+  });
+
+  it('holding for the welcome slides its panel up and lifts the mark, smoothly', () => {
+    const welcome = rule('.splash__welcome');
+    expect(welcome).toContain('max-height: 0');
+    expect(welcome).toContain('transition: max-height');
+    expect(rule('.splash--welcome .splash__welcome')).toContain('opacity: 1');
+    expect(rule('.splash__hero')).toContain('flex: 1');
+  });
+
+  it('respects reduced motion: the finished mark, no animation, no sliding panel', () => {
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.splash,\s*\.splash \* \{ animation: none !important; \}\s*\.splash__welcome \{ transition: none; \}/);
+  });
+
+  it('the old stand-alone welcome screen styles are gone', () => {
+    expect(rule('.onboarding')).toBeNull();
+    expect(css).not.toContain('.onboarding__rings');
+  });
+});
+
+describe('styles.css — Walkaholic on Today (ST-029)', () => {
+  it('the app bar mark shows on the four tab screens — left of the title on Today, in the right corner on the others', () => {
+    expect(rule('.app-bar__mark')).toContain('flex: none');
+    const notTabs = TAB_SCREENS.map((name) => `:not([data-active-screen="${name}"])`).join('');
+    expect(rule(`body${notTabs} .app-bar__mark`)).toContain('display: none');
+    expect(rule('body:not([data-active-screen="today"]) .app-bar__mark')).toContain('order: 1');
+  });
+
+  it('the brand flame is amber with a light core when lit, and greyed out when the streak is at 0', () => {
+    expect(rule('.brand-flame--lit .brand-flame__outer')).toContain('fill: var(--accent-amber)');
+    expect(rule('.brand-flame--lit .brand-flame__core')).toContain('fill: var(--brand-flame-core)');
+    expect(rule(':root')).toContain('--brand-flame-core: #fcd34d;');
+    expect(rule('.brand-flame--out .brand-flame__outer')).toContain('fill: var(--text-faint)');
+    expect(rule('.brand-flame--out .brand-flame__core')).toContain('fill: transparent');
+  });
+
+  it('the tile flame sits centred against the number', () => {
+    expect(rule('.stat-tile__flame')).toContain('align-self: center');
+  });
+});
+
+describe('styles.css — goal celebration flame (src/goal-celebration.js)', () => {
+  it('floats over the page without catching taps, centred on its anchor point', () => {
+    const overlay = rule('.goal-flame');
+    expect(overlay).toContain('position: fixed');
+    expect(overlay).toContain('pointer-events: none');
+    expect(overlay).toContain('z-index: 25');
+  });
+
+  it('a translucent flame drops from above onto the count, then lifts away and fades', () => {
+    const flame = rule('.goal-flame__flame');
+    expect(flame).toContain(`animation: goal-flame-drop ${GOAL_FLAME_MS}ms`);
+    expect(flame).toContain('mix-blend-mode: screen');
+    expect(css).toMatch(/@keyframes goal-flame-drop\s*\{\s*0% \{[^}]*var\(--goal-flame-drop\)[^}]*opacity: 0\.5/);
+    expect(css).toMatch(/@keyframes goal-flame-drop[\s\S]*?100% \{[^}]*opacity: 0;/);
+  });
+
+  it('the glow blooms when it lands', () => {
+    expect(rule('.goal-flame__glow')).toContain(`animation: goal-flame-glow ${GOAL_FLAME_MS}ms`);
+    expect(rule('.goal-flame__glow')).toContain('radial-gradient');
+  });
+
+  it('under reduced motion it fades in place, over the same time', () => {
+    expect(rule('.goal-flame--still .goal-flame__flame')).toContain(`animation: goal-flame-still ${GOAL_FLAME_MS}ms`);
+    expect(css).not.toMatch(/@keyframes goal-flame-still[^@]*translate\(-50%, calc/);
+  });
+});
+

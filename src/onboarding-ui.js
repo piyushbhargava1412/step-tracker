@@ -1,5 +1,6 @@
 /**
- * First-launch welcome (#onboarding).
+ * First-launch welcome (#onboarding), the bottom panel of the launch splash
+ * (ST-029: main.js holds the splash while it is open; onClose lets it go).
  *
  * Shown over the app until the user connects their step source, restores a
  * backup, or taps "Not now" — and only while there is no step data and it was
@@ -18,11 +19,13 @@ export const ONBOARDING_DONE_KEY = 'onboarding_done';
  *   hasData: () => Promise<boolean>,
  *   onRestore?: () => void,             opens Backup & restore
  *   intro?: string,                     replaces the "reads your daily steps from …" text
+ *   onClose?: () => void,               after it closes (connected, restore or "Not now")
  * }} deps
  * @returns {{ start: () => Promise<void>, dismiss: () => void, isOpen: () => boolean }}
  */
-export function createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore = () => {}, intro }) {
+export function createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore = () => {}, intro, onClose = () => {} }) {
   const root = () => doc.getElementById('onboarding');
+  const isOpen = () => root()?.hidden === false;
   let bound = false;
 
   function _wasDismissed() {
@@ -35,6 +38,7 @@ export function createOnboardingUI(doc, { storage, connection, sourceName, hasDa
   }
 
   function dismiss() {
+    const wasOpen = isOpen();
     const el = root();
     if (el) el.hidden = true;
     doc.body?.classList.remove('has-onboarding');
@@ -43,6 +47,7 @@ export function createOnboardingUI(doc, { storage, connection, sourceName, hasDa
     } catch (err) {
       console.error('[onboarding]', err);
     }
+    if (wasOpen) onClose();
   }
 
   function _bind() {
@@ -78,12 +83,12 @@ export function createOnboardingUI(doc, { storage, connection, sourceName, hasDa
     if (connectBtn) connectBtn.textContent = connection.label;
     const text = doc.getElementById('onboarding-text');
     if (text) {
-      text.textContent = intro ?? `Step Tracker reads your daily steps from ${sourceName}. Everything stays on this device.`;
+      text.textContent = intro ?? `Walkaholic reads your daily steps from ${sourceName}. Everything stays on this device.`;
     }
     _bind();
     el.hidden = false;
     doc.body?.classList.add('has-onboarding');
   }
 
-  return { start, dismiss, isOpen: () => root()?.hidden === false };
+  return { start, dismiss, isOpen };
 }

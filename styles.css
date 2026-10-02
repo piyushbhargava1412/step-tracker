@@ -1,4 +1,4 @@
-/* ─── Step Tracker — mobile app styles ─────────────────────────────────────────
+/* ─── Walkaholic — mobile app styles ───────────────────────────────────────────
  * Deep Blue palette (unchanged from the PWA), laid out as a phone app:
  * a sticky app bar, one screen at a time, and a bottom navigation bar.
  * Screens are shown/hidden with the `hidden` attribute (navigation.js).
@@ -35,6 +35,7 @@
     --accent-sky-ink: #082f49;
     --text-soft: #cbd5e1;
     --text-faint: #64748b;
+    --brand-flame-core: #fcd34d;
     --line: rgba(148, 163, 184, 0.12);
     --surface-sunken: rgba(2, 6, 23, 0.5);
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -175,6 +176,23 @@ input, select, textarea {
 }
 
 /* Search and Settings live on Today only */
+/* The Walkaholic mark (ST-029) on the four tab screens (navigation.js TAB_SCREENS):
+   left of the title on Today, in the right corner on Calendar, Insights and Journey
+   (their action icons are Today-only). Pushed screens show their back arrow instead. */
+.app-bar__mark {
+    flex: none;
+    margin-right: 2px;
+}
+
+body:not([data-active-screen="today"]) .app-bar__mark {
+    order: 1;
+    margin-right: 0;
+}
+
+body:not([data-active-screen="today"]):not([data-active-screen="calendar"]):not([data-active-screen="insights"]):not([data-active-screen="journey"]) .app-bar__mark {
+    display: none;
+}
+
 body:not([data-active-screen="today"]) .app-bar__actions {
     display: none;
 }
@@ -865,6 +883,29 @@ input.switch:checked::after {
 .stat-tile--hot .stat-tile__value,
 .stat-tile--hot .stat-tile__unit {
     color: #fbbf24;
+}
+
+.stat-tile__flame {
+    align-self: center;
+    flex: none;
+    margin-right: 1px;
+}
+
+/* The brand flame (src/brand-mark.js): lit while a streak is alive, out at 0. */
+.brand-flame--lit .brand-flame__outer {
+    fill: var(--accent-amber);
+}
+
+.brand-flame--lit .brand-flame__core {
+    fill: var(--brand-flame-core);
+}
+
+.brand-flame--out .brand-flame__outer {
+    fill: var(--text-faint);
+}
+
+.brand-flame--out .brand-flame__core {
+    fill: transparent;
 }
 
 .stat-tile__sub {
@@ -2772,55 +2813,248 @@ form[data-form="override"] button[type="submit"] {
     color: var(--text-soft);
 }
 
-/* ─── First launch ───────────────────────────────────────────────────────── */
+/* ─── Launch splash and first-launch welcome (src/splash.js, ST-029) ───────────
+ * Plays from the first paint: the streak ring fills (150–1050ms), the flame
+ * lights (650–1100ms) then flickers, "walk" / "aholic" slide in from either
+ * side (700–1300ms) and the catchline rises (1100–1500ms) — SPLASH_MIN_MS in
+ * splash.js covers it. Every animation runs *from* its keyframe, so with
+ * animation off (reduced motion) the resting state is the finished mark.
+ *
+ * Then it fades into the app (.splash--leaving), or holds for the welcome
+ * (.splash--welcome): the panel grows from the bottom, which lifts the mark,
+ * and the glow of the old welcome screen fades in behind.
+ * ────────────────────────────────────────────────────────────────────────── */
 
-.onboarding {
+.splash {
     position: fixed;
     inset: 0;
-    z-index: 80;
+    z-index: 200;
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: calc(32px + var(--safe-top)) 24px calc(32px + var(--safe-bottom));
+    align-items: center;
+    padding: calc(24px + var(--safe-top)) 24px calc(24px + var(--safe-bottom));
+    background: var(--bg-body);
+    overflow: hidden;
+    transition: opacity 350ms ease, visibility 350ms;
+}
+
+.splash::before {
+    content: '';
+    position: absolute;
+    inset: 0;
     background: radial-gradient(circle at 100% 0%, #0c4a6e 0%, var(--bg-body) 60%);
-    background-color: var(--bg-body);
+    opacity: 0;
+    transition: opacity 800ms ease;
+}
+
+.splash--welcome {
     overflow-y: auto;
 }
 
-.onboarding__hero {
+.splash--welcome::before {
+    opacity: 1;
+}
+
+.splash--leaving {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.splash__hero {
+    position: relative;
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 24px;
+    gap: 20px;
     text-align: center;
 }
 
-.onboarding__title {
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
+.splash__mark {
+    overflow: visible;
 }
 
-.onboarding__text {
+.splash__ring {
+    stroke-dasharray: 85 100;
+    stroke-dashoffset: 0;
+    animation: splash-ring 900ms cubic-bezier(0.22, 1, 0.36, 1) 150ms both;
+}
+
+.splash__flame {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: splash-flame-in 450ms cubic-bezier(0.34, 1.56, 0.64, 1) 650ms both,
+        splash-flicker 1.2s ease-in-out 1100ms infinite alternate;
+}
+
+.splash__core {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: splash-core 0.9s ease-in-out 1100ms infinite alternate;
+}
+
+.splash__word {
+    display: flex;
+    margin: 0;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.splash__walk {
+    animation: splash-from-left 600ms cubic-bezier(0.22, 1, 0.36, 1) 700ms both;
+}
+
+.splash__aholic {
+    color: var(--accent-amber);
+    animation: splash-from-right 600ms cubic-bezier(0.22, 1, 0.36, 1) 700ms both;
+}
+
+.splash__tagline {
+    margin: -8px 0 0;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-soft);
+    animation: splash-rise 400ms ease-out 1100ms both;
+}
+
+.splash__welcome {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    max-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    opacity: 0;
+    overflow: hidden;
+    text-align: center;
+    transition: max-height 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease 150ms;
+}
+
+.splash--welcome .splash__welcome {
+    max-height: 360px;
+    opacity: 1;
+}
+
+.splash__intro {
     max-width: 320px;
+    margin: 0 auto 14px;
     font-size: 15px;
     color: var(--text-muted);
 }
 
-.onboarding__actions {
-    width: 100%;
-    max-width: 420px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+.splash__welcome .btn {
+    min-height: 54px;
 }
 
-.onboarding__actions .btn {
-    min-height: 54px;
+@keyframes splash-ring {
+    from { stroke-dashoffset: 85; opacity: 0; }
+    10% { opacity: 1; }
+}
+
+@keyframes splash-flame-in {
+    from { transform: scale(0); }
+}
+
+@keyframes splash-flicker {
+    50% { transform: scale(1.04, 0.97) skewX(-2deg); }
+    to { transform: scale(0.98, 1.05) skewX(2deg); }
+}
+
+@keyframes splash-core {
+    to { transform: scale(0.85, 1.12); }
+}
+
+@keyframes splash-from-left {
+    from { transform: translateX(-60vw); opacity: 0; }
+}
+
+@keyframes splash-from-right {
+    from { transform: translateX(60vw); opacity: 0; }
+}
+
+@keyframes splash-rise {
+    from { transform: translateY(8px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .splash, .splash * { animation: none !important; }
+    .splash__welcome { transition: none; }
+}
+
+/* ─── Goal celebration (src/goal-celebration.js, ST-029) ─────────────────────
+ * Once a day, when the goal is met: a translucent brand flame falls from above
+ * the screen onto Today's step count (0–34%, accelerating), squashes on
+ * landing as an amber glow blooms behind the number (34–46%), then lifts a
+ * little and fades (46–100%). 2800ms = GOAL_FLAME_MS. The overlay is a
+ * zero-size point at the count's centre; JS sets left/top and
+ * --goal-flame-drop (how far above the screen the flame starts).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.goal-flame {
+    position: fixed;
+    z-index: 25;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.goal-flame__flame {
+    position: absolute;
+    left: 0;
+    top: 0;
+    mix-blend-mode: screen;
+    filter: drop-shadow(0 0 18px rgba(245, 158, 11, 0.65));
+    animation: goal-flame-drop 2800ms both;
+}
+
+.goal-flame__glow {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.55) 0%, rgba(245, 158, 11, 0.22) 38%, transparent 70%);
+    mix-blend-mode: screen;
+    animation: goal-flame-glow 2800ms ease-out both;
+}
+
+.goal-flame--still .goal-flame__flame {
+    transform: translate(-50%, -50%);
+    animation: goal-flame-still 2800ms ease-in-out both;
+}
+
+@keyframes goal-flame-drop {
+    0% {
+        transform: translate(-50%, calc(-50% + var(--goal-flame-drop))) scale(0.85);
+        opacity: 0.5;
+        animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+    }
+    34% {
+        transform: translate(-50%, -50%) scale(1.14, 0.86);
+        opacity: 0.8;
+        animation-timing-function: ease-out;
+    }
+    46% { transform: translate(-50%, -50%) scale(1); opacity: 0.85; }
+    70% { transform: translate(-50%, -55%) scale(1.02); opacity: 0.55; }
+    100% { transform: translate(-50%, -66%) scale(0.92); opacity: 0; }
+}
+
+@keyframes goal-flame-glow {
+    0%, 30% { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+    44% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+@keyframes goal-flame-still {
+    0% { opacity: 0; }
+    35% { opacity: 0.8; }
+    100% { opacity: 0; }
 }
 
 /* ─── Larger screens (the web app on a desktop) ──────────────────────────── */

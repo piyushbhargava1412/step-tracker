@@ -148,9 +148,9 @@ jobs:
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           if [ "$PRERELEASE" = true ]; then
-            TITLE="Step Tracker v$VERSION (Android, pre-release)"; FLAGS=--prerelease
+            TITLE="Walkaholic v$VERSION (Android, pre-release)"; FLAGS=--prerelease
           else
-            TITLE="Step Tracker v$VERSION"; FLAGS=--latest
+            TITLE="Walkaholic v$VERSION"; FLAGS=--latest
           fi
           gh release create "$TAG" "${{ steps.apk.outputs.path }}" \
             --verify-tag --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" $FLAGS

@@ -1,7 +1,7 @@
 {
-  "name": "step-tracker",
-  "short_name": "Step Tracker",
-  "description": "Private step streak tracker — Health Connect app with a read-only web viewer",
+  "name": "Walkaholic",
+  "short_name": "Walkaholic",
+  "description": "Walkaholic — private step streak tracker — Health Connect app with a read-only web viewer",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

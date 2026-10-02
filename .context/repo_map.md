@@ -9,13 +9,13 @@
 - `index.html` — mobile app shell (ST-025): sticky app bar (`#app-back`, `#app-title`, `#app-subtitle`,
   search + settings actions), one `<section id="tab-<name>" data-screen>` per screen (Today, Calendar,
   Insights, Journey, Search, Group challenge, Settings, Backup & restore), bottom navigation
-  (`[data-tab]`), pull-to-refresh indicator, first-launch `#onboarding`; Google Identity script
+  (`[data-tab]`), pull-to-refresh indicator, the launch `#splash` (first in `<body>`, with the first-launch welcome `#onboarding` as its bottom panel — ST-029); Google Identity script
   include, PWA `<link rel="manifest">` + `<meta name="theme-color">` (ST-013)
 - `styles.css` — Deep Blue tokens (unchanged palette) + mobile layout: app bar, screens, bottom nav,
   cards/tiles/list groups, segmented controls, bottom sheet, every screen's components (ST-025)
 - `src/` — ES module source tree (see Implementation Areas)
 - `public/` — static files served unmodified at the site root by Vite: `manifest.json` (web app
-  manifest), `icons/icon-192.png` / `icons/icon-512.png` (install icons), `sw.js` (classic,
+  manifest), `icons/icon.svg` (the Walkaholic mark — favicon and source of every icon, ST-029), `icons/icon-192.png` / `icons/icon-512.png` (install icons), `sw.js` (classic,
   non-module service worker — hand-mirrors `src/sw-policy.js`'s caching policy; ST-013; see
   `.context/flows/pwa-offline-install.md`)
 - `.github/workflows/deploy.yml` — GitHub Actions: test-gated Cloudflare Pages deploy on push to
@@ -29,7 +29,7 @@
 - `vite.config.js` — Vite dev/build config (mode-aware: `--mode native` adds `scripts/native-html.js`) and Vitest test config (`jsdom` environment)
 - `capacitor.config.json` — Capacitor config for the Android app (`appId` `com.piyushbhargava.steptracker`, `webDir: dist`) (ST-017)
 - `android/` — generated Capacitor Android project (committed; build outputs and `local.properties` ignored). Hand-edited: `app/src/main/AndroidManifest.xml` (health permissions + strip list), `app/build.gradle` (release signing from `ST_RELEASE_*`; ST-028: `versionName`/`versionCode` derived from `package.json`), `variables.gradle` (minSdk 26), `gradle/gradle-daemon-jvm.properties` (JDK 21), launcher/splash resources (ST-017/ST-019)
-- `scripts/` — `native-html.js` (+ test), `android-manifest.test.js` (health-permission guard), `android-main-activity.test.js` (plugin wiring), `release-management.test.js` (ST-028 updater/version/workflow guard), `generate-android-assets.sh` (icons/splash via `sips`)
+- `scripts/` — `native-html.js` (+ test), `android-manifest.test.js` (health-permission guard), `android-main-activity.test.js` (plugin wiring), `release-management.test.js` (ST-028 updater/version/workflow guard), `generate-android-assets.sh` (PWA + Android icons and splash rendered from `public/icons/icon.svg` via `rsvg-convert`, padded with `sips`), `branding.test.js` (ST-029 Walkaholic names vs kept identifiers, Android 12 splash background)
 - `docs/plans/` — `health-connect-android-roadmap.md`, `android-release.md` (build/sign/install/emulator guide); `docs/slices/ST-016…ST-025` (ST-025 = mobile redesign)
 - `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
 - `README.md` — setup guide, Google Cloud Console registration, Step Sync engine documentation,
@@ -67,7 +67,8 @@
   - `#settings-panel` delegated click/change (`data-action`, `data-field`) → prune / wipe / toggle-clear-all / change-home-base + auto-save anchor on date change (from `src/settings-ui.js`)
   - Backup & restore screen (`#tab-backup`, pushed from Settings) → `#storage-health-controls`, `#cloud-controls`, `#backup-controls` (from `src/storage-health-ui.js`, `src/drive-sync-ui.js`, `src/backup-ui.js`; see `.context/flows/backup-and-cloud-sync.md`)
   - `#backup-status` pill click (app, shown only when backup needs attention) → `screens.go('backup')` (ST-027, see `.context/flows/storage-health.md`)
-  - First launch: `onboarding.start()` (`src/onboarding-ui.js`) after the first render — shows `#onboarding` while there is no data and it was never dismissed
+  - Launch splash: `createSplash({ doc })` at the start of `bootstrap()` (`src/splash.js`, `#splash` in `index.html`) — ST-029
+  - First launch: `onboarding.start()` (`src/onboarding-ui.js`) after the first render — shows `#onboarding` (inside the splash) while there is no data and it was never dismissed; then `splash.hold()` if it opened, else `splash.dismiss()`; its `onClose` → `splash.dismiss()`
   - `DOMContentLoaded` → `bootstrap()` also fires a fire-and-forget, PROD-gated, fail-open service-worker registration: `createSwRegister({ nav: navigator, config: { prod: import.meta.env.PROD } }).register()` (from `src/sw-register.js`, ST-013; see `.context/flows/pwa-offline-install.md`)
   - Browser Service Worker lifecycle (`install`/`activate`/`fetch`) on `public/sw.js`, registered at scope `/` — precaches the app shell, applies a mirrored `src/sw-policy.js` caching policy, network-first navigations, stale-while-revalidate for the GSI script (ST-013; see `.context/flows/pwa-offline-install.md`)
 - `DOMContentLoaded` → `bootstrap()` renders the backup panels, `settingsUI`, then every data view plus `searchUI` (one `_renderViews` pass), then starts the welcome screen
@@ -87,7 +88,9 @@
 - Screen navigation (ST-025): `src/navigation.js` (`TAB_SCREENS`, `SCREENS` registry with titles/parents, `createNavigator(doc, { onEnter, today, scrollTo })` → `go`/`back`/`current`/`bind`; replaces the removed `tabs.js`)
 - Pull-to-refresh: `src/pull-to-refresh.js` (`createPullToRefresh(doc, { indicator, onRefresh, getScrollTop, isEnabled })`, `PULL_THRESHOLD_PX`)
 - Line icons: `src/icons.js` (`createIcon(doc, name, { size })`, `ICON_NAMES`) — used instead of emoji in the interface
-- First-launch welcome: `src/onboarding-ui.js` (`createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore })` → `start`/`dismiss`/`isOpen`; `ONBOARDING_DONE_KEY`)
+- Goal celebration: `src/goal-celebration.js` (`createGoalCelebration({ doc, storage, canPlay })` → `goalMet`/`flush`; `CELEBRATED_KEY`, `GOAL_FLAME_MS`) — once a day the brand flame drops onto Today's step count when the goal is met; fed by `progressUI`'s `onGoalMet`, flushed on `splash:gone` and on entering Today — ST-029
+- Brand flame: `src/brand-mark.js` (`createBrandFlame(doc, { size, lit })`, `BRAND_FLAME_PATH`, `BRAND_CORE_PATH`) — the logo's flame as an inline icon (the Strict tile); its test keeps the paths identical in `icon.svg` and `index.html` (splash + the app bar mark `.app-bar__mark` — left of the title on Today, right corner on Calendar / Insights / Journey) — ST-029
+- First-launch welcome: `src/onboarding-ui.js` (`createOnboardingUI(doc, { storage, connection, sourceName, hasData, onRestore, intro, onClose })` → `start`/`dismiss`/`isOpen`; `ONBOARDING_DONE_KEY`)
 - Share adapter: `src/platform/share.js` (`selectShare({ isNative })` → Capacitor Share in the app, Web Share in a browser that has it, else `null`)
 - UI status reporting: `src/ui-status.js` (`createStatusReporter`)
 - Step data sources (ST-016, ST-024): `src/step-source.js` (`StepSource` port, `assertStepSource`, `syncFailure`, `FAILURE_*`); the only source is `src/health-connect-step-source.js` (Android). The Google Fit REST source was removed in ST-024; engine tests use `makeFakeSource()` from `src/steps.fixtures.js`
@@ -100,7 +103,7 @@
 - Progress computation: `src/progress.js` (pure functions: `getTodayRecord`, `computeProgress` — also returns today's `distance_km`)
 - Today's progress panel renderer: `src/progress-ui.js` (`createProgressUI` factory; `render()` builds the heading with the goal chip (`#goal-select`, options "Goal 10k · ~8 km"), the SVG progress ring (`RING_CIRCUMFERENCE`) and "N steps to go" / "Goal met" into `#today-progress`, and fills `#tile-distance`; the ring's step count is kept inside the ring by `src/fit-text.js`)
 - Read-only web viewer (ST-023): `src/platform/access.js` (`selectAccess`, `applyAccess` — `<html data-access>`), `src/read-only.js` (`guardWrites(db, { isReadOnly })` → `{ writeSnapshot }`, Dexie DBCore middleware), `src/read-only-error.js` (`ReadOnlyError`, `isReadOnlyError`), `src/viewer.js` (`createViewer` → `refresh`, `canRefresh`, `snapshotTime`; `SNAPSHOT_AT_KEY`), `src/viewer-ui.js` (`renderViewerStatus`, `formatSnapshotTime`); `src/db.js` `VIEWER_DB_NAME` / `dbNameFor(access)`. See `.context/flows/read-only-web-viewer.md`.
-- Stat tile content: `src/stat-tile.js` (`fillStatTile(doc, el, { label, num, unit?, sub, good? })` — shared by `progress-ui.js` and `streak-ui.js`; number and unit in separate spans so a narrow tile wraps the unit instead of overflowing)
+- Stat tile content: `src/stat-tile.js` (`fillStatTile(doc, el, { label, num, unit?, sub, good?, flame? })` — `flame: 'lit'|'out'` leads the value with the brand flame — shared by `progress-ui.js` and `streak-ui.js`; number and unit in separate spans so a narrow tile wraps the unit instead of overflowing)
 - Fit-to-width text: `src/fit-text.js` (`fitText`, `keepTextFitted(el, box)` — `ResizeObserver`-driven shrink through the `--fit` CSS custom property, floor `MIN_FIT_SCALE` 0.5)
 - Calendar engine: `src/calendar.js` (`createCalendar(db, goal)` factory; pure functions: `monthBounds`, `buildMonthGrid`, `classifyDay(record, stepGoal, isFuture)`, `computeMonthlyAggregates`, `computeNavBounds`, `buildZeroState`, `computeCommitmentHitRate`; exports `EXCEEDED_RATIO = 1.5`, `CLASSIFICATION_*` constants; step-only classification, no km)
 - Calendar renderer: `src/calendar-ui.js` (`createCalendarUI(doc, db, calendarEngine, reporter, records, processImage, monthOverview)` factory → `{ render, openDay }`; `render()` builds `#calendar-nav` (icon arrows + month/year selects), `#calendar-summary` (three tiles) and the month grid into `#calendar-month` (fallback `#tab-calendar`); the day sheet `#day-drawer` shows a steps headline, a goal chip (Goal hit / Missed goal / In progress for today), an hourly chart from `hourly_steps`, and the counted / synced rows; `openDay(day)` opens it for the Week view; override form + revert button injected into drawer when `records` is provided; override form and proof lightbox come from the shared `src/override-form.js`)
@@ -121,7 +124,7 @@
 - Gamification engine + renderer: `src/gamification.js` (`LEVEL_RANKS` 50-entry ladder, `computeXP`, `computeLevel`, `evaluateAchievements` — Centurion/Marathoner/Unstoppable/Night Owl trophies; `createGamification(db, goal)` factory `compute()`, persists `achievements` in `settings`) + `src/gamification-ui.js` (`createGamificationUI(doc, engine, reporter)` → level card (LVL badge, rank, progress, XP) + "Trophies · N of 4 earned" grid with line icons into `#lab-gamification` on the Journey screen); ST-009, ST-025; see `.context/flows/gamification-levels-trophies.md`
 - Odyssey engine + renderer: `src/odyssey.js` (pure: `HOME_BASE_CITIES` 7-city catalogue, `MILESTONES` 6-leg route, `computeOdysseyProgress(totalDistanceKm)`) + `src/odyssey-ui.js` (`createOdysseyUI(doc, odysseyEngine, analyticsEngine, reporter)` → the expedition as a vertical route (home base, then each destination with the line into it filled to progress) into `#lab-odyssey` on the Journey screen, reusing `analyticsEngine.compute().lifetimeMetrics.totalDistanceKm`); ST-009; see `.context/flows/odyssey-virtual-expedition.md`
 - UI structure: `index.html` (ST-025 mobile shell — see Top-Level Layout)
-- Presentation: `styles.css` (ST-025: Deep Blue tokens unchanged + `--accent-red`, layout tokens `--tap`, `--safe-top/bottom`, `--bottom-nav-h`; `[hidden]` wins; app bar, bottom nav, segmented control, list groups, stat tiles, ring, heatmap, week chart, bottom sheet, Insights charts, Journey route, Search, Settings, Backup panels, onboarding; reduced-motion aware; `src/styles.test.js` checks every emitted class has a rule)
+- Presentation: `styles.css` (ST-025: Deep Blue tokens unchanged + `--accent-red`, layout tokens `--tap`, `--safe-top/bottom`, `--bottom-nav-h`; `[hidden]` wins; app bar, bottom nav, segmented control, list groups, stat tiles, ring, heatmap, week chart, bottom sheet, Insights charts, Journey route, Search, Settings, Backup panels, launch splash + welcome panel (ST-029); reduced-motion aware; `src/styles.test.js` checks every emitted class has a rule)
 - DB schema migrations: `src/db.js` (Dexie `DB_VERSION = 6`; v2 adds `goal_history` and seeds active goals; v3 backfills `effective_*`/`is_overridden`/`override` on legacy `daily_records` rows; v4 drops `goal_history`, seeds `active_step_goal` in `settings`; v5 seeds `sync_anchor_date = '2018-01-01'` in `settings`); v6 backfills `hourly_steps: null` on legacy `daily_records` rows (ST-009)
 - Local backup engine: `src/backup.js` (`createBackup(db)` factory — `buildBackup()`/`restoreBackup(parsed)` full-database JSON envelope export/import; pure exports `blobToBase64`, `base64ToBlob`, `_validateEnvelope`/`validateBackupPayload`, `BACKUP_SCHEMA_VERSION`, `MAX_BACKUP_RECORDS`, `MAX_BACKUP_BYTES`; also exposes `computeSignature`/`hasUnpushedChanges`/`markPushed` dirty-check for the Drive push hook; ST-012)
 - Local backup UI renderer: `src/backup-ui.js` (`createBackupUI(doc, backup, reporter, confirmFn, settings = null)`; renders the "📄 Local JSON Files" export/restore controls (confirm-gated restore, last-export metadata line) into `#backup-controls`; ST-012)
@@ -180,7 +183,7 @@
 - Kubernetes/Helm/Kustomize/Serverless manifests: Not found
 
 ## Scripts & Automation
-- `scripts/generate-android-assets.sh` — regenerates Android launcher icons and splash images (macOS `sips`)
+- `scripts/generate-android-assets.sh` — renders the PWA icons, Android launcher icons and splash images from `public/icons/icon.svg` (`rsvg-convert` from `brew install librsvg`, plus macOS `sips`)
 - `scripts/native-html.js` — Vite plugin for the native build (strips the PWA manifest link)
 - `scripts/*.test.js` — guards for files Vitest can't execute: the manifest's health permissions,
   `MainActivity` plugin wiring, and (ST-028) `ApkUpdaterPlugin`, the package.json-driven Gradle

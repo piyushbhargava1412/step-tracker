@@ -18,7 +18,7 @@ export const SNAPSHOT_AT_KEY = 'viewer_snapshot_at';
 
 export const NOT_CONNECTED_MESSAGE = '🔑 Connect your Google Account to see your step data';
 export const NO_BACKUP_MESSAGE =
-  'ℹ️ No Step Tracker backup on your Google Drive yet — in the Android app, open Settings › Backup & restore and connect Google Drive';
+  'ℹ️ No Walkaholic backup on your Google Drive yet — in the Android app, open Settings › Backup & restore and connect Google Drive';
 export const LOAD_FAILED_MESSAGE = "❌ Couldn't load your data from Google Drive — check your connection and try again";
 
 /**
