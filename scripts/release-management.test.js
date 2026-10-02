@@ -83,6 +83,17 @@ describe('ST-028: release workflow', () => {
     expect(WORKFLOW).toMatch(/does not match package\.json/);
   });
 
+  it('skips — without building — when the tag already has a release (re-pushed tag, re-dispatch)', () => {
+    expect(WORKFLOW).toMatch(/jobs:\s*\n(\s*#.*\n)*\s*check:/);
+    expect(WORKFLOW).toContain('gh release view "$TAG" --repo "$GITHUB_REPOSITORY"');
+    expect(WORKFLOW).toMatch(/needs:\s*check/);
+    expect(WORKFLOW).toContain("if: needs.check.outputs.exists == 'false'");
+  });
+
+  it('fails, rather than releasing again, when it cannot tell whether the release exists', () => {
+    expect(WORKFLOW).toContain('release not found');
+  });
+
   it('is test-gated and refuses to publish an unsigned APK', () => {
     expect(WORKFLOW).toContain('npm test');
     expect(WORKFLOW).toContain('apksigner');

@@ -41,6 +41,8 @@ worker updates the PWA (see [pwa-offline-install.md](pwa-offline-install.md)).
   ST-028 the codes were hand-set 2–6). Vite injects the same version as `__APP_VERSION__`.
 
 ## Release workflow (`release-android.yml`)
+0. `check` job: `gh release view "$TAG"` — a release already exists → `release` job skipped (green
+   no-op; covers a re-pushed tag or a re-dispatch); "release not found" → build; any other error → fail.
 1. Tag must equal `v` + `package.json` version, else fail.
 2. `npm ci` → `npm test` → `npm run cap:sync` (`VITE_CLIENT_ID` from `GOOGLE_CLIENT_ID`).
 3. Keystore from `ANDROID_KEYSTORE_BASE64` (missing → fail); `./gradlew assembleRelease` with

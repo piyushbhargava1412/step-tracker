@@ -220,11 +220,13 @@ dispatches [release-android.yml](../../.github/workflows/release-android.yml) on
 already present → nothing to do; a version below the latest tag → the run fails.) Never create or
 push tags by hand. The release workflow:
 
-1. refuses a tag that doesn't match `package.json`;
-2. runs the tests, then `npm run cap:sync` and `./gradlew assembleRelease` with the release key
+1. skips everything (green run, nothing built) if the tag already has a release — e.g. a re-pushed
+   tag or a re-run — and fails if it can't tell;
+2. refuses a tag that doesn't match `package.json`;
+3. runs the tests, then `npm run cap:sync` and `./gradlew assembleRelease` with the release key
    (passed as `ORG_GRADLE_PROJECT_ST_RELEASE_*` environment variables, never on the command line);
-3. refuses to publish if `apksigner` finds no signature (an unsigned APK can't update the app);
-4. publishes the release: notes are the commit subjects since the previous tag (minus
+4. refuses to publish if `apksigner` finds no signature (an unsigned APK can't update the app);
+5. publishes the release: notes are the commit subjects since the previous tag (minus
    `chore(release)`), followed by install steps and the APK's SHA-256 and signing-certificate
    SHA-256. **Write meaningful commit subjects** — they are the "What's new" the app shows.
    Edit the notes on GitHub afterwards if you want richer text; keep a `## What's new` heading,

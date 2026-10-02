@@ -19,7 +19,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A tag that already has a release (a re-pushed tag, a re-run dispatch) is a no-op: skip the build
+  # instead of failing at "release already exists". Any other lookup error fails the run.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.lookup.outputs.exists }}
+    steps:
+      - name: Look for an existing release
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ERR=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName 2>&1 >/dev/null); then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists; nothing to build or publish." | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ERR" == *"release not found"* ]]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Couldn't check for an existing release $TAG: $ERR" >&2; exit 1
+          fi
+
   release:
+    needs: check
+    if: needs.check.outputs.exists == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -148,7 +148,7 @@
   commit (so the release shows the commit's signature, not an unsigned tag object) and runs `gh workflow run release-android.yml --ref vX.Y.Z`; `permissions: contents: write,
   actions: write`
 - `.github/workflows/release-android.yml` (ST-028) — triggers on `v*` tags and `workflow_dispatch`
-  (from the tagger); refuses a tag that doesn't
+  (from the tagger); a `check` job skips the build when the tag already has a release; refuses a tag that doesn't
   match `package.json` → `npm ci` → `npm test` → `npm run cap:sync` → `./gradlew assembleRelease` signed
   from the `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` /
   `ANDROID_KEY_PASSWORD` secrets → `apksigner` check → `gh release create` on this repo with
