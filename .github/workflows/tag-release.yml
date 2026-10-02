@@ -1,0 +1,50 @@
+name: Tag release
+
+# ST-028. package.json's "version" is the source of truth, and the bump is committed on the feature
+# branch with the rest of the work (`npm run release -- patch|minor|major`). When the merge to main
+# raises it above the latest v* tag, this tags the merged commit and dispatches
+# release-android.yml on the tag. A tag pushed with GITHUB_TOKEN doesn't fire other workflows'
+# push triggers, so the release is started explicitly with workflow_dispatch.
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag and dispatch the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          TAG="v$VERSION"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::package.json version must look like 1.2.3, got $VERSION" >&2; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists; nothing to release." | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          LATEST=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "${LATEST#v}" "$VERSION" | sort -V | tail -n1)" != "$VERSION" ]; then
+            echo "::error::Version $VERSION is lower than the latest tag $LATEST; not tagging." >&2; exit 1
+          fi
+          # Lightweight tag: GitHub then shows the merged commit's signature (merges made on GitHub
+          # are signed by it). An annotated tag would be a separate, unsigned object and show as
+          # "Unverified" on the release.
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "$TAG"
+          gh workflow run release-android.yml --ref "$TAG"
+          echo "Tagged $TAG and dispatched the release workflow." >> "$GITHUB_STEP_SUMMARY"
