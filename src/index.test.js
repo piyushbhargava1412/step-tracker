@@ -142,6 +142,14 @@ describe('index.html — Insights, Journey and pushed screens', () => {
     expect(settings.querySelector('#app-version')).not.toBeNull();
   });
 
+  it('ST-028: Settings has an App-update mount just above the version line, hidden and empty until the app fills it', () => {
+    const mount = document.querySelector('#tab-settings #app-update');
+    expect(mount).not.toBeNull();
+    expect(mount.children).toHaveLength(0);
+    expect(mount.hidden).toBe(true);
+    expect(mount.nextElementSibling.id).toBe('app-version');
+  });
+
   it('Backup lives inside Settings and holds storage health, Drive and file panels', () => {
     const backup = document.getElementById('tab-backup');
     for (const id of ['storage-health-controls', 'cloud-controls', 'backup-controls']) {

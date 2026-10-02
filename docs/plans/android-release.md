@@ -12,9 +12,13 @@
 
 ## Versions
 
-`package.json` `version` and `android/app/build.gradle` `versionName` carry the same version (the
-Settings screen shows `package.json`'s). `versionCode` must go up with every APK you install over an
-older one — Android refuses a lower or equal code.
+`package.json` `version` is the **only** place the version lives (ST-028). `android/app/build.gradle`
+reads it at build time: `versionName` is the `x.y.z`, and
+`versionCode = major×10000 + minor×100 + patch` (0.4.1 → 401), so the code rises with every release
+— Android refuses to install a lower or equal code over an installed app. Minor and patch must stay
+below 100 (Gradle fails the build otherwise). The Settings screen shows the same version.
+
+Before ST-028 the code was bumped by hand; the jump from 6 to 400 is expected and harmless.
 
 | Version | versionCode | What |
 |---------|-------------|------|
@@ -23,6 +27,9 @@ older one — Android refuses a lower or equal code.
 | 0.3.0 | 4 | Stay connected to Drive (ST-026), read-only web viewer (ST-023), Google Fit retired (ST-024) |
 | 0.3.1 | 5 | Six-digit step ring (ST-025 polish), status lights and the backup pill (ST-027) |
 | 0.4.0 | 6 | Insights "Longest streak" and the Unstoppable trophy use your step goal instead of 10,000 |
+
+Later versions are listed on the repo's [GitHub Releases](https://github.com/piyushbhargava1412/step-tracker/releases)
+page, each with its notes, APK checksum and signing certificate.
 
 ## Prerequisites
 
@@ -168,3 +175,69 @@ Exports in the app are saved to `Documents/Step Tracker/` on the phone.
   analyser predates the plugins' Kotlin 2.4 metadata); the build still succeeds.
 - If installs hang, check the emulator's load (`adb shell uptime`); a runaway WebView in another
   app can starve it. `adb emu kill` + a cold boot (`emulator -avd <name> -no-snapshot-load`) fixes it.
+
+
+## Publishing a release and in-app updates (ST-028)
+
+Releases are **GitHub Releases on this repo** (it is public, so the app can read them without a
+token). Each carries `step-tracker-<version>.apk`. 0.x versions are published as pre-releases,
+like the earlier hand-made ones; from 1.0.0 they are regular releases.
+
+### One-time setup
+
+Add these repository secrets (Settings → Secrets and variables → Actions); `GOOGLE_CLIENT_ID` is
+already there for the web deploy:
+
+| Secret | Value |
+|--------|-------|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -i ~/keys/step-tracker-release.jks \| pbcopy` |
+| `ANDROID_KEYSTORE_PASSWORD` | `ST_RELEASE_STORE_PASSWORD` from `~/.gradle/gradle.properties` |
+| `ANDROID_KEY_ALIAS` | `step-tracker` |
+| `ANDROID_KEY_PASSWORD` | `ST_RELEASE_KEY_PASSWORD` |
+
+The workflow needs no personal access token: the built-in `GITHUB_TOKEN` (with
+`permissions: contents: write`) creates the release.
+
+### Cutting a release
+
+From an up-to-date, clean `main`:
+
+```bash
+npm run release -- patch
+```
+
+```bash
+git push --follow-tags
+```
+
+`npm run release -- patch|minor|major` (or an explicit `0.5.0`) bumps `package.json` and
+`package-lock.json`, commits `chore(release): vX.Y.Z` and tags `vX.Y.Z`. Pushing the tag runs
+[release-android.yml](../../.github/workflows/release-android.yml), which:
+
+1. refuses a tag that doesn't match `package.json`;
+2. runs the tests, then `npm run cap:sync` and `./gradlew assembleRelease` with the release key
+   (passed as `ORG_GRADLE_PROJECT_ST_RELEASE_*` environment variables, never on the command line);
+3. refuses to publish if `apksigner` finds no signature (an unsigned APK can't update the app);
+4. publishes the release: notes are the commit subjects since the previous tag (minus
+   `chore(release)`), followed by install steps and the APK's SHA-256 and signing-certificate
+   SHA-256. **Write meaningful commit subjects** — they are the "What's new" the app shows.
+   Edit the notes on GitHub afterwards if you want richer text; keep a `## What's new` heading,
+   because the app shows only that section.
+
+### In the app: Settings › App › Check
+
+Android app only (the web viewer's service worker keeps the PWA current). **Check** asks GitHub for
+the repo's recent releases (`src/app-update.js`), pre-releases included, and compares the highest
+version with the installed one:
+
+- *You're on the latest version (x.y.z).*
+- *Version x.y.z is available.* with its "What's new" as plain text and **Install version x.y.z**.
+  The app downloads the APK itself (`ApkUpdaterPlugin.java`, `https://github.com` links only) and
+  opens Android's installer, which updates in place and keeps the data (same signing key). The first
+  time, Android opens the *Install unknown apps* switch for Step Tracker: turn it on and tap Install
+  again. It never installs silently. If the in-app download fails, the browser's download is used.
+- *Couldn't check for updates…* when offline or GitHub refuses (unauthenticated API calls are
+  limited to 60 an hour per IP address).
+
+A **debug** build can't be updated by a release APK (different signing key); Android's installer
+says the package conflicts. Test the flow with release builds, or check only the messages.

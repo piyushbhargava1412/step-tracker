@@ -40,6 +40,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- ST-028 in-app updates (ApkUpdaterPlugin): hand a downloaded release APK to the package installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Backup/CSV export into Documents/Step Tracker needs this only on Android 10 and older. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 

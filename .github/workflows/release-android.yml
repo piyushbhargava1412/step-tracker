@@ -1,0 +1,130 @@
+name: Release Android APK
+run-name: Release Android ${{ github.ref_name }}
+
+# ST-028. Bump package.json with `npm run release -- patch|minor|major` (commits and tags vX.Y.Z),
+# then `git push --follow-tags`. This builds the signed APK from that tag and publishes it as a
+# GitHub Release on this repo, which the app's Settings › App › Check reads (src/app-update.js).
+# See docs/plans/android-release.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Check the tag matches package.json
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $VERSION" >&2; exit 1
+          fi
+          MAJOR=${VERSION%%.*}
+          # 0.x builds are trial builds: publish them as pre-releases, as before.
+          {
+            echo "version=$VERSION"
+            echo "prerelease=$([ "$MAJOR" = 0 ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run cap:sync
+        env:
+          VITE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+
+      - name: Restore the release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; an unsigned APK can't update the installed app" >&2; exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build the signed APK
+        working-directory: android
+        env:
+          ORG_GRADLE_PROJECT_ST_RELEASE_STORE_FILE: ${{ runner.temp }}/release.jks
+          ORG_GRADLE_PROJECT_ST_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_ST_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_ST_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Verify the signature
+        id: apk
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APK="$RUNNER_TEMP/step-tracker-$VERSION.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          APKSIGNER=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/certs.txt"
+          CERT=$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/certs.txt" | head -1)
+          [ -n "$CERT" ] || { echo "::error::APK is not signed" >&2; exit 1; }
+          {
+            echo "path=$APK"
+            echo "sha256=$(sha256sum "$APK" | cut -d' ' -f1)"
+            echo "cert=$CERT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write the release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.apk.outputs.sha256 }}
+          CERT: ${{ steps.apk.outputs.cert }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          CODE=$(node -p 'const [a,b,c]=require("./package.json").version.split(".").map(Number); a*10000+b*100+c')
+          {
+            echo "## What's new"
+            git log "${PREV:+$PREV..}$TAG" --no-merges --pretty='- %s' | grep -v '^- chore(release)' || true
+            echo
+            echo "## Install or update"
+            echo "In the app: **Settings › App › Check**, then **Install version $VERSION**. Or download"
+            echo "**\`step-tracker-$VERSION.apk\`** below on your Android phone (Android 8.0 or newer) and open it."
+            echo "It installs over earlier versions and keeps your data."
+            echo
+            echo "## Verify the download"
+            echo "- Version: **$VERSION (build $CODE)**, built from \`$(git rev-parse --short "$TAG")\`"
+            echo "- File SHA-256: \`$SHA256\`"
+            echo "- Signing certificate SHA-256: \`$CERT\`"
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            TITLE="Step Tracker v$VERSION (Android, pre-release)"; FLAGS=--prerelease
+          else
+            TITLE="Step Tracker v$VERSION"; FLAGS=--latest
+          fi
+          gh release create "$TAG" "${{ steps.apk.outputs.path }}" \
+            --verify-tag --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" $FLAGS

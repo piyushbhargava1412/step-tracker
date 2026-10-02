@@ -15,10 +15,12 @@ import ee.forgr.capacitor.social.login.SocialLoginPlugin;
 // Guarded by scripts/android-main-activity.test.js.
 public class MainActivity extends BridgeActivity implements ModifiedMainActivityForSocialLoginPlugin {
 
-    // ST-026: app-local plugins must be registered before the bridge is created.
+    // App-local plugins must be registered before the bridge is created: DriveAuthorization (ST-026)
+    // and ApkUpdater (ST-028, in-app updates).
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DriveAuthorizationPlugin.class);
+        registerPlugin(ApkUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

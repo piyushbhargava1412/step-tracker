@@ -50,6 +50,7 @@ backup.
 | Step sync engine & `StepSource` port (Health Connect is the only source) | [flows/historical-step-sync.md](.context/flows/historical-step-sync.md) |
 | Android app: Health Connect connection & sync, platform layer | [flows/android-health-connect.md](.context/flows/android-health-connect.md) |
 | Android build, signing, install & emulator testing | [docs/plans/android-release.md](docs/plans/android-release.md) |
+| Release management & in-app update check (ST-028): versioning, tag → GitHub Release, Settings › App | [flows/app-updates.md](.context/flows/app-updates.md) |
 
 ## Business Flows
 
@@ -73,6 +74,7 @@ relevant to your current task.**
 - [Group Challenge Tracker](.context/flows/group-challenge-tracker.md)
 - [PWA Install & Offline App Shell Caching](.context/flows/pwa-offline-install.md)
 - [Android App — Health Connect Connection & Sync](.context/flows/android-health-connect.md)
+- [Release Management & In-App Updates](.context/flows/app-updates.md)
 
 <!-- repo-agentifier:managed:end -->
 
