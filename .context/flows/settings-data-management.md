@@ -13,7 +13,8 @@ The **Settings screen** (ST-025; pushed from Today's app-bar gear) holds grouped
 (the step source's Connect button `#auth-btn`), Backup (→ Backup & restore), then the data panel
 `#settings-panel` built by `src/settings-ui.js` — Journey › Home city, History › Track history from
 (the sync anchor: how far back history is fetched), and Danger zone (delete days before the anchor,
-or erase everything) — and the app version. The engine (`src/settings.js`) is pure Dexie; the
+or erase everything) — then, in the Android app only, App › Updates (`#app-update`, ST-028, see
+[app-updates.md](app-updates.md)) — and the app version. The engine (`src/settings.js`) is pure Dexie; the
 DOM-writer owns `#settings-panel`; `src/confirm.js` provides an injectable confirm seam. All
 mutations dispatch `data:records:mutated` to trigger downstream re-renders.
 

@@ -165,7 +165,12 @@ npm run cap:sync
 npm run android:run
 ```
 
-Full build, signing, install and emulator-testing guide: [docs/plans/android-release.md](docs/plans/android-release.md).
+Releases (ST-028): `npm run release -- patch` (or `minor` / `major`), then `git push --follow-tags`.
+The tag builds the signed APK in GitHub Actions and publishes it on the repo's Releases page; in the
+app, **Settings › App › Check** finds it and installs it in place, keeping your data. See
+[.context/flows/app-updates.md](.context/flows/app-updates.md).
+
+Full build, signing, release, install and emulator-testing guide: [docs/plans/android-release.md](docs/plans/android-release.md).
 Roadmap: [docs/plans/health-connect-android-roadmap.md](docs/plans/health-connect-android-roadmap.md).
 
 ## Step Sync

@@ -45,6 +45,9 @@ import { createChallenge } from './challenge.js'
 import { createChallengeUI } from './challenge-ui.js'
 import { createSettings } from './settings.js'
 import { createSettingsUI } from './settings-ui.js'
+import { createUpdateChecker } from './app-update.js'
+import { createUpdateUI } from './update-ui.js'
+import { createApkInstaller } from './platform/native/apk-installer.js'
 import { createConfirmAdapter } from './confirm.js'
 import { createBackup, _validateEnvelope } from './backup.js'
 import { createBackupUI } from './backup-ui.js'
@@ -438,6 +441,23 @@ export async function bootstrap(doc = document, storage = window.localStorage) {
   }
   const versionEl = doc.getElementById('app-version')
   if (versionEl && APP_VERSION) versionEl.textContent = `Step Tracker v${APP_VERSION}`
+
+  // ST-028: in the app, Settings › App checks GitHub Releases for a newer APK and installs it.
+  // The web viewer has no such row: its service worker updates the PWA.
+  if (isNative) {
+    try {
+      createUpdateUI(doc, {
+        installedVersion: APP_VERSION,
+        checker: createUpdateChecker({ installedVersion: APP_VERSION }),
+        installer: createApkInstaller(),
+        openExternal: (url) => {
+          Promise.resolve(AppLauncher.openUrl({ url })).catch((err) => console.error('[main] opening the APK link failed', err))
+        },
+      }).render(doc.getElementById('app-update'))
+    } catch (err) {
+      console.error('[main] update check setup failed, continuing', err)
+    }
+  }
 
   // 8. Sync: the button in Today's status line and pull-to-refresh.
   const requestSync = () => syncTrigger.run()

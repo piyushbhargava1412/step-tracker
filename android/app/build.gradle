@@ -1,5 +1,18 @@
 apply plugin: 'com.android.application'
 
+// ST-028: package.json is the single source of the app version. versionName is its "x.y.z";
+// versionCode = major×10000 + minor×100 + patch, so it rises with every release (0.4.1 → 401).
+def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version
+def versionMatch = appVersion =~ /^(\d+)\.(\d+)\.(\d+)$/
+if (!versionMatch.matches()) {
+    throw new GradleException("package.json version must look like 1.2.3, got '${appVersion}'")
+}
+def (major, minor, patch) = (1..3).collect { versionMatch.group(it) as int }
+if (minor > 99 || patch > 99) {
+    throw new GradleException("Minor and patch versions must stay below 100 for versionCode, got '${appVersion}'")
+}
+def appVersionCode = major * 10000 + minor * 100 + patch
+
 android {
     namespace = "com.piyushbhargava.steptracker"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +20,8 @@ android {
         applicationId "com.piyushbhargava.steptracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 6
-        versionName "0.4.0"
+        versionCode appVersionCode
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

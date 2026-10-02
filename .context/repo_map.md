@@ -20,12 +20,14 @@
   `.context/flows/pwa-offline-install.md`)
 - `.github/workflows/deploy.yml` — GitHub Actions: test-gated Cloudflare Pages deploy on push to
   `main` (ST-013)
-- `package.json` — npm manifest (version `0.2.0`, shown in Settings via Vite `define` → `__APP_VERSION__`); declares Vite, Vitest, Dexie, Capacitor and bundled-font dependencies
+- `.github/workflows/release-android.yml` — GitHub Actions: on a `v*` tag, build the signed APK and
+  publish it as a GitHub Release on this repo (ST-028)
+- `package.json` — npm manifest; its `version` is the single source of the app version (ST-028): shown in Settings via Vite `define` → `__APP_VERSION__`, read by `android/app/build.gradle` for `versionName`/`versionCode`, and bumped + tagged by `npm run release`; declares Vite, Vitest, Dexie, Capacitor and bundled-font dependencies
 - `package-lock.json` — lockfile
 - `vite.config.js` — Vite dev/build config (mode-aware: `--mode native` adds `scripts/native-html.js`) and Vitest test config (`jsdom` environment)
 - `capacitor.config.json` — Capacitor config for the Android app (`appId` `com.piyushbhargava.steptracker`, `webDir: dist`) (ST-017)
-- `android/` — generated Capacitor Android project (committed; build outputs and `local.properties` ignored). Hand-edited: `app/src/main/AndroidManifest.xml` (health permissions + strip list), `app/build.gradle` (release signing from `ST_RELEASE_*`), `variables.gradle` (minSdk 26), `gradle/gradle-daemon-jvm.properties` (JDK 21), launcher/splash resources (ST-017/ST-019)
-- `scripts/` — `native-html.js` (+ test), `android-manifest.test.js` (health-permission guard), `generate-android-assets.sh` (icons/splash via `sips`)
+- `android/` — generated Capacitor Android project (committed; build outputs and `local.properties` ignored). Hand-edited: `app/src/main/AndroidManifest.xml` (health permissions + strip list), `app/build.gradle` (release signing from `ST_RELEASE_*`; ST-028: `versionName`/`versionCode` derived from `package.json`), `variables.gradle` (minSdk 26), `gradle/gradle-daemon-jvm.properties` (JDK 21), launcher/splash resources (ST-017/ST-019)
+- `scripts/` — `native-html.js` (+ test), `android-manifest.test.js` (health-permission guard), `android-main-activity.test.js` (plugin wiring), `release-management.test.js` (ST-028 updater/version/workflow guard), `generate-android-assets.sh` (icons/splash via `sips`)
 - `docs/plans/` — `health-connect-android-roadmap.md`, `android-release.md` (build/sign/install/emulator guide); `docs/slices/ST-016…ST-025` (ST-025 = mobile redesign)
 - `.env.example` — template for `.env.local` containing `VITE_CLIENT_ID`
 - `README.md` — setup guide, Google Cloud Console registration, Step Sync engine documentation,
@@ -72,6 +74,7 @@
 - Composition root / bootstrap: `src/main.js` (resolves `isNative` first, then the platform storage manager, file saver, and `{ source, connection }` via `selectStepSource`)
 - Platform layer (ST-018/019): `src/platform/capabilities.js` (`isNativePlatform`), `files.js` (`createFileSaver` → web download / native Documents), `storage-manager.js` (`selectStorageManager` — browser `navigator` or always-persisted in the app), `step-source.js` (`selectStepSource` → Fit + Google connection on web, Health Connect + Health Connect connection in the app; `connectLabelFor`), `web/google-fit-connection.js` (connect / silent restore via the `google_connected` flag), `native/health-connect-connection.js` (permission request incl. history, Play Store link, restore-at-launch)
 - Google auth per platform (ST-020): `src/platform/auth.js` (`selectAuth` — web `createAuth` or native), `src/platform/native/google-auth.js` (`createNativeGoogleAuth`, Drive-only: first connect via the lazy SocialLogin plugin, then every token — silent restore and `getFreshAccessToken()` before each Drive call — from `src/platform/native/drive-authorization.js` (ST-026, `createDriveAuthorization`, JS side of the app-local `DriveAuthorizationPlugin.java`, Play services Authorization API, `NEEDS_CONSENT` → null); remembers the account email under `google_drive_account`), `src/platform/google-connection.js` (shared connect/restore/flag logic used by the web header and the app's Drive panel), `src/platform/native/google-drive-connection.js`
+- Release management & in-app updates (ST-028): `src/app-update.js` (`createUpdateChecker` — GitHub `releases?per_page=20`, highest installable version incl. pre-releases; `parseVersion`, `isNewerVersion`, `newestRelease`, `plainReleaseNotes`), `src/update-ui.js` (`createUpdateUI` — Settings › App, `#app-update`, Android app only), `src/platform/native/apk-installer.js` (`createApkInstaller`, JS side of `ApkUpdaterPlugin.java`; `InstallPermissionError`). See `.context/flows/app-updates.md`
 - Sync trigger & app lifecycle (ST-021): `src/sync-trigger.js` (`createSyncTrigger` — `run()` / `runIfStale()` with a 10-min cooldown and silent readiness check via `stepSync.canSync()`), `src/platform/app-lifecycle.js` (`onAppResume` — Capacitor `resume` / `visibilitychange`)
 - Primary device (ST-020): `src/primary-device.js` (`createPrimaryDevice` — `deviceId`, `otherPrimary({ localOnly })` fail-closed, `status()`, `makeThisPrimary()`); settings `getPrimaryDevice`/`setPrimaryDevice` (`PRIMARY_DEVICE_KEY`); `drive-sync.readPrimaryDevice()` + `appProperties` on upload
 - Health Connect step source (ST-019): `src/health-connect-step-source.js` (`createHealthConnectStepSource(health, reporter)` — hourly `queryAggregated` sums grouped by local date, zero-fill, best-effort distance, `permission-denied` → `FAILURE_AUTH_EXPIRED`, other errors → `FAILURE_SOURCE_ERROR`)
@@ -138,8 +141,13 @@
   (`npm ci` → `npm test` → `npm run build` with `VITE_CLIENT_ID` from the `GOOGLE_CLIENT_ID` secret)
   → `cloudflare/wrangler-action@v3` deploys `dist/` to the Cloudflare Pages project `step-tracker`
   using `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets; `permissions: contents: read` (ST-013)
+- `.github/workflows/release-android.yml` (ST-028) — triggers on `v*` tags; refuses a tag that doesn't
+  match `package.json` → `npm ci` → `npm test` → `npm run cap:sync` → `./gradlew assembleRelease` signed
+  from the `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` /
+  `ANDROID_KEY_PASSWORD` secrets → `apksigner` check → `gh release create` on this repo with
+  `step-tracker-<version>.apk` (pre-release while major is 0); `permissions: contents: write`
 - Other CI configs (`.gitlab-ci.yml`, `Jenkinsfile`, etc.): Not found
-- Pipeline stages: checkout → setup-node (20, npm cache) → `npm ci` → `npm test` → `npm run build` → Cloudflare Pages deploy
+- Pipeline stages (deploy): checkout → setup-node (24, npm cache) → `npm ci` → `npm test` → `npm run build` → Cloudflare Pages deploy
 
 ## Build & Run Commands
 
@@ -154,6 +162,7 @@
 | Android open / run | `npm run android:open` / `npm run android:run` | `cap open android` / `cap:sync` + `cap run android` |
 | Android icons | `npm run android:assets` | `scripts/generate-android-assets.sh` |
 | Debug APK | `cd android && ./gradlew assembleDebug` | see `docs/plans/android-release.md` |
+| Cut a release | `npm run release -- patch\|minor\|major` then `git push --follow-tags` | scripts.release = `npm version -m "chore(release): v%s"`; the tag runs `release-android.yml` (ST-028) |
 | lint | Not found | no eslint/prettier config detected |
 | typecheck | Not found | no TypeScript config detected |
 
@@ -166,6 +175,9 @@
 ## Scripts & Automation
 - `scripts/generate-android-assets.sh` — regenerates Android launcher icons and splash images (macOS `sips`)
 - `scripts/native-html.js` — Vite plugin for the native build (strips the PWA manifest link)
+- `scripts/*.test.js` — guards for files Vitest can't execute: the manifest's health permissions,
+  `MainActivity` plugin wiring, and (ST-028) `ApkUpdaterPlugin`, the package.json-driven Gradle
+  version and the release workflow (`scripts/release-management.test.js`)
 
 ## Documentation Index
 - `README.md`

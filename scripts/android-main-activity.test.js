@@ -33,7 +33,7 @@ const APP_GRADLE = fs.readFileSync(path.resolve(__dirname, '../android/app/build
 
 describe('ST-026: DriveAuthorization native plugin', () => {
   it('is registered by MainActivity before the bridge starts', () => {
-    expect(MAIN_ACTIVITY).toMatch(/registerPlugin\(DriveAuthorizationPlugin\.class\);\s*super\.onCreate\(/);
+    expect(MAIN_ACTIVITY).toMatch(/registerPlugin\(DriveAuthorizationPlugin\.class\);(\s*registerPlugin\(\w+\.class\);)*\s*super\.onCreate\(/);
   });
 
   it('exposes "DriveAuthorization" with an authorize method', () => {

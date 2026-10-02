@@ -207,6 +207,13 @@ const { mockCapacitorApp } = vi.hoisted(() => ({
 vi.mock('@capacitor/app', () => ({ App: mockCapacitorApp }))
 const { mockOnAppResume, mockOnBackButton } = vi.hoisted(() => ({ mockOnAppResume: vi.fn(), mockOnBackButton: vi.fn() }))
 vi.mock('./platform/app-lifecycle.js', () => ({ onAppResume: mockOnAppResume, onBackButton: mockOnBackButton }))
+// ST-028: Settings › App (update check), built only in the Android app.
+const { mockUpdateUI, mockApkInstaller } = vi.hoisted(() => ({
+  mockUpdateUI: { render: vi.fn() },
+  mockApkInstaller: { downloadAndInstall: vi.fn() },
+}))
+vi.mock('./update-ui.js', () => ({ createUpdateUI: vi.fn(() => mockUpdateUI) }))
+vi.mock('./platform/native/apk-installer.js', () => ({ createApkInstaller: () => mockApkInstaller }))
 
 // ST-015 Task 9: settings + settings-ui mocks
 const mockSettingsInstance = { getSyncAnchorDate: vi.fn().mockResolvedValue('2018-01-01'), setSyncAnchorDate: vi.fn(), countRecordsBefore: vi.fn(), pruneRecordsBefore: vi.fn(), wipeDatabase: vi.fn(), getPrimaryDevice: vi.fn().mockResolvedValue(null), setPrimaryDevice: vi.fn() }
@@ -307,6 +314,7 @@ import { createAnalyticsUI } from './analytics-ui.js'
 import { createGamification } from './gamification.js'
 import { createGamificationUI } from './gamification-ui.js'
 import { createOdysseyUI } from './odyssey-ui.js'
+import { createUpdateUI } from './update-ui.js'
 
 // Import bootstrap directly — cleaner than dispatching DOMContentLoaded
 import { bootstrap } from './main.js'
@@ -341,6 +349,7 @@ const SHELL_HTML = `
     <section id="tab-settings" data-screen hidden>
       <span id="step-source-name"></span>
       <button id="auth-btn">Connect</button>
+      <div id="app-update"></div>
       <p id="app-version"></p>
     </section>
     <section id="tab-backup" data-screen hidden></section>
@@ -413,6 +422,11 @@ describe('main.js — composition root bootstrap', () => {
     expect(handler()).toBe(true)
     expect(visibleScreen()).toBe('tab-today')
     expect(handler()).toBe(false)
+  })
+
+  it('ST-028: the web viewer has no update check (the PWA updates itself)', async () => {
+    await boot()
+    expect(createUpdateUI).not.toHaveBeenCalled()
   })
 
   it('names the step source and shows the app version in Settings', async () => {
@@ -2223,6 +2237,19 @@ describe('main.js — ST-017/018/019 platform wiring', () => {
     it('never registers a service worker', async () => {
       await boot(makeStorage())
       expect(createSwRegister.mock.calls[0][0].config.prod).toBe(false)
+    })
+
+    it('ST-028: builds Settings › App with the installed version, the GitHub checker and the in-app installer', async () => {
+      await boot(makeStorage())
+      expect(createUpdateUI).toHaveBeenCalledTimes(1)
+      const [doc, deps] = createUpdateUI.mock.calls[0]
+      expect(doc).toBe(document)
+      expect(deps.installedVersion).toMatch(/^\d+\.\d+\.\d+$/)
+      expect(deps.checker.check).toEqual(expect.any(Function))
+      expect(deps.installer).toBe(mockApkInstaller)
+      expect(mockUpdateUI.render).toHaveBeenCalledWith(document.getElementById('app-update'))
+      deps.openExternal('https://github.com/x/y.apk')
+      expect(mockAppLauncher.openUrl).toHaveBeenCalledWith({ url: 'https://github.com/x/y.apk' })
     })
 
     it('names Health Connect as the step source and hands the challenge the share sheet', async () => {

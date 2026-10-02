@@ -2574,6 +2574,35 @@ form[data-form="override"] button[type="submit"] {
     opacity: 0.4;
 }
 
+/* ─── Settings › App: update check (ST-028, Android app only) ───────────── */
+
+.app-update__result {
+    gap: 10px;
+}
+
+.app-update__message {
+    font-size: 13px;
+    color: var(--text-soft);
+}
+
+.app-update__message--new {
+    font-weight: 700;
+    color: var(--accent-sky);
+}
+
+.app-update__notes {
+    max-height: 40vh;
+    overflow-y: auto;
+    padding: 10px 12px;
+    border-radius: var(--radius-tile);
+    background: var(--surface-sunken);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .app-version {
     text-align: center;
     font-size: 12px;
